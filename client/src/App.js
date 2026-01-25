@@ -57,15 +57,12 @@ function App() {
     localStorage.setItem('minemaster-config', JSON.stringify(configToSave));
   }, [miners]);
 
-  // Check for running miners on mount
+  // Check for running miners on mount only (not periodically)
   useEffect(() => {
     const checkRunningMiners = async () => {
       if (!window.electronAPI) return;
       
       try {
-        // Wait a bit for listeners to be set up
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
         const statuses = await window.electronAPI.getAllMinersStatus();
         
         setMiners(prev => prev.map(miner => {
@@ -85,12 +82,8 @@ function App() {
       }
     };
 
+    // Only check once on mount, output events handle the rest
     checkRunningMiners();
-    
-    // Also check periodically in case of hot reload
-    const interval = setInterval(checkRunningMiners, 2000);
-    
-    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

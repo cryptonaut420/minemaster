@@ -8,7 +8,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMinerStatus: (config) => ipcRenderer.invoke('get-miner-status', config),
   getAllMinersStatus: () => ipcRenderer.invoke('get-all-miners-status'),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
-  getSystemStats: () => ipcRenderer.invoke('get-system-stats'),
+  getCpuStats: () => ipcRenderer.invoke('get-cpu-stats'),
+  getMemoryStats: () => ipcRenderer.invoke('get-memory-stats'),
+  getGpuStats: () => ipcRenderer.invoke('get-gpu-stats'),
   
   // Listeners for miner events
   onMinerOutput: (callback) => {

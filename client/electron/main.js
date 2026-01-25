@@ -4,9 +4,14 @@ const isDev = require('electron-is-dev');
 const { spawn } = require('child_process');
 const si = require('systeminformation');
 const os = require('os');
+const fs = require('fs');
 
 let mainWindow;
 let miners = {}; // Store active miner processes
+
+// Cache for system info (fetched once on startup)
+let systemInfoCache = null;
+
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -187,75 +192,305 @@ ipcMain.handle('get-all-miners-status', async () => {
   return statuses;
 });
 
-// System info handlers
-ipcMain.handle('get-system-info', async () => {
-  try {
-    const [cpu, mem, osInfo, graphics] = await Promise.all([
-      si.cpu(),
-      si.mem(),
-      si.osInfo(),
-      si.graphics()
-    ]);
+// System info handlers - fetch once, cache forever (specs don't change)
+let systemInfoFetched = false;
 
-    return {
+ipcMain.handle('get-system-info', async () => {
+  // Return cached if available
+  if (systemInfoCache) return systemInfoCache;
+  
+  try {
+    // Get basic info from Node.js (instant)
+    const cpus = os.cpus();
+    const cpuInfo = cpus[0] || {};
+    
+    const basicInfo = {
       os: {
-        platform: osInfo.platform,
-        distro: osInfo.distro,
-        release: osInfo.release,
-        arch: osInfo.arch
+        platform: os.platform(),
+        distro: os.type(),
+        release: os.release(),
+        arch: os.arch()
       },
       cpu: {
-        manufacturer: cpu.manufacturer,
-        brand: cpu.brand,
-        cores: cpu.cores,
-        physicalCores: cpu.physicalCores,
-        speed: cpu.speed
+        manufacturer: '',
+        brand: cpuInfo.model || 'Unknown CPU',
+        cores: cpus.length,
+        physicalCores: cpus.length,
+        speed: cpuInfo.speed || 0
       },
       memory: {
-        total: mem.total,
-        available: mem.available,
-        used: mem.used
+        total: os.totalmem(),
+        available: os.freemem(),
+        used: os.totalmem() - os.freemem()
       },
-      gpu: graphics.controllers.length > 0 ? {
-        vendor: graphics.controllers[0].vendor,
-        model: graphics.controllers[0].model,
-        vram: graphics.controllers[0].vram
-      } : null
+      gpus: null
     };
+
+    systemInfoCache = basicInfo;
+
+    // Fetch detailed info in background only once
+    if (!systemInfoFetched) {
+      systemInfoFetched = true;
+      setTimeout(async () => {
+        try {
+          console.log('[System Info] Fetching detailed GPU info...');
+          const [osInfo, graphics] = await Promise.all([
+            si.osInfo(),
+            si.graphics()
+          ]);
+          
+          console.log('[System Info] GPU controllers:', graphics.controllers.length);
+          
+          // Map all GPUs (filter out integrated graphics)
+          const gpus = graphics.controllers
+            .filter(gpu => {
+              // Filter out integrated graphics
+              const model = (gpu.model || '').toLowerCase();
+              const vendor = (gpu.vendor || '').toLowerCase();
+              
+              // Skip Intel integrated graphics
+              if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris'))) {
+                return false;
+              }
+              
+              // Skip AMD APU graphics (Vega, Radeon Graphics without model number)
+              if ((vendor.includes('amd') || vendor.includes('ati')) && 
+                  (model.includes('vega') || model.includes('radeon graphics') || 
+                   model.includes('raphael') || model.includes('renoir'))) {
+                return false;
+              }
+              
+              return true;
+            })
+            .map((gpu, idx) => {
+              console.log(`[System Info] GPU ${idx}:`, gpu.model, `(${gpu.vram} MB)`);
+              return {
+                id: idx,
+                vendor: gpu.vendor,
+                model: gpu.model,
+                vram: gpu.vram,
+                bus: gpu.bus
+              };
+            });
+          
+          systemInfoCache = {
+            ...basicInfo,
+            os: {
+              platform: osInfo.platform,
+              distro: osInfo.distro,
+              release: osInfo.release,
+              arch: osInfo.arch
+            },
+            gpus: gpus.length > 0 ? gpus : null
+          };
+          
+          console.log('[System Info] Cache updated with GPUs:', systemInfoCache.gpus);
+        } catch (e) {
+          console.error('Failed to fetch detailed system info:', e);
+        }
+      }, 2000);
+    }
+
+    return basicInfo;
   } catch (error) {
     console.error('Failed to get system info:', error);
     return null;
   }
 });
 
-ipcMain.handle('get-system-stats', async () => {
-  try {
-    const [cpuLoad, mem, cpuTemp, gpuTemp] = await Promise.all([
-      si.currentLoad(),
-      si.mem(),
-      si.cpuTemperature(),
-      si.graphics()
-    ]);
+// Cache for slow-changing stats (updated in background)
+let cachedCpuTemp = null;
+let cachedGpuStats = []; // Array to support multiple GPUs
+let tempUpdateInProgress = false;
+let gpuUpdateInProgress = false;
 
-    return {
-      cpu: {
-        usage: cpuLoad.currentLoad,
-        temperature: cpuTemp.main || null
-      },
-      memory: {
-        total: mem.total,
-        used: mem.used,
-        usagePercent: (mem.used / mem.total) * 100
-      },
-      gpu: gpuTemp.controllers && gpuTemp.controllers.length > 0 ? {
-        temperature: gpuTemp.controllers[0].temperatureGpu || null,
-        usage: gpuTemp.controllers[0].utilizationGpu || null
-      } : null
-    };
-  } catch (error) {
-    console.error('Failed to get system stats:', error);
-    return null;
-  }
+// Background update for CPU temp (non-blocking)
+function updateCpuTempAsync() {
+  if (tempUpdateInProgress || process.platform !== 'linux') return;
+  tempUpdateInProgress = true;
+  
+  setTimeout(() => {
+    try {
+      const zones = [
+        '/sys/class/thermal/thermal_zone0/temp',
+        '/sys/class/hwmon/hwmon0/temp1_input',
+        '/sys/class/hwmon/hwmon1/temp1_input'
+      ];
+      
+      for (const zone of zones) {
+        try {
+          if (fs.existsSync(zone)) {
+            const temp = parseInt(fs.readFileSync(zone, 'utf8')) / 1000;
+            cachedCpuTemp = temp;
+            break;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.error('Failed to read CPU temp:', e);
+    } finally {
+      tempUpdateInProgress = false;
+    }
+  }, 0);
+}
+
+// Background update for GPU info (non-blocking)
+function updateGpuInfoAsync() {
+  if (gpuUpdateInProgress || process.platform !== 'linux') return;
+  gpuUpdateInProgress = true;
+  
+  setTimeout(() => {
+    try {
+      console.log('[GPU Detection] Starting...');
+      const detectedGpus = [];
+      
+      // Try AMD GPUs (check card0, card1, card2, etc.)
+      for (let cardNum = 0; cardNum < 8; cardNum++) {
+        const amdPath = `/sys/class/drm/card${cardNum}/device`;
+        if (fs.existsSync(amdPath)) {
+          console.log(`[GPU Detection] Found AMD GPU at card${cardNum}`);
+          const gpuInfo = { id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
+          
+          // Try to read temp
+          try {
+            const hwmonPath = `${amdPath}/hwmon`;
+            if (fs.existsSync(hwmonPath)) {
+              const hwmons = fs.readdirSync(hwmonPath);
+              if (hwmons.length > 0) {
+                const tempFile = `${hwmonPath}/${hwmons[0]}/temp1_input`;
+                if (fs.existsSync(tempFile)) {
+                  gpuInfo.temperature = parseInt(fs.readFileSync(tempFile, 'utf8')) / 1000;
+                }
+              }
+            }
+          } catch (e) {}
+          
+          // Try to read usage
+          try {
+            const usageFile = `${amdPath}/gpu_busy_percent`;
+            if (fs.existsSync(usageFile)) {
+              gpuInfo.usage = parseInt(fs.readFileSync(usageFile, 'utf8'));
+            }
+          } catch (e) {}
+          
+          // Try to read VRAM info
+          try {
+            const vramUsedFile = `${amdPath}/mem_info_vram_used`;
+            const vramTotalFile = `${amdPath}/mem_info_vram_total`;
+            if (fs.existsSync(vramUsedFile) && fs.existsSync(vramTotalFile)) {
+              gpuInfo.vramUsed = parseInt(fs.readFileSync(vramUsedFile, 'utf8')) / (1024 * 1024); // bytes to MB
+              gpuInfo.vramTotal = parseInt(fs.readFileSync(vramTotalFile, 'utf8')) / (1024 * 1024); // bytes to MB
+            }
+          } catch (e) {}
+          
+          // Only add if it has valid stats AND isn't integrated graphics (> 1GB VRAM or no VRAM info)
+          const hasValidStats = gpuInfo.temperature !== null || gpuInfo.usage !== null;
+          const isNotIntegrated = gpuInfo.vramTotal === null || gpuInfo.vramTotal > 1024; // > 1GB
+          
+          if (hasValidStats && isNotIntegrated) {
+            detectedGpus.push(gpuInfo);
+            console.log(`[GPU Detection] AMD GPU ${cardNum} cached:`, gpuInfo);
+          } else if (hasValidStats) {
+            console.log(`[GPU Detection] AMD GPU ${cardNum} skipped (integrated graphics):`, gpuInfo);
+          }
+        }
+      }
+      
+      // Try NVIDIA GPUs (with VRAM info)
+      const { exec } = require('child_process');
+      exec('nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits', (error, stdout) => {
+        if (!error && stdout) {
+          console.log('[GPU Detection] nvidia-smi output:', stdout);
+          const lines = stdout.trim().split('\n');
+          lines.forEach(line => {
+            const parts = line.split(',').map(p => p.trim());
+            console.log('[GPU Detection] Parsed parts:', parts);
+            if (parts.length >= 5) {
+              const gpuInfo = {
+                id: parseInt(parts[0]),
+                temperature: parseFloat(parts[1]),
+                usage: parseFloat(parts[2]),
+                vramUsed: parseFloat(parts[3]), // Already in MB from nvidia-smi
+                vramTotal: parseFloat(parts[4]), // Already in MB from nvidia-smi
+                type: 'NVIDIA'
+              };
+              detectedGpus.push(gpuInfo);
+              console.log(`[GPU Detection] NVIDIA GPU ${gpuInfo.id} cached - VRAM: ${gpuInfo.vramUsed}MB / ${gpuInfo.vramTotal}MB`);
+            }
+          });
+          
+          if (detectedGpus.length > 0) {
+            cachedGpuStats = detectedGpus;
+          }
+        } else if (detectedGpus.length === 0) {
+          console.log('[GPU Detection] No GPUs found');
+        } else {
+          // We have AMD GPUs already
+          cachedGpuStats = detectedGpus;
+        }
+      });
+      
+    } catch (e) {
+      console.error('[GPU Detection] Error:', e);
+    } finally {
+      gpuUpdateInProgress = false;
+    }
+  }, 0);
+}
+
+// Start background updates every 10 seconds
+setInterval(() => {
+  updateCpuTempAsync();
+  updateGpuInfoAsync();
+}, 10000);
+
+// Initial update after 2 seconds
+setTimeout(() => {
+  updateCpuTempAsync();
+  updateGpuInfoAsync();
+}, 2000);
+
+// Split into separate handlers to identify which is slow
+ipcMain.handle('get-cpu-stats', () => {
+  const t0 = performance.now();
+  
+  const numCpus = os.cpus().length;
+  const loadAvg = os.loadavg();
+  const cpuUsage = loadAvg[0] / numCpus * 100;
+  
+  const result = {
+    usage: Math.min(cpuUsage, 100),
+    temperature: cachedCpuTemp
+  };
+  
+  const elapsed = (performance.now() - t0).toFixed(3);
+  console.log(`[CPU] ${elapsed}ms (temp: ${cachedCpuTemp ? cachedCpuTemp.toFixed(1) : 'N/A'})`);
+  return result;
+});
+
+ipcMain.handle('get-memory-stats', () => {
+  const t0 = performance.now();
+  
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  
+  const result = {
+    total: totalMem,
+    used: totalMem - freeMem,
+    usagePercent: ((totalMem - freeMem) / totalMem) * 100
+  };
+  
+  const elapsed = (performance.now() - t0).toFixed(3);
+  console.log(`[MEMORY] ${elapsed}ms`);
+  return result;
+});
+
+ipcMain.handle('get-gpu-stats', () => {
+  const t0 = performance.now();
+  
+  const elapsed = (performance.now() - t0).toFixed(3);
+  console.log(`[GPU] ${elapsed}ms (${cachedGpuStats.length} GPU(s))`);
+  return cachedGpuStats.length > 0 ? cachedGpuStats : null;
 });
 
 // Helper functions

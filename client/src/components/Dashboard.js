@@ -3,32 +3,74 @@ import './Dashboard.css';
 import { formatHashrate } from '../utils/hashrate';
 
 function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
-  const [systemInfo, setSystemInfo] = useState(null);
+  const [systemInfo, setSystemInfo] = useState(() => {
+    // Try to load from sessionStorage first
+    const cached = sessionStorage.getItem('minemaster-system-info');
+    return cached ? JSON.parse(cached) : null;
+  });
   const [systemStats, setSystemStats] = useState(null);
 
   useEffect(() => {
-    // Load system info once
+    // Load system info initially and re-fetch after 3 seconds to get GPU model
     const loadSystemInfo = async () => {
       if (window.electronAPI) {
         const info = await window.electronAPI.getSystemInfo();
         setSystemInfo(info);
+        // Cache in sessionStorage
+        if (info) {
+          sessionStorage.setItem('minemaster-system-info', JSON.stringify(info));
+        }
       }
     };
-    loadSystemInfo();
+    
+    // Load immediately from cache/API
+    const cached = sessionStorage.getItem('minemaster-system-info');
+    if (cached) {
+      setSystemInfo(JSON.parse(cached));
+    } else {
+      loadSystemInfo();
+    }
+    
+    // Re-fetch after 3 seconds to get GPU model (which is fetched async in backend)
+    const refetchTimeout = setTimeout(loadSystemInfo, 3000);
+    
+    return () => clearTimeout(refetchTimeout);
   }, []);
 
   useEffect(() => {
-    // Update system stats every 2 seconds
+    // Call each stat separately (all are now fast!)
+    let mounted = true;
+    
     const updateStats = async () => {
-      if (window.electronAPI) {
-        const stats = await window.electronAPI.getSystemStats();
-        setSystemStats(stats);
+      if (!mounted || !window.electronAPI) return;
+      
+      try {
+        // Get all stats in parallel
+        const [cpu, memory, gpu] = await Promise.all([
+          window.electronAPI.getCpuStats(),
+          window.electronAPI.getMemoryStats(),
+          window.electronAPI.getGpuStats()
+        ]);
+        
+        if (mounted) {
+          setSystemStats({ cpu, memory, gpu });
+        }
+      } catch (e) {
+        console.error('Stats update error:', e);
       }
     };
 
-    updateStats();
-    const interval = setInterval(updateStats, 2000);
-    return () => clearInterval(interval);
+    // Initial update after 2 seconds (let background tasks initialize)
+    const initialTimeout = setTimeout(updateStats, 2000);
+    
+    // Then every 3 seconds (fast and smooth)
+    const interval = setInterval(updateStats, 3000);
+    
+    return () => {
+      mounted = false;
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
   }, []);
 
   const anyRunning = miners.some(m => m.running);
@@ -177,36 +219,75 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
             </div>
           </div>
 
-          {/* GPU Info */}
-          <div className="system-card">
-            <div className="system-icon">🎮</div>
-            <div className="system-info">
-              <div className="system-label">GPU</div>
-              <div className="system-value">
-                {systemInfo?.gpu ? systemInfo.gpu.model : 'No GPU detected'}
-              </div>
-              {systemStats?.gpu && (
-                <div className="system-stats">
-                  {systemStats.gpu.usage !== null && (
-                    <div className="stat">
-                      <span className="stat-label">Usage:</span>
-                      <span className="stat-value">
-                        {systemStats.gpu.usage.toFixed(1)}%
-                      </span>
+          {/* GPU Info - Support Multiple GPUs */}
+          {systemStats?.gpu && Array.isArray(systemStats.gpu) && systemStats.gpu.length > 0 ? (
+            systemStats.gpu.map((gpu, idx) => {
+              const gpuModel = systemInfo?.gpus?.[idx]?.model || `${gpu.type || 'GPU'} ${idx}`;
+              const staticVram = systemInfo?.gpus?.[idx]?.vram; // Static VRAM from system info (MB)
+              return (
+                <div key={`gpu-${idx}`} className="system-card">
+                  <div className="system-icon">🎮</div>
+                  <div className="system-info">
+                    <div className="system-label">GPU {systemStats.gpu.length > 1 ? idx : ''}</div>
+                    <div className="system-value">{gpuModel}</div>
+                    <div className="system-stats">
+                      {gpu.usage !== null && (
+                        <div className="stat">
+                          <span className="stat-label">Usage:</span>
+                          <span className="stat-value">
+                            {gpu.usage.toFixed(1)}%
+                          </span>
+                        </div>
+                      )}
+                      {gpu.temperature !== null && (
+                        <div className="stat">
+                          <span className="stat-label">Temp:</span>
+                          <span className="stat-value">
+                            {formatTemp(gpu.temperature)}
+                          </span>
+                        </div>
+                      )}
+                      {(gpu.vramUsed !== null && gpu.vramTotal !== null) ? (
+                        <div className="stat">
+                          <span className="stat-label">VRAM:</span>
+                          <span className="stat-value">
+                            {(gpu.vramUsed / 1024).toFixed(1)} / {(gpu.vramTotal / 1024).toFixed(1)} GB
+                          </span>
+                        </div>
+                      ) : staticVram && (
+                        <div className="stat">
+                          <span className="stat-label">VRAM:</span>
+                          <span className="stat-value">
+                            {(staticVram / 1024).toFixed(1)} GB
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {systemStats.gpu.temperature !== null && (
-                    <div className="stat">
-                      <span className="stat-label">Temp:</span>
-                      <span className="stat-value">
-                        {formatTemp(systemStats.gpu.temperature)}
-                      </span>
-                    </div>
-                  )}
+                  </div>
                 </div>
-              )}
+              );
+            })
+          ) : (
+            <div className="system-card">
+              <div className="system-icon">🎮</div>
+              <div className="system-info">
+                <div className="system-label">GPU</div>
+                <div className="system-value">
+                  {systemInfo?.gpus?.[0]?.model || 'No GPU detected'}
+                </div>
+                {systemInfo?.gpus?.[0]?.vram && (
+                  <div className="system-stats">
+                    <div className="stat">
+                      <span className="stat-label">VRAM:</span>
+                      <span className="stat-value">
+                        {systemInfo.gpus[0].vram} MB
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
