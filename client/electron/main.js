@@ -153,8 +153,19 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       // Create config file for nanominer
       const configPath = createNanominerConfig(minerId, config);
       
-      // Nanominer uses config file, no CLI args needed
-      minerProcess = spawn(nanominerPath, [configPath]);
+      // Get nanominer directory
+      const nanominerDir = path.dirname(nanominerPath);
+      
+      console.log(`[nanominer] Starting from: ${nanominerDir}`);
+      console.log(`[nanominer] Executable: ${nanominerPath}`);
+      console.log(`[nanominer] Config: ${configPath}`);
+      
+      // Nanominer needs to run from its own directory
+      // Use unbuffered output for real-time console updates
+      minerProcess = spawn('stdbuf', ['-o0', '-e0', nanominerPath, configPath], {
+        cwd: nanominerDir,
+        env: { ...process.env, PYTHONUNBUFFERED: '1' }
+      });
 
       // Function to strip ANSI color codes
       const stripAnsi = (str) => {
@@ -163,21 +174,26 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
 
       // Send stdout to renderer
       minerProcess.stdout.on('data', (data) => {
+        const output = stripAnsi(data.toString());
+        console.log(`[nanominer stdout]: ${output}`);
         mainWindow.webContents.send('miner-output', {
           minerId,
-          data: stripAnsi(data.toString())
+          data: output
         });
       });
 
       // Send stderr to renderer
       minerProcess.stderr.on('data', (data) => {
+        const output = stripAnsi(data.toString());
+        console.log(`[nanominer stderr]: ${output}`);
         mainWindow.webContents.send('miner-output', {
           minerId,
-          data: stripAnsi(data.toString())
+          data: output
         });
       });
 
       minerProcess.on('error', (error) => {
+        console.error(`[nanominer error]:`, error);
         mainWindow.webContents.send('miner-error', {
           minerId,
           error: error.message
@@ -185,6 +201,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       });
 
       minerProcess.on('close', (code) => {
+        console.log(`[nanominer] Process closed with code: ${code}`);
         mainWindow.webContents.send('miner-closed', {
           minerId,
           code
@@ -594,44 +611,67 @@ function createNanominerConfig(minerId, config) {
   
   const configPath = path.join(configDir, `${minerId}-config.ini`);
   
-  // Build config content
+  // Build config content (flat format, no section headers for single coin)
   let configContent = '';
   
   // Add wallet and pool info
-  if (config.algorithm && config.user && config.pool) {
-    configContent += `[${config.algorithm}]\n`;
+  if (config.user) {
     configContent += `wallet = ${config.user}\n`;
-    configContent += `pool1 = ${config.pool}\n`;
-    
-    if (config.rigName) {
-      configContent += `rigName = ${config.rigName}\n`;
-    }
-    
-    if (config.email) {
-      configContent += `email = ${config.email}\n`;
-    }
-    
-    // GPU selection
-    if (config.gpus && config.gpus.length > 0) {
-      configContent += `devices = ${config.gpus.join(',')}\n`;
-    }
-    
-    // Add power limits for each GPU
-    if (config.gpus && config.gpus.length > 0) {
-      config.gpus.forEach(gpuIdx => {
-        const powerLimit = config[`gpu${gpuIdx}Power`];
-        if (powerLimit && powerLimit !== 100) {
-          configContent += `gpu${gpuIdx}PowerLimit = ${powerLimit}\n`;
-        }
-      });
-    }
-    
-    configContent += `\n`;
   }
+  
+  // Nanominer uses "coin" parameter instead of algorithm section
+  if (config.coin) {
+    configContent += `coin = ${config.coin}\n`;
+  } else if (config.algorithm) {
+    // Fallback: try to map algorithm to coin
+    const algoToCoin = {
+      'kawpow': 'RVN',
+      'etchash': 'ETC',
+      'ethash': 'ETC',
+      'autolykos2': 'ERG',
+      'octopus': 'CFX',
+      'randomx': 'XMR'
+    };
+    const coin = algoToCoin[config.algorithm.toLowerCase()] || config.algorithm.toUpperCase();
+    configContent += `coin = ${coin}\n`;
+  }
+  
+  if (config.pool) {
+    configContent += `pool1 = ${config.pool}\n`;
+  }
+  
+  if (config.rigName) {
+    configContent += `rigName = ${config.rigName}\n`;
+  }
+  
+  if (config.email) {
+    configContent += `email = ${config.email}\n`;
+  }
+  
+  // GPU selection
+  if (config.gpus && config.gpus.length > 0) {
+    configContent += `devices = ${config.gpus.join(',')}\n`;
+  }
+  
+  // Add power limits for each GPU
+  if (config.gpus && config.gpus.length > 0) {
+    config.gpus.forEach(gpuIdx => {
+      const powerLimit = config[`gpu${gpuIdx}Power`];
+      if (powerLimit && powerLimit !== 100) {
+        configContent += `gpu${gpuIdx}PowerLimit = ${powerLimit}\n`;
+      }
+    });
+  }
+  
+  configContent += `\n`;
+  
+  // Add global settings
+  configContent += `webPort = 0\n`; // Disable web interface to avoid port conflicts
   
   // Write config file
   fs.writeFileSync(configPath, configContent, 'utf8');
   console.log(`[nanominer] Config created: ${configPath}`);
+  console.log(`[nanominer] Config content:\n${configContent}`);
   
   return configPath;
 }

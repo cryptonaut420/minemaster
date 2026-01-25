@@ -36,6 +36,38 @@ function base58Encode(buffer) {
   return encoded;
 }
 
+function generateRavencoinWallet() {
+  // Generate random 32-byte private key
+  const privateKey = crypto.randomBytes(32);
+  
+  // Create public key hash (simplified - real RVN uses secp256k1)
+  const publicKeyHash = crypto.createHash('sha256').update(privateKey).digest();
+  
+  // Ravencoin mainnet version byte is 0x3C (60 decimal) which produces addresses starting with 'R'
+  const versionByte = Buffer.from([0x3C]);
+  
+  // Combine version byte + public key hash (take first 20 bytes)
+  const payload = Buffer.concat([versionByte, publicKeyHash.slice(0, 20)]);
+  
+  // Create checksum (double SHA256, take first 4 bytes)
+  const checksum = crypto.createHash('sha256')
+    .update(crypto.createHash('sha256').update(payload).digest())
+    .digest()
+    .slice(0, 4);
+  
+  // Combine payload + checksum
+  const addressBytes = Buffer.concat([payload, checksum]);
+  
+  // Base58 encode
+  const address = base58Encode(addressBytes);
+  
+  return {
+    address: address,
+    privateKey: privateKey.toString('hex'),
+    publicKeyHash: publicKeyHash.toString('hex')
+  };
+}
+
 function generateMoneroWallet() {
   // Generate random 32-byte private spend key
   const privateSpendKey = crypto.randomBytes(32);
@@ -172,4 +204,68 @@ console.log('📱 Import to Official Wallet:');
 console.log('');
 console.log('  Download Monero GUI: https://getmonero.org/downloads/');
 console.log('  Use "Restore from keys" with your private keys');
+console.log('');
+console.log('═══════════════════════════════════════════════════════════');
+console.log('');
+console.log('💡 Example: Ravencoin (RVN) Mining with Nanominer');
+console.log('');
+
+// Generate Ravencoin wallet
+const rvnWallet = generateRavencoinWallet();
+
+// Save RVN wallet
+const rvnWalletData = {
+  coin: 'Ravencoin',
+  symbol: 'RVN',
+  address: rvnWallet.address,
+  privateKey: rvnWallet.privateKey,
+  publicKeyHash: rvnWallet.publicKeyHash,
+  createdAt: new Date().toISOString(),
+  warning: 'KEEP THIS PRIVATE KEY SECRET! Anyone with access can steal your funds!'
+};
+
+const rvnWalletPath = path.join(__dirname, '../wallet-ravencoin.json');
+fs.writeFileSync(rvnWalletPath, JSON.stringify(rvnWalletData, null, 2), { mode: 0o600 });
+
+console.log('🔐 Generated Ravencoin Wallet:');
+console.log('');
+console.log(`Address: ${rvnWallet.address}`);
+console.log('');
+console.log(`Private Key: ${rvnWallet.privateKey}`);
+console.log('  (KEEP SECRET! Saved to wallet-ravencoin.json)');
+console.log('');
+console.log('Pool: Nanopool (RVN)');
+console.log('  URL: rvn-eu1.nanopool.org:12433');
+console.log('  Other regions:');
+console.log('    US: rvn-us-west1.nanopool.org:12433');
+console.log('    Asia: rvn-asia1.nanopool.org:12433');
+console.log('');
+console.log('Algorithm: kawpow');
+console.log('Coin: RVN');
+console.log('');
+console.log('Get Official RVN Wallet:');
+console.log('  • Ravencoin Core: https://ravencoin.org/wallet/');
+console.log('  • Import using private key above');
+console.log('');
+console.log('Nanopool Dashboard:');
+console.log(`  https://rvn.nanopool.org/account/${rvnWallet.address}`);
+console.log('');
+console.log('═══════════════════════════════════════════════════════════');
+console.log('');
+console.log('💡 More GPU Mining Examples:');
+console.log('');
+console.log('Ethereum Classic (ETC) - Nanopool');
+console.log('  Pool: etc-eu1.nanopool.org:19999');
+console.log('  Algorithm: etchash | Coin: ETC');
+console.log('  Wallet: Starts with "0x"');
+console.log('');
+console.log('Ergo (ERG) - Nanopool');
+console.log('  Pool: ergo-eu1.nanopool.org:11111');
+console.log('  Algorithm: autolykos | Coin: ERG');
+console.log('  Wallet: Starts with "9"');
+console.log('');
+console.log('Conflux (CFX) - Nanopool');
+console.log('  Pool: cfx-eu1.nanopool.org:17777');
+console.log('  Algorithm: conflux | Coin: CFX');
+console.log('  Wallet: Starts with "cfx:"');
 console.log('');
