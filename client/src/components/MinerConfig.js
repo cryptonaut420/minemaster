@@ -1,5 +1,6 @@
 import React from 'react';
 import './MinerConfig.css';
+import { formatHashrate } from '../utils/hashrate';
 
 function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
   const handleChange = (field, value) => {
@@ -12,7 +13,17 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
   return (
     <div className="miner-config">
       <div className="config-header">
-        <h2>{miner.name}</h2>
+        <div className="config-title">
+          <h2>{miner.name}</h2>
+          <span className="device-badge">{miner.deviceType}</span>
+          {miner.running && (
+            miner.hashrate ? (
+              <span className="hashrate-badge">{formatHashrate(miner.hashrate)}</span>
+            ) : (
+              <span className="hashrate-badge calculating">Calculating...</span>
+            )
+          )}
+        </div>
         <div className="control-buttons">
           {!miner.running ? (
             <button 

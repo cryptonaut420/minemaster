@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import MinerConsole from './components/MinerConsole';
 import MinerConfig from './components/MinerConfig';
+import { formatHashrate } from './utils/hashrate';
 
 function App() {
   // Load saved config from localStorage
@@ -23,9 +24,11 @@ function App() {
   const [miners, setMiners] = useState([
     {
       id: 'xmrig-1',
-      name: 'XMRig Miner 1',
+      name: 'XMRig CPU Miner',
       type: 'xmrig',
+      deviceType: 'CPU',
       running: false,
+      hashrate: null,
       config: savedConfig?.['xmrig-1'] || {
         pool: '',
         user: '',
@@ -57,15 +60,19 @@ function App() {
       if (!window.electronAPI) return;
       
       try {
+        // Wait a bit for listeners to be set up
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         const statuses = await window.electronAPI.getAllMinersStatus();
         
         setMiners(prev => prev.map(miner => {
           const status = statuses[miner.id];
           if (status && status.running) {
+            console.log(`Reconnecting to running miner: ${miner.id} (PID: ${status.pid})`);
             return {
               ...miner,
               running: true,
-              output: [`Reconnected to running miner (PID: ${status.pid})\n`]
+              output: [`[Reconnected to running miner - PID: ${status.pid}]\n`, ...miner.output]
             };
           }
           return miner;
@@ -76,6 +83,11 @@ function App() {
     };
 
     checkRunningMiners();
+    
+    // Also check periodically in case of hot reload
+    const interval = setInterval(checkRunningMiners, 2000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -84,8 +96,32 @@ function App() {
       window.electronAPI.onMinerOutput((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
+            // Parse hashrate from output - XMRig can show H/s, kH/s, MH/s, etc.
+            let newHashrate = miner.hashrate;
+            
+            // Match hashrate with unit
+            const hashratePattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
+            const match = data.data.match(hashratePattern);
+            
+            if (match) {
+              const value = parseFloat(match[1]);
+              const unit = match[2].toLowerCase();
+              
+              // Convert to base H/s for storage
+              let baseHashrate = value;
+              if (unit.includes('k')) baseHashrate = value * 1000;
+              else if (unit.includes('m')) baseHashrate = value * 1000000;
+              else if (unit.includes('g')) baseHashrate = value * 1000000000;
+              else if (unit.includes('t')) baseHashrate = value * 1000000000000;
+              
+              newHashrate = baseHashrate;
+              console.log('Hashrate detected:', value, unit, '(', baseHashrate, 'H/s )');
+            }
+            
             return {
               ...miner,
+              running: true,
+              hashrate: newHashrate,
               output: [...miner.output, data.data]
             };
           }
@@ -111,6 +147,7 @@ function App() {
             return {
               ...miner,
               running: false,
+              hashrate: null,
               output: [...miner.output, `\nMiner exited with code: ${data.code}\n`]
             };
           }
@@ -174,7 +211,7 @@ function App() {
 
       <div className="App-content">
         <div className="sidebar">
-          <h3>Miners</h3>
+          <h3>Miners by Device</h3>
           <div className="miner-list">
             {miners.map(miner => (
               <div
@@ -182,10 +219,22 @@ function App() {
                 className={`miner-item ${selectedMiner === miner.id ? 'active' : ''}`}
                 onClick={() => setSelectedMiner(miner.id)}
               >
-                <div className="miner-item-info">
-                  <span className={`status-dot ${miner.running ? 'running' : 'stopped'}`}></span>
-                  <span className="miner-name">{miner.name}</span>
+                <div className="miner-item-header">
+                  <div className="miner-item-info">
+                    <span className={`status-dot ${miner.running ? 'running' : 'stopped'}`}></span>
+                    <span className="miner-name">{miner.name}</span>
+                  </div>
+                  <span className="device-type">{miner.deviceType}</span>
                 </div>
+                {miner.running && (
+                  <div className="miner-hashrate">
+                    {miner.hashrate ? (
+                      <span className="hashrate-value">{formatHashrate(miner.hashrate)}</span>
+                    ) : (
+                      <span className="hashrate-calculating">Calculating...</span>
+                    )}
+                  </div>
+                )}
                 <span className="miner-type">{miner.type}</span>
               </div>
             ))}
