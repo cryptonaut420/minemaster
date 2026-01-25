@@ -1,0 +1,39 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Production
+/build
+/dist
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Electron
+/out
+
+# Miner binaries (downloaded via script)
+/miners/*/xmrig
+/miners/*/xmrig.exe
+/miners/*/*.tar.gz
+/miners/*/*.zip
+/miners/*/config.json
+/miners/*/SHA256SUMS
+
+# Generated configs
+config-*.json
+
+# Wallet files (SENSITIVE!)
+wallet-*.json

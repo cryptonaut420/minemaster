@@ -1,0 +1,111 @@
+.App {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #1e1e1e;
+}
+
+.App-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px 30px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 5px 0 0 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.App-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 250px;
+  background-color: #252525;
+  border-right: 1px solid #333;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.sidebar h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  text-transform: uppercase;
+  color: #888;
+  font-weight: 600;
+}
+
+.miner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.miner-item {
+  padding: 12px;
+  background-color: #2d2d2d;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.miner-item:hover {
+  background-color: #353535;
+}
+
+.miner-item.active {
+  border-color: #667eea;
+  background-color: #2a2a3d;
+}
+
+.miner-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #666;
+}
+
+.status-dot.running {
+  background-color: #4ade80;
+  box-shadow: 0 0 10px #4ade80;
+}
+
+.status-dot.stopped {
+  background-color: #ef4444;
+}
+
+.miner-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.miner-type {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
