@@ -126,7 +126,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
                         <span className="detail-separator">•</span>
                         <span className="detail-item">{miner.config.algorithm}</span>
                         <span className="detail-separator">•</span>
-                        <span className="detail-item">XMR</span>
+                        <span className="detail-item">{miner.config.coin || 'N/A'}</span>
                         {miner.deviceType === 'CPU' && miner.config.threadPercentage && miner.config.threadPercentage !== 100 && (
                           <>
                             <span className="detail-separator">•</span>

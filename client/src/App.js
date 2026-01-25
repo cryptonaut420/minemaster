@@ -36,6 +36,7 @@ function App() {
         pool: '',
         user: '',
         password: 'x',
+        coin: 'XMR',
         algorithm: 'rx/0',
         threads: 0,
         threadPercentage: 100, // 100% = use all threads (0 in config)
@@ -55,6 +56,7 @@ function App() {
       hashrate: null,
       config: savedConfig?.['nanominer-1'] || {
         algorithm: 'ethash',
+        coin: 'ETH',
         pool: '',
         user: '',
         rigName: '',

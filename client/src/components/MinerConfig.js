@@ -51,6 +51,35 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
       </div>
 
       <div className="config-form">
+        <div className="form-row">
+          <div className="form-group">
+            <label>Coin / Currency</label>
+            <input
+              type="text"
+              placeholder="XMR"
+              value={miner.config.coin}
+              onChange={(e) => handleChange('coin', e.target.value.toUpperCase())}
+              disabled={miner.running}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Algorithm</label>
+            <select
+              value={miner.config.algorithm}
+              onChange={(e) => handleChange('algorithm', e.target.value)}
+              disabled={miner.running}
+            >
+              <option value="rx/0">RandomX (rx/0)</option>
+              <option value="rx/wow">RandomWOW (rx/wow)</option>
+              <option value="rx/arq">RandomARQ (rx/arq)</option>
+              <option value="cn/r">CryptoNight R (cn/r)</option>
+              <option value="cn/half">CryptoNight Half (cn/half)</option>
+              <option value="ghostrider">GhostRider</option>
+            </select>
+          </div>
+        </div>
+
         <div className="form-group">
           <label>Pool Address</label>
           <input
@@ -83,24 +112,6 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
               onChange={(e) => handleChange('password', e.target.value)}
               disabled={miner.running}
             />
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label>Algorithm</label>
-            <select
-              value={miner.config.algorithm}
-              onChange={(e) => handleChange('algorithm', e.target.value)}
-              disabled={miner.running}
-            >
-              <option value="rx/0">RandomX (rx/0)</option>
-              <option value="rx/wow">RandomWOW (rx/wow)</option>
-              <option value="rx/arq">RandomARQ (rx/arq)</option>
-              <option value="cn/r">CryptoNight R (cn/r)</option>
-              <option value="cn/half">CryptoNight Half (cn/half)</option>
-              <option value="ghostrider">GhostRider</option>
-            </select>
           </div>
         </div>
 

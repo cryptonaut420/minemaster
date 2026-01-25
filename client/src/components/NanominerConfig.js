@@ -1,11 +1,11 @@
 import React from 'react';
 import './MinerConfig.css';
 import { formatHashrate } from '../utils/hashrate';
-import { useSystemInfo, useSystemStats } from '../hooks/useSystemInfo';
+import { useSystemInfo, useGpuList } from '../hooks/useSystemInfo';
 
 function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
   const systemInfo = useSystemInfo();
-  const systemStats = useSystemStats();
+  const gpuList = useGpuList();
   
   const handleChange = (field, value) => {
     onConfigChange({
@@ -13,9 +13,6 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
       [field]: value
     });
   };
-
-  // Get available GPUs
-  const availableGpus = systemStats?.gpu || [];
 
   return (
     <div className="miner-config">
@@ -53,23 +50,36 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
       </div>
 
       <div className="config-form">
-        <div className="form-group">
-          <label>Algorithm</label>
-          <select
-            value={miner.config.algorithm}
-            onChange={(e) => handleChange('algorithm', e.target.value)}
-            disabled={miner.running}
-          >
-            <option value="ethash">Ethash (ETH, ETC, UBQ, EXP, MUSIC, ELLA)</option>
-            <option value="etchash">Etchash (ETC)</option>
-            <option value="kawpow">KawPow (RVN)</option>
-            <option value="autolykos">Autolykos (ERG)</option>
-            <option value="conflux">Octopus (CFX)</option>
-            <option value="ton">TON</option>
-            <option value="kaspa">Kaspa (KAS)</option>
-            <option value="karlsenhash">Karlsen (KLS)</option>
-            <option value="nexa">Nexa</option>
-          </select>
+        <div className="form-row">
+          <div className="form-group">
+            <label>Coin / Currency</label>
+            <input
+              type="text"
+              placeholder="ETH"
+              value={miner.config.coin}
+              onChange={(e) => handleChange('coin', e.target.value.toUpperCase())}
+              disabled={miner.running}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Algorithm</label>
+            <select
+              value={miner.config.algorithm}
+              onChange={(e) => handleChange('algorithm', e.target.value)}
+              disabled={miner.running}
+            >
+              <option value="ethash">Ethash (ETH, ETC, UBQ, EXP, MUSIC, ELLA)</option>
+              <option value="etchash">Etchash (ETC)</option>
+              <option value="kawpow">KawPow (RVN)</option>
+              <option value="autolykos">Autolykos (ERG)</option>
+              <option value="conflux">Octopus (CFX)</option>
+              <option value="ton">TON</option>
+              <option value="kaspa">Kaspa (KAS)</option>
+              <option value="karlsenhash">Karlsen (KLS)</option>
+              <option value="nexa">Nexa</option>
+            </select>
+          </div>
         </div>
 
         <div className="form-group">
@@ -107,13 +117,11 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
           </div>
         </div>
 
-        {availableGpus.length > 0 && (
+        {gpuList.length > 0 && (
           <div className="form-group">
             <label>GPU Configuration</label>
             <div className="gpu-selector-advanced">
-              {availableGpus.map((gpu, idx) => {
-                const gpuModel = systemInfo?.gpus?.[idx]?.model || `GPU ${idx}`;
-                const gpuVram = systemInfo?.gpus?.[idx]?.vram;
+              {gpuList.map((gpu, idx) => {
                 const isSelected = miner.config.gpus.length === 0 || miner.config.gpus.includes(idx);
                 
                 return (
@@ -141,35 +149,28 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
                     </div>
                     
                     <div className="gpu-card-body">
-                      <div className="gpu-model">{gpuModel}</div>
+                      <div className="gpu-model">{gpu.model}</div>
                       
                       <div className="gpu-stats-grid">
                         <div className="gpu-stat">
                           <span className="gpu-stat-label">Usage:</span>
                           <span className="gpu-stat-value">
-                            {gpu.usage !== null ? `${gpu.usage.toFixed(1)}%` : 'N/A'}
+                            {gpu.usage !== null && gpu.usage !== undefined ? `${gpu.usage.toFixed(1)}%` : 'N/A'}
                           </span>
                         </div>
                         
                         <div className="gpu-stat">
                           <span className="gpu-stat-label">Temp:</span>
                           <span className="gpu-stat-value">
-                            {gpu.temperature !== null ? `${Math.round(gpu.temperature)}°C` : 'N/A'}
+                            {gpu.temperature !== null && gpu.temperature !== undefined ? `${Math.round(gpu.temperature)}°C` : 'N/A'}
                           </span>
                         </div>
                         
-                        {(gpu.vramUsed !== null && gpu.vramTotal !== null) ? (
+                        {(gpu.vramUsed !== null && gpu.vramTotal !== null) && (
                           <div className="gpu-stat">
                             <span className="gpu-stat-label">VRAM:</span>
                             <span className="gpu-stat-value">
                               {(gpu.vramUsed / 1024).toFixed(1)} / {(gpu.vramTotal / 1024).toFixed(1)} GB
-                            </span>
-                          </div>
-                        ) : gpuVram && (
-                          <div className="gpu-stat">
-                            <span className="gpu-stat-label">VRAM:</span>
-                            <span className="gpu-stat-value">
-                              {(gpuVram / 1024).toFixed(1)} GB
                             </span>
                           </div>
                         )}
