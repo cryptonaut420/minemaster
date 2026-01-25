@@ -3,6 +3,7 @@ import './App.css';
 import Dashboard from './components/Dashboard';
 import MinerConsole from './components/MinerConsole';
 import MinerConfig from './components/MinerConfig';
+import NanominerConfig from './components/NanominerConfig';
 import { formatHashrate } from './utils/hashrate';
 
 function App() {
@@ -41,6 +42,25 @@ function App() {
         donateLevel: 0,
         customPath: '',
         additionalArgs: ''
+      },
+      output: []
+    },
+    {
+      id: 'nanominer-1',
+      name: 'Nanominer GPU',
+      type: 'nanominer',
+      deviceType: 'GPU',
+      running: false,
+      enabled: true,
+      hashrate: null,
+      config: savedConfig?.['nanominer-1'] || {
+        algorithm: 'ethash',
+        pool: '',
+        user: '',
+        rigName: '',
+        email: '',
+        gpus: [], // Empty = use all GPUs
+        customPath: ''
       },
       output: []
     }
@@ -93,12 +113,16 @@ function App() {
       window.electronAPI.onMinerOutput((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
-            // Parse hashrate from output - XMRig can show H/s, kH/s, MH/s, etc.
+            // Parse hashrate from output
             let newHashrate = miner.hashrate;
             
-            // Match hashrate with unit
-            const hashratePattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
-            const match = data.data.match(hashratePattern);
+            // XMRig format: "speed 10s/60s/15m ... H/s"
+            const xmrigPattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
+            
+            // Nanominer format: "Total: 25.5 Mh/s" or "GPU0: 12.3 Mh/s"
+            const nanominerPattern = /Total:\s*([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)/i;
+            
+            let match = data.data.match(xmrigPattern) || data.data.match(nanominerPattern);
             
             if (match) {
               const value = parseFloat(match[1]);
@@ -106,13 +130,22 @@ function App() {
               
               // Convert to base H/s for storage
               let baseHashrate = value;
-              if (unit.includes('k')) baseHashrate = value * 1000;
-              else if (unit.includes('m')) baseHashrate = value * 1000000;
-              else if (unit.includes('g')) baseHashrate = value * 1000000000;
-              else if (unit.includes('t')) baseHashrate = value * 1000000000000;
+              switch (unit) {
+                case 'kh/s':
+                  baseHashrate = value * 1000;
+                  break;
+                case 'mh/s':
+                  baseHashrate = value * 1000000;
+                  break;
+                case 'gh/s':
+                  baseHashrate = value * 1000000000;
+                  break;
+                case 'th/s':
+                  baseHashrate = value * 1000000000000;
+                  break;
+              }
               
               newHashrate = baseHashrate;
-              console.log('Hashrate detected:', value, unit, '(', baseHashrate, 'H/s )');
             }
             
             return {
@@ -247,7 +280,10 @@ function App() {
               <div
                 key={miner.id}
                 className={`miner-item ${selectedView === miner.id ? 'active' : ''}`}
-                onClick={() => setSelectedView(miner.id)}
+                onClick={() => {
+                  setSelectedView(miner.id);
+                  setSelectedMiner(miner.id);
+                }}
               >
                 <div className="miner-item-header">
                   <div className="miner-item-info">
@@ -282,12 +318,21 @@ function App() {
           ) : (
             currentMiner && (
               <>
-                <MinerConfig
-                  miner={currentMiner}
-                  onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
-                  onStart={() => handleStartMiner(currentMiner.id)}
-                  onStop={() => handleStopMiner(currentMiner.id)}
-                />
+                {currentMiner.type === 'nanominer' ? (
+                  <NanominerConfig
+                    miner={currentMiner}
+                    onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
+                    onStart={() => handleStartMiner(currentMiner.id)}
+                    onStop={() => handleStopMiner(currentMiner.id)}
+                  />
+                ) : (
+                  <MinerConfig
+                    miner={currentMiner}
+                    onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
+                    onStart={() => handleStartMiner(currentMiner.id)}
+                    onStop={() => handleStopMiner(currentMiner.id)}
+                  />
+                )}
                 
                 <MinerConsole
                   minerId={currentMiner.id}

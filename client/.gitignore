@@ -25,15 +25,16 @@ yarn-error.log*
 /out
 
 # Miner binaries (downloaded via script)
-/miners/*/xmrig
-/miners/*/xmrig.exe
-/miners/*/*.tar.gz
-/miners/*/*.zip
-/miners/*/config.json
-/miners/*/SHA256SUMS
+/miners/xmrig/*
+!/miners/xmrig/.gitkeep
+/miners/nanominer/*
+!/miners/nanominer/.gitkeep
 
 # Generated configs
 config-*.json
 
 # Wallet files (SENSITIVE!)
 wallet-*.json
+
+# System info cache
+.system-info-cache.json

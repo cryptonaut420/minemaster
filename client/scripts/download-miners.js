@@ -34,6 +34,21 @@ const MINERS = {
       extractedDir: 'xmrig-6.25.0',
       binary: 'xmrig'
     }
+  },
+  nanominer: {
+    version: '3.9.2',
+    linux: {
+      url: 'https://github.com/nanopool/nanominer/releases/download/v3.9.2/nanominer-linux-3.9.2.tar.gz',
+      archive: 'nanominer-linux-3.9.2.tar.gz',
+      extractedDir: 'nanominer-linux-3.9.2',
+      binary: 'nanominer'
+    },
+    win32: {
+      url: 'https://github.com/nanopool/nanominer/releases/download/v3.9.2/nanominer-windows-3.9.2.zip',
+      archive: 'nanominer-windows-3.9.2.zip',
+      extractedDir: 'nanominer-windows-3.9.2',
+      binary: 'nanominer.exe'
+    }
   }
 };
 

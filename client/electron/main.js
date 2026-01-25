@@ -145,6 +145,50 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
           minerId,
           code
         });
+      });
+    } else if (minerType === 'nanominer') {
+      // Determine nanominer executable path
+      const nanominerPath = getNanominerPath(config.customPath);
+      
+      // Create config file for nanominer
+      const configPath = createNanominerConfig(minerId, config);
+      
+      // Nanominer uses config file, no CLI args needed
+      minerProcess = spawn(nanominerPath, [configPath]);
+
+      // Function to strip ANSI color codes
+      const stripAnsi = (str) => {
+        return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
+      };
+
+      // Send stdout to renderer
+      minerProcess.stdout.on('data', (data) => {
+        mainWindow.webContents.send('miner-output', {
+          minerId,
+          data: stripAnsi(data.toString())
+        });
+      });
+
+      // Send stderr to renderer
+      minerProcess.stderr.on('data', (data) => {
+        mainWindow.webContents.send('miner-output', {
+          minerId,
+          data: stripAnsi(data.toString())
+        });
+      });
+
+      minerProcess.on('error', (error) => {
+        mainWindow.webContents.send('miner-error', {
+          minerId,
+          error: error.message
+        });
+      });
+
+      minerProcess.on('close', (code) => {
+        mainWindow.webContents.send('miner-closed', {
+          minerId,
+          code
+        });
         delete miners[minerId];
       });
 
@@ -517,6 +561,79 @@ function getXmrigPath(customPath) {
   } else {
     return 'xmrig'; // Linux/Mac (from PATH)
   }
+}
+
+function getNanominerPath(customPath) {
+  if (customPath) {
+    return customPath;
+  }
+
+  // Default to bundled nanominer in miners folder
+  const bundledNanominerPath = isDev
+    ? path.join(__dirname, '../miners/nanominer/nanominer')
+    : path.join(process.resourcesPath, 'miners/nanominer/nanominer');
+
+  // Check if bundled version exists
+  if (fs.existsSync(bundledNanominerPath)) {
+    return bundledNanominerPath;
+  }
+
+  // Fallback paths for nanominer
+  if (process.platform === 'win32') {
+    return path.join(__dirname, '../miners/nanominer/nanominer.exe');
+  } else {
+    return path.join(__dirname, '../miners/nanominer/nanominer');
+  }
+}
+
+function createNanominerConfig(minerId, config) {
+  // Create a config.ini file for nanominer
+  const configDir = isDev
+    ? path.join(__dirname, '../miners/nanominer')
+    : path.join(process.resourcesPath, 'miners/nanominer');
+  
+  const configPath = path.join(configDir, `${minerId}-config.ini`);
+  
+  // Build config content
+  let configContent = '';
+  
+  // Add wallet and pool info
+  if (config.algorithm && config.user && config.pool) {
+    configContent += `[${config.algorithm}]\n`;
+    configContent += `wallet = ${config.user}\n`;
+    configContent += `pool1 = ${config.pool}\n`;
+    
+    if (config.rigName) {
+      configContent += `rigName = ${config.rigName}\n`;
+    }
+    
+    if (config.email) {
+      configContent += `email = ${config.email}\n`;
+    }
+    
+    // GPU selection
+    if (config.gpus && config.gpus.length > 0) {
+      configContent += `devices = ${config.gpus.join(',')}\n`;
+    }
+    
+    // Add power limits for each GPU
+    if (config.gpus && config.gpus.length > 0) {
+      config.gpus.forEach(gpuIdx => {
+        const powerLimit = config[`gpu${gpuIdx}Power`];
+        if (powerLimit && powerLimit !== 100) {
+          configContent += `gpu${gpuIdx}PowerLimit = ${powerLimit}\n`;
+        }
+      });
+    }
+    
+    configContent += `\n`;
+  }
+  
+  // Write config file
+  fs.writeFileSync(configPath, configContent, 'utf8');
+  console.log(`[nanominer] Config created: ${configPath}`);
+  
+  return configPath;
 }
 
 function buildXmrigArgs(config) {
