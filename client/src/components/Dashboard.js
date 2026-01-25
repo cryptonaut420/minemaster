@@ -101,7 +101,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
 
         {/* Devices Section */}
         <div className="devices-section">
-          <h2>Mining Devices</h2>
+          <h2>Miners</h2>
           <div className="devices-list">
             {miners.map(miner => (
               <div key={miner.id} className={`device-row ${miner.running ? 'running' : ''}`}>
@@ -127,6 +127,12 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
                         <span className="detail-item">{miner.config.algorithm}</span>
                         <span className="detail-separator">•</span>
                         <span className="detail-item">XMR</span>
+                        {miner.deviceType === 'CPU' && miner.config.threadPercentage && miner.config.threadPercentage !== 100 && (
+                          <>
+                            <span className="detail-separator">•</span>
+                            <span className="detail-item cpu-usage">{miner.config.threadPercentage}% CPU</span>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

@@ -1,0 +1,73 @@
+.system-info-cards {
+  display: flex;
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.sys-card {
+  flex: 1;
+  background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 15px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.sys-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.sys-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.sys-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.sys-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.sys-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sys-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sys-stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.sys-stat-label {
+  color: #888;
+}
+
+.sys-stat-value {
+  color: #4ade80;
+  font-weight: 600;
+  font-family: 'Consolas', 'Monaco', monospace;
+}

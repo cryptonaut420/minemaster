@@ -1,8 +1,13 @@
 import React from 'react';
 import './MinerConfig.css';
 import { formatHashrate } from '../utils/hashrate';
+import { useSystemInfo, useSystemStats } from '../hooks/useSystemInfo';
+import SystemInfoCard from './SystemInfoCard';
 
 function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
+  const systemInfo = useSystemInfo();
+  const systemStats = useSystemStats();
+  
   const handleChange = (field, value) => {
     onConfigChange({
       ...miner.config,
@@ -97,18 +102,40 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
               <option value="ghostrider">GhostRider</option>
             </select>
           </div>
+        </div>
 
-          <div className="form-group">
-            <label>Threads (0 = auto)</label>
+        <div className="form-group thread-control">
+          <label>
+            CPU Usage: <span className="thread-percentage">{miner.config.threadPercentage || 100}%</span>
+            {navigator.hardwareConcurrency && (
+              <span className="thread-count">
+                ({Math.max(1, Math.round(navigator.hardwareConcurrency * ((miner.config.threadPercentage || 100) / 100)))} / {navigator.hardwareConcurrency} threads)
+              </span>
+            )}
+          </label>
+          <div className="slider-container">
             <input
-              type="number"
-              min="0"
-              value={miner.config.threads}
-              onChange={(e) => handleChange('threads', parseInt(e.target.value) || 0)}
+              type="range"
+              min="10"
+              max="100"
+              step="10"
+              value={miner.config.threadPercentage || 100}
+              onChange={(e) => handleChange('threadPercentage', parseInt(e.target.value))}
               disabled={miner.running}
+              className="thread-slider"
             />
+            <div className="slider-ticks">
+              <span>10%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
           </div>
         </div>
+
+        {/* System Info for CPU Miner */}
+        {miner.deviceType === 'CPU' && (
+          <SystemInfoCard systemInfo={systemInfo} systemStats={systemStats} />
+        )}
 
         <div className="form-group">
           <label>Additional Arguments (optional)</label>

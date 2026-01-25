@@ -37,6 +37,7 @@ function App() {
         password: 'x',
         algorithm: 'rx/0',
         threads: 0,
+        threadPercentage: 100, // 100% = use all threads (0 in config)
         donateLevel: 0,
         customPath: '',
         additionalArgs: ''

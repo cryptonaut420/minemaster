@@ -130,6 +130,11 @@
   font-weight: 600;
 }
 
+.detail-item.cpu-usage {
+  color: #fbbf24;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
 .detail-separator {
   color: #555;
 }

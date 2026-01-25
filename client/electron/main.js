@@ -538,8 +538,16 @@ function buildXmrigArgs(config) {
     args.push('-a', config.algorithm);
   }
 
-  if (config.threads) {
-    args.push('-t', config.threads.toString());
+  // Calculate threads based on percentage
+  // threadPercentage: 100 = all threads (0), 50 = half threads, etc.
+  if (config.threadPercentage !== undefined && config.threadPercentage !== 100) {
+    const totalCpus = os.cpus().length;
+    const threadsToUse = Math.max(1, Math.round(totalCpus * (config.threadPercentage / 100)));
+    args.push('-t', threadsToUse.toString());
+    console.log(`[XMRig] Using ${threadsToUse}/${totalCpus} threads (${config.threadPercentage}%)`);
+  } else {
+    // 100% or undefined = use all threads (don't specify -t, let XMRig decide)
+    console.log('[XMRig] Using all available threads (auto)');
   }
 
   if (config.donateLevel !== undefined) {
