@@ -45,6 +45,50 @@
   font-weight: 600;
 }
 
+.sidebar h3:not(:first-child) {
+  margin-top: 30px;
+}
+
+/* Navigation List */
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.nav-item {
+  padding: 12px;
+  background-color: #2d2d2d;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-item:hover {
+  background-color: #353535;
+}
+
+.nav-item.active {
+  border-color: #667eea;
+  background-color: #2a2a3d;
+}
+
+.nav-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.nav-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+}
+
 .miner-list {
   display: flex;
   flex-direction: column;

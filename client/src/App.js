@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+import Dashboard from './components/Dashboard';
 import MinerConsole from './components/MinerConsole';
 import MinerConfig from './components/MinerConfig';
 import { formatHashrate } from './utils/hashrate';
@@ -28,6 +29,7 @@ function App() {
       type: 'xmrig',
       deviceType: 'CPU',
       running: false,
+      enabled: true,
       hashrate: null,
       config: savedConfig?.['xmrig-1'] || {
         pool: '',
@@ -43,6 +45,7 @@ function App() {
     }
   ]);
 
+  const [selectedView, setSelectedView] = useState('dashboard');
   const [selectedMiner, setSelectedMiner] = useState('xmrig-1');
 
   // Save config to localStorage whenever it changes
@@ -200,6 +203,28 @@ function App() {
     ));
   };
 
+  const handleStartAll = () => {
+    miners.forEach(miner => {
+      if (miner.enabled && !miner.running) {
+        handleStartMiner(miner.id);
+      }
+    });
+  };
+
+  const handleStopAll = () => {
+    miners.forEach(miner => {
+      if (miner.running) {
+        handleStopMiner(miner.id);
+      }
+    });
+  };
+
+  const handleToggleDevice = (minerId) => {
+    setMiners(prev => prev.map(m =>
+      m.id === minerId ? { ...m, enabled: !m.enabled } : m
+    ));
+  };
+
   const currentMiner = miners.find(m => m.id === selectedMiner);
 
   return (
@@ -211,13 +236,24 @@ function App() {
 
       <div className="App-content">
         <div className="sidebar">
-          <h3>Miners by Device</h3>
+          <h3>Navigation</h3>
+          <div className="nav-list">
+            <div
+              className={`nav-item ${selectedView === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setSelectedView('dashboard')}
+            >
+              <span className="nav-icon">📊</span>
+              <span className="nav-label">Dashboard</span>
+            </div>
+          </div>
+
+          <h3>Miners</h3>
           <div className="miner-list">
             {miners.map(miner => (
               <div
                 key={miner.id}
-                className={`miner-item ${selectedMiner === miner.id ? 'active' : ''}`}
-                onClick={() => setSelectedMiner(miner.id)}
+                className={`miner-item ${selectedView === miner.id ? 'active' : ''}`}
+                onClick={() => setSelectedView(miner.id)}
               >
                 <div className="miner-item-header">
                   <div className="miner-item-info">
@@ -242,22 +278,31 @@ function App() {
         </div>
 
         <div className="main-content">
-          {currentMiner && (
-            <>
-              <MinerConfig
-                miner={currentMiner}
-                onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
-                onStart={() => handleStartMiner(currentMiner.id)}
-                onStop={() => handleStopMiner(currentMiner.id)}
-              />
-              
-              <MinerConsole
-                minerId={currentMiner.id}
-                output={currentMiner.output}
-                running={currentMiner.running}
-                onClear={() => handleClearConsole(currentMiner.id)}
-              />
-            </>
+          {selectedView === 'dashboard' ? (
+            <Dashboard
+              miners={miners}
+              onStartAll={handleStartAll}
+              onStopAll={handleStopAll}
+              onToggleDevice={handleToggleDevice}
+            />
+          ) : (
+            currentMiner && (
+              <>
+                <MinerConfig
+                  miner={currentMiner}
+                  onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
+                  onStart={() => handleStartMiner(currentMiner.id)}
+                  onStop={() => handleStopMiner(currentMiner.id)}
+                />
+                
+                <MinerConsole
+                  minerId={currentMiner.id}
+                  output={currentMiner.output}
+                  running={currentMiner.running}
+                  onClear={() => handleClearConsole(currentMiner.id)}
+                />
+              </>
+            )
           )}
         </div>
       </div>

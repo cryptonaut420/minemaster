@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
 const { spawn } = require('child_process');
+const si = require('systeminformation');
+const os = require('os');
 
 let mainWindow;
 let miners = {}; // Store active miner processes
@@ -183,6 +185,77 @@ ipcMain.handle('get-all-miners-status', async () => {
     };
   });
   return statuses;
+});
+
+// System info handlers
+ipcMain.handle('get-system-info', async () => {
+  try {
+    const [cpu, mem, osInfo, graphics] = await Promise.all([
+      si.cpu(),
+      si.mem(),
+      si.osInfo(),
+      si.graphics()
+    ]);
+
+    return {
+      os: {
+        platform: osInfo.platform,
+        distro: osInfo.distro,
+        release: osInfo.release,
+        arch: osInfo.arch
+      },
+      cpu: {
+        manufacturer: cpu.manufacturer,
+        brand: cpu.brand,
+        cores: cpu.cores,
+        physicalCores: cpu.physicalCores,
+        speed: cpu.speed
+      },
+      memory: {
+        total: mem.total,
+        available: mem.available,
+        used: mem.used
+      },
+      gpu: graphics.controllers.length > 0 ? {
+        vendor: graphics.controllers[0].vendor,
+        model: graphics.controllers[0].model,
+        vram: graphics.controllers[0].vram
+      } : null
+    };
+  } catch (error) {
+    console.error('Failed to get system info:', error);
+    return null;
+  }
+});
+
+ipcMain.handle('get-system-stats', async () => {
+  try {
+    const [cpuLoad, mem, cpuTemp, gpuTemp] = await Promise.all([
+      si.currentLoad(),
+      si.mem(),
+      si.cpuTemperature(),
+      si.graphics()
+    ]);
+
+    return {
+      cpu: {
+        usage: cpuLoad.currentLoad,
+        temperature: cpuTemp.main || null
+      },
+      memory: {
+        total: mem.total,
+        used: mem.used,
+        usagePercent: (mem.used / mem.total) * 100
+      },
+      gpu: gpuTemp.controllers && gpuTemp.controllers.length > 0 ? {
+        temperature: gpuTemp.controllers[0].temperatureGpu || null,
+        usage: gpuTemp.controllers[0].utilizationGpu || null
+      } : null
+    };
+  } catch (error) {
+    console.error('Failed to get system stats:', error);
+    return null;
+  }
 });
 
 // Helper functions
