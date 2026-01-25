@@ -1,7 +1,5 @@
 .dashboard {
   padding: 0;
-  height: 100%;
-  overflow-y: auto;
 }
 
 .dashboard-control-section {
