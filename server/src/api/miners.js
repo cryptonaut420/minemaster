@@ -162,6 +162,13 @@ router.post('/:id/restart', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Miner not found' });
     }
     
+    if (!miner.bound) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not bound to master server' 
+      });
+    }
+    
     if (!miner.connectionId) {
       return res.status(400).json({ 
         success: false, 
@@ -170,11 +177,16 @@ router.post('/:id/restart', async (req, res) => {
     }
     
     // Send restart command
-    websocketServer.sendToMiner(miner.connectionId, {
-      type: 'command',
-      command: 'restart',
-      params: {}
+    const sent = await websocketServer.sendCommand(miner.id, {
+      action: 'restart'
     });
+    
+    if (sent === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Failed to send command to miner' 
+      });
+    }
     
     res.json({ success: true, message: 'Restart command sent' });
   } catch (error) {
@@ -190,6 +202,13 @@ router.post('/:id/stop', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Miner not found' });
     }
     
+    if (!miner.bound) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not bound to master server' 
+      });
+    }
+    
     if (!miner.connectionId) {
       return res.status(400).json({ 
         success: false, 
@@ -198,11 +217,16 @@ router.post('/:id/stop', async (req, res) => {
     }
     
     // Send stop command
-    websocketServer.sendToMiner(miner.connectionId, {
-      type: 'command',
-      command: 'stop',
-      params: {}
+    const sent = await websocketServer.sendCommand(miner.id, {
+      action: 'stop'
     });
+    
+    if (sent === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Failed to send command to miner' 
+      });
+    }
     
     res.json({ success: true, message: 'Stop command sent' });
   } catch (error) {
@@ -218,6 +242,13 @@ router.post('/:id/start', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Miner not found' });
     }
     
+    if (!miner.bound) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not bound to master server' 
+      });
+    }
+    
     if (!miner.connectionId) {
       return res.status(400).json({ 
         success: false, 
@@ -225,21 +256,18 @@ router.post('/:id/start', async (req, res) => {
       });
     }
     
-    const { minerType, config } = req.body;
+    // Send start command
+    const sent = await websocketServer.sendCommand(miner.id, {
+      action: 'start',
+      deviceType: req.body.deviceType // optional
+    });
     
-    if (!minerType || !config) {
+    if (sent === 0) {
       return res.status(400).json({ 
         success: false, 
-        error: 'minerType and config are required' 
+        error: 'Failed to send command to miner' 
       });
     }
-    
-    // Send start command
-    websocketServer.sendToMiner(miner.connectionId, {
-      type: 'command',
-      command: 'start',
-      params: { minerType, config }
-    });
     
     res.json({ success: true, message: 'Start command sent' });
   } catch (error) {

@@ -4,12 +4,14 @@ const { getDb } = require('../db/mongodb');
 class Miner {
   constructor(data) {
     this.id = data.id || uuidv4();
+    this.systemId = data.systemId || null; // MAC address
     this.name = data.name || `Miner-${this.id.substring(0, 8)}`;
     this.hostname = data.hostname || 'unknown';
     this.ip = data.ip || 'unknown';
     this.os = data.os || 'unknown';
     this.version = data.version || '1.0.0';
     this.status = data.status || 'offline'; // online, offline, mining, error
+    this.bound = data.bound !== undefined ? data.bound : false; // Bound to master
     this.lastSeen = data.lastSeen || new Date().toISOString();
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
@@ -21,6 +23,7 @@ class Miner {
     this.algorithm = data.algorithm || null; // rx/0, kawpow, etc.
     this.hashrate = data.hashrate || null;
     this.uptime = data.uptime || 0; // seconds
+    this.mining = data.mining !== undefined ? data.mining : false; // Is currently mining
     
     // Hardware info
     this.hardware = data.hardware || {
@@ -28,6 +31,9 @@ class Miner {
       gpus: [],
       ram: null
     };
+    
+    // Detailed system info from client
+    this.systemInfo = data.systemInfo || null;
     
     // Connection info
     this.connectionId = data.connectionId || null; // WebSocket connection ID
@@ -66,6 +72,28 @@ class Miner {
     }
   }
 
+  static async getBySystemId(systemId) {
+    try {
+      const db = getDb();
+      const miner = await db.collection('miners').findOne({ systemId });
+      return miner ? new Miner(miner) : null;
+    } catch (error) {
+      console.error('Error getting miner by system ID:', error);
+      return null;
+    }
+  }
+
+  static async getAllBound() {
+    try {
+      const db = getDb();
+      const miners = await db.collection('miners').find({ bound: true }).toArray();
+      return miners.map(m => new Miner(m));
+    } catch (error) {
+      console.error('Error getting bound miners:', error);
+      return [];
+    }
+  }
+
   static async create(data) {
     try {
       const miner = new Miner(data);
@@ -92,7 +120,15 @@ class Miner {
         { returnDocument: 'after' }
       );
       
-      return result.value ? new Miner(result.value) : null;
+      // Handle both old and new MongoDB driver API
+      const updatedDoc = result.value || result;
+      
+      if (!updatedDoc) {
+        console.error(`[Miner.update] No miner found with id: ${id}`);
+        return null;
+      }
+      
+      return new Miner(updatedDoc);
     } catch (error) {
       console.error('Error updating miner:', error);
       throw error;
@@ -131,15 +167,25 @@ class Miner {
     });
   }
 
+  async bind() {
+    return Miner.update(this.id, { bound: true });
+  }
+
+  async unbind() {
+    return Miner.update(this.id, { bound: false });
+  }
+
   toJSON() {
     return {
       id: this.id,
+      systemId: this.systemId,
       name: this.name,
       hostname: this.hostname,
       ip: this.ip,
       os: this.os,
       version: this.version,
       status: this.status,
+      bound: this.bound,
       lastSeen: this.lastSeen,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
@@ -149,7 +195,9 @@ class Miner {
       algorithm: this.algorithm,
       hashrate: this.hashrate,
       uptime: this.uptime,
+      mining: this.mining,
       hardware: this.hardware,
+      systemInfo: this.systemInfo,
       connectionId: this.connectionId
     };
   }

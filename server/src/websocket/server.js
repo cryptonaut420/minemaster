@@ -60,10 +60,12 @@ async function handleMessage(connectionId, data) {
       await handleRegister(connectionId, data);
       break;
     
+    case 'status-update':
     case 'status_update':
       await handleStatusUpdate(connectionId, data);
       break;
     
+    case 'hashrate-update':
     case 'mining_update':
       await handleMiningUpdate(connectionId, data);
       break;
@@ -72,81 +74,182 @@ async function handleMessage(connectionId, data) {
       await handleHeartbeat(connectionId, data);
       break;
     
+    case 'request-configs':
+      await handleRequestConfigs(connectionId, data);
+      break;
+    
+    case 'unbound':
+      await handleUnbind(connectionId, data);
+      break;
+    
     default:
       console.warn(`[WebSocket] Unknown message type: ${data.type}`);
+      sendToConnection(connectionId, {
+        type: 'pong'
+      });
   }
 }
 
 async function handleRegister(connectionId, data) {
-  const { name, hostname, ip, os, version, hardware } = data;
+  const {systemId, systemInfo, silent } = data.data || data;
+  const Config = require('../models/Config');
   
-  // Find or create miner
-  let miner = await Miner.getByConnectionId(connectionId);
+  console.log('[WebSocket] Registration data:', { systemId, silent });
+  
+  // Find or create miner by systemId (MAC address)
+  let miner = await Miner.getBySystemId(systemId);
+  
+  // Extract system details
+  const hostname = systemInfo?.hostname || systemInfo?.os?.hostname || 'unknown';
+  const platform = systemInfo?.platform || systemInfo?.os?.platform || 'unknown';
+  const cpuInfo = systemInfo?.cpu || systemInfo?.hardware?.cpu || null;
+  const gpuInfo = systemInfo?.gpus || systemInfo?.gpu?.controllers || [];
+  const memoryInfo = systemInfo?.memory || systemInfo?.mem || null;
+  
+  const isReconnect = !!miner; // Check if this is a reconnect
   
   if (!miner) {
-    // Check if miner exists by hostname/IP
-    const existingMiners = await Miner.getAll();
-    const existing = existingMiners.find(m => 
-      (m.hostname === hostname && m.ip === ip) || 
-      m.ip === ip
-    );
-    
-    if (existing) {
-      miner = await Miner.update(existing.id, {
-        connectionId,
-        status: 'online',
-        lastSeen: new Date().toISOString()
-      });
-    } else {
-      miner = await Miner.create({
-        name,
-        hostname,
-        ip,
-        os,
-        version,
-        hardware,
-        connectionId,
-        status: 'online'
-      });
-    }
-  } else {
-    miner = await Miner.update(miner.id, {
+    // Create new miner
+    miner = await Miner.create({
+      systemId,
+      name: hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`,
+      hostname,
+      ip: 'unknown', // Will be updated from connection
+      os: platform,
+      version: '1.0.0',
+      hardware: {
+        cpu: cpuInfo,
+        gpus: gpuInfo,
+        ram: memoryInfo
+      },
+      systemInfo,
       connectionId,
       status: 'online',
-      lastSeen: new Date().toISOString()
+      bound: true // Automatically bind when registering
     });
+    
+    console.log(`[WebSocket] New miner registered: ${miner.name} (${systemId})`);
+  } else {
+    // Update existing miner
+    console.log(`[WebSocket] Found existing miner:`, miner.id, miner.name);
+    
+    const updateData = {
+      connectionId,
+      status: 'online',
+      bound: true,
+      systemInfo,
+      lastSeen: new Date().toISOString()
+    };
+    
+    // Update hostname if available
+    if (hostname !== 'unknown') {
+      updateData.hostname = hostname;
+      updateData.name = hostname;
+    }
+    
+    // Update OS if available
+    if (platform !== 'unknown') {
+      updateData.os = platform;
+    }
+    
+    // Update hardware info
+    updateData.hardware = {
+      cpu: cpuInfo || miner.hardware?.cpu,
+      gpus: gpuInfo.length > 0 ? gpuInfo : (miner.hardware?.gpus || []),
+      ram: memoryInfo || miner.hardware?.ram
+    };
+    
+    console.log(`[WebSocket] Updating miner ${miner.id} with connectionId:`, connectionId);
+    const updatedMiner = await Miner.update(miner.id, updateData);
+    
+    if (!updatedMiner) {
+      console.error(`[WebSocket] Failed to update miner ${systemId} (id: ${miner.id})`);
+      console.error(`[WebSocket] Update returned null/undefined`);
+      sendToConnection(connectionId, {
+        type: 'error',
+        error: 'Failed to update miner'
+      });
+      return;
+    }
+    
+    miner = updatedMiner;
+    console.log(`[WebSocket] Miner reconnected: ${miner.name} (${systemId})`);
   }
   
   // Update connection mapping
   connections.set(connectionId, { 
     ws: connections.get(connectionId).ws, 
-    minerId: miner.id 
+    minerId: miner.id,
+    systemId
   });
   
-  // Send confirmation
-  sendToConnection(connectionId, {
-    type: 'registered',
-    miner: miner.toJSON()
-  });
+  // Get global configs
+  const configs = await Config.getAll();
+  
+  // For silent reconnects, send simple ack without triggering client-side bind event
+  if (silent || isReconnect) {
+    sendToConnection(connectionId, {
+      type: 'registered',
+      data: {
+        miner: miner.toJSON(),
+        configs
+      }
+    });
+    console.log(`[WebSocket] Silent registration complete for ${miner.name}`);
+  } else {
+    // For new binds, send full bound response
+    sendToConnection(connectionId, {
+      type: 'bound',
+      data: {
+        miner: miner.toJSON(),
+        configs
+      }
+    });
+    console.log(`[WebSocket] New bind complete for ${miner.name}`);
+  }
   
   // Broadcast to all dashboard clients
   broadcast({
     type: 'miner_connected',
     miner: miner.toJSON()
   });
-  
-  console.log(`[WebSocket] Miner registered: ${miner.name} (${miner.id})`);
 }
 
 async function handleStatusUpdate(connectionId, data) {
   const connection = connections.get(connectionId);
   if (!connection || !connection.minerId) return;
   
-  const miner = await Miner.update(connection.minerId, {
-    status: data.status || 'online',
-    lastSeen: new Date().toISOString(),
-    ...data.updates
-  });
+  const statusData = data.data || data;
+  const updateData = {
+    lastSeen: new Date().toISOString()
+  };
+  
+  if (statusData.systemInfo) {
+    updateData.systemInfo = statusData.systemInfo;
+    updateData.hardware = {
+      cpu: statusData.systemInfo.cpu || null,
+      gpus: statusData.systemInfo.gpus || [],
+      ram: statusData.systemInfo.memory || null
+    };
+  }
+  
+  if (statusData.miners) {
+    // Update mining status based on client miners
+    const anyMining = statusData.miners.some(m => m.running);
+    updateData.mining = anyMining;
+    updateData.status = anyMining ? 'mining' : 'online';
+    
+    // Update hashrate from running miners
+    const runningMiner = statusData.miners.find(m => m.running && m.hashrate);
+    if (runningMiner) {
+      updateData.hashrate = runningMiner.hashrate;
+      updateData.algorithm = runningMiner.algorithm;
+      updateData.deviceType = runningMiner.deviceType;
+      updateData.currentMiner = runningMiner.type;
+    }
+  }
+  
+  const miner = await Miner.update(connection.minerId, updateData);
   
   if (miner) {
     // Broadcast update
@@ -161,37 +264,30 @@ async function handleMiningUpdate(connectionId, data) {
   const connection = connections.get(connectionId);
   if (!connection || !connection.minerId) return;
   
-  const miner = await Miner.getById(connection.minerId);
-  if (!miner) return;
-  
-  await miner.updateMiningState({
-    type: data.minerType,
-    config: data.config,
-    deviceType: data.deviceType,
-    algorithm: data.algorithm,
-    hashrate: data.hashrate,
-    uptime: data.uptime,
-    status: 'mining'
-  });
+  const hashData = data.data || data;
   
   // Record hash rate if available
-  if (data.hashrate && data.deviceType && data.algorithm) {
+  if (hashData.hashrate && hashData.deviceType && hashData.algorithm) {
     try {
       await HashRate.record(connection.minerId, {
-        deviceType: data.deviceType,
-        algorithm: data.algorithm,
-        hashrate: data.hashrate
+        deviceType: hashData.deviceType,
+        algorithm: hashData.algorithm,
+        hashrate: hashData.hashrate
+      });
+      
+      // Update miner's current hashrate
+      await Miner.update(connection.minerId, {
+        hashrate: hashData.hashrate,
+        algorithm: hashData.algorithm,
+        deviceType: hashData.deviceType,
+        mining: true,
+        status: 'mining',
+        lastSeen: new Date().toISOString()
       });
     } catch (error) {
       console.error('Error recording hash rate:', error);
     }
   }
-  
-  // Broadcast update
-  broadcast({
-    type: 'mining_update',
-    miner: miner.toJSON()
-  });
 }
 
 async function handleHeartbeat(connectionId, data) {
@@ -201,14 +297,60 @@ async function handleHeartbeat(connectionId, data) {
   await Miner.update(connection.minerId, {
     lastSeen: new Date().toISOString()
   });
+  
+  // Send pong response
+  sendToConnection(connectionId, {
+    type: 'pong'
+  });
+}
+
+async function handleRequestConfigs(connectionId, data) {
+  const connection = connections.get(connectionId);
+  if (!connection || !connection.minerId) {
+    console.warn('[WebSocket] Config request from unregistered connection');
+    return;
+  }
+  
+  const Config = require('../models/Config');
+  const configs = await Config.getAll();
+  
+  sendToConnection(connectionId, {
+    type: 'config-update',
+    data: configs
+  });
+  
+  console.log(`[WebSocket] Sent configs to miner ${connection.minerId}`);
+}
+
+async function handleUnbind(connectionId, data) {
+  const connection = connections.get(connectionId);
+  if (!connection || !connection.minerId) return;
+  
+  const miner = await Miner.getById(connection.minerId);
+  if (miner) {
+    await miner.unbind();
+    
+    sendToConnection(connectionId, {
+      type: 'unbound'
+    });
+    
+    // Broadcast to dashboard
+    broadcast({
+      type: 'miner_unbound',
+      miner: miner.toJSON()
+    });
+    
+    console.log(`[WebSocket] Miner unbound: ${miner.name}`);
+  }
 }
 
 async function handleDisconnect(connectionId) {
   const connection = connections.get(connectionId);
   if (connection && connection.minerId) {
-    // Update miner status
+    // Update miner status (but keep bound state)
     const miner = await Miner.update(connection.minerId, {
       status: 'offline',
+      mining: false,
       connectionId: null
     });
     
@@ -222,6 +364,49 @@ async function handleDisconnect(connectionId) {
   }
   
   connections.delete(connectionId);
+}
+
+// Send command to specific miner(s)
+async function sendCommand(minerIds, command) {
+  const Config = require('../models/Config');
+  let sent = 0;
+  
+  // If minerIds is 'all', send to all bound miners
+  if (minerIds === 'all') {
+    const boundMiners = await Miner.getAllBound();
+    minerIds = boundMiners.map(m => m.id);
+  }
+  
+  // Ensure minerIds is an array
+  if (!Array.isArray(minerIds)) {
+    minerIds = [minerIds];
+  }
+  
+  for (const minerId of minerIds) {
+    const miner = await Miner.getById(minerId);
+    if (!miner || !miner.connectionId) {
+      console.warn(`[WebSocket] Cannot send command: miner ${minerId} not connected`);
+      continue;
+    }
+    
+    // If command is config update, include configs
+    if (command.action === 'config-update') {
+      const configs = await Config.getAll();
+      const success = sendToConnection(miner.connectionId, {
+        type: 'config-update',
+        data: configs
+      });
+      if (success) sent++;
+    } else {
+      const success = sendToConnection(miner.connectionId, {
+        type: 'command',
+        data: command
+      });
+      if (success) sent++;
+    }
+  }
+  
+  return sent;
 }
 
 function sendToConnection(connectionId, message) {
@@ -275,6 +460,7 @@ module.exports = {
   initialize,
   sendToMiner,
   sendToConnection,
+  sendCommand,
   broadcast,
   getConnectionCount,
   getConnectedMiners

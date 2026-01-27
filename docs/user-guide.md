@@ -80,6 +80,59 @@ Real-time system statistics:
 - VRAM usage (used / total)
 - *Multiple GPUs shown as separate cards*
 
+---
+
+## 🔗 Master Server Integration
+
+MineMaster supports centralized management through a Master Server. This allows you to remotely manage and monitor multiple mining rigs from a single web dashboard.
+
+### Master Server Panel
+
+At the top of the Dashboard, you'll see a **Master Server** panel showing:
+- **Connection Status**: Connected (●) or Disconnected (○)
+- **Bind Status**: Whether this client is bound to the master
+- **Settings Button**: Configure server connection
+
+### Operating Modes
+
+**Independent Mode (Default)**:
+- Full control over all mining configurations
+- Mine locally without server connection
+- No remote management
+
+**Bound Mode**:
+- Connected and bound to Master Server
+- Most configs controlled remotely by server
+- **Password** (XMRig) and **Rig Name** (Nanominer) remain locally editable
+- Configs automatically synced from server
+- Server can send start/stop/restart commands
+
+### How to Bind to Master Server
+
+1. Click the **Settings Button** (⚙️) in the Master Server panel
+2. Enter your server's **Host** and **Port**
+3. Enable **Auto-reconnect** if desired
+4. Click **Save**
+5. Click **Connect & Enable**
+6. Once connected, click **Bind to Master**
+
+When bound, you'll see:
+- 🔗 **Bound to Master** indicator
+- Most config fields are disabled (grayed out)
+- Password/Rig Name remain editable
+
+### How to Unbind
+
+1. Click **Unbind** in the Master Server panel
+2. Client returns to independent mode
+3. All config options become editable again
+
+**Note**: When bound, a green indicator banner shows that most settings are controlled remotely. Your specific worker identification (password/rig name) can still be customized locally.
+
+For complete information on setting up and using the Master Server, see the [Client-Server Binding Guide](./client-server-binding.md).
+
+---
+
 ## 🖥️ CPU Mining (XMRig)
 
 XMRig is used for CPU mining, primarily for RandomX-based coins like Monero.

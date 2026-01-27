@@ -4,7 +4,7 @@ import { formatHashrate } from '../utils/formatters';
 import { useSystemInfo, useSystemStats } from '../hooks/useSystemInfo';
 import SystemInfoCard from './SystemInfoCard';
 
-function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
+function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false }) {
   const systemInfo = useSystemInfo();
   const systemStats = useSystemStats();
   
@@ -13,6 +13,13 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
       ...miner.config,
       [field]: value
     });
+  };
+
+  // Helper to check if field should be disabled
+  const isFieldDisabled = (field) => {
+    if (!isBoundToMaster) return false;
+    // Allow password to be edited even when bound
+    return field !== 'password';
   };
 
   return (
@@ -63,6 +70,12 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
       )}
 
       <div className="config-form">
+        {isBoundToMaster && (
+          <div className="master-bound-notice">
+            🔗 Bound to Master Server - Most settings are controlled remotely. Only password can be changed locally.
+          </div>
+        )}
+
         <div className="form-row">
           <div className="form-group">
             <label>Coin / Currency</label>
@@ -71,7 +84,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
               placeholder="XMR"
               value={miner.config.coin}
               onChange={(e) => handleChange('coin', e.target.value.toUpperCase())}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('coin')}
             />
           </div>
 
@@ -80,7 +93,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
             <select
               value={miner.config.algorithm}
               onChange={(e) => handleChange('algorithm', e.target.value)}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('algorithm')}
             >
               <option value="rx/0">RandomX (rx/0)</option>
               <option value="rx/wow">RandomWOW (rx/wow)</option>
@@ -99,7 +112,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
             placeholder="pool.example.com:3333"
             value={miner.config.pool}
             onChange={(e) => handleChange('pool', e.target.value)}
-            disabled={miner.running}
+            disabled={miner.running || isFieldDisabled('pool')}
           />
         </div>
 
@@ -111,7 +124,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
             placeholder="Your wallet address"
             value={miner.config.user}
             onChange={(e) => handleChange('user', e.target.value)}
-            disabled={miner.running}
+            disabled={miner.running || isFieldDisabled('user')}
           />
         </div>
 
@@ -122,7 +135,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
               placeholder="x"
               value={miner.config.password}
               onChange={(e) => handleChange('password', e.target.value)}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('password')}
             />
           </div>
         </div>
@@ -144,7 +157,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
               step="10"
               value={miner.config.threadPercentage || 100}
               onChange={(e) => handleChange('threadPercentage', parseInt(e.target.value))}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('threadPercentage')}
               className="thread-slider"
             />
             <div className="slider-ticks">
@@ -167,7 +180,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop }) {
             placeholder="--tls --keepalive"
             value={miner.config.additionalArgs}
             onChange={(e) => handleChange('additionalArgs', e.target.value)}
-            disabled={miner.running}
+            disabled={miner.running || isFieldDisabled('additionalArgs')}
           />
         </div>
       </div>

@@ -336,6 +336,16 @@
   color: white;
 }
 
+.btn-start {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.btn-start:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+}
+
 .btn-restart {
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -345,6 +355,71 @@
   background: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--accent-blue);
+}
+
+.bound-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.card-info-message {
+  padding: 12px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  margin-top: 12px;
+}
+
+.hardware-info {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hardware-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hardware-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.hardware-item:last-child {
+  margin-bottom: 0;
+}
+
+.hardware-label {
+  color: var(--text-secondary);
+  min-width: 50px;
+  font-weight: 500;
+}
+
+.hardware-value {
+  color: var(--text-primary);
+  flex: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
 }
 
 @media (max-width: 500px) {

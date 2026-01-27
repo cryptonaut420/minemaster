@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import Dashboard from './components/Dashboard';
 import MinerConsole from './components/MinerConsole';
@@ -9,6 +9,7 @@ import NotificationContainer from './components/NotificationContainer';
 import { formatHashrate, parseHashrate } from './utils/formatters';
 import { validateMinerConfig } from './utils/validators';
 import { addConsoleOutput } from './utils/consoleManager';
+import { masterServer } from './services/masterServer';
 
 function App() {
   // Load saved config from localStorage
@@ -81,6 +82,12 @@ function App() {
   const [selectedView, setSelectedView] = useState('dashboard');
   const [selectedMiner, setSelectedMiner] = useState('xmrig-1');
   const [notifications, setNotifications] = useState([]);
+  const [isBoundToMaster, setIsBoundToMaster] = useState(() => {
+    // Initialize from localStorage on app start
+    return localStorage.getItem('master-server-bound') === 'true';
+  });
+  const statusUpdateInterval = useRef(null);
+  const boundStateInitialized = useRef(false);
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
@@ -226,6 +233,210 @@ function App() {
       });
     }
   }, []);
+
+  // Master Server Integration - Command and Config Handlers
+  useEffect(() => {
+    // Only handle commands and config updates here
+    // Bound/unbound is handled via Dashboard -> MasterServerPanel -> onBoundChange callback
+    
+    const handleConfigUpdate = (configs) => {
+      console.log('[App] Received config update from server', configs);
+      applyGlobalConfigs(configs, false); // Show notification for active updates
+      addNotification('Configurations updated from Master Server', 'info');
+    };
+
+    const handleCommand = async (command) => {
+      console.log('[App] Received command from server', command);
+      
+      switch (command.action) {
+        case 'start':
+          if (command.minerId) {
+            await handleStartMiner(command.minerId);
+          } else if (command.deviceType) {
+            const miner = miners.find(m => m.deviceType === command.deviceType);
+            if (miner) await handleStartMiner(miner.id);
+          } else {
+            await handleStartAll();
+          }
+          break;
+          
+        case 'stop':
+          if (command.minerId) {
+            await handleStopMiner(command.minerId);
+          } else if (command.deviceType) {
+            const miner = miners.find(m => m.deviceType === command.deviceType);
+            if (miner) await handleStopMiner(miner.id);
+          } else {
+            await handleStopAll();
+          }
+          break;
+          
+        case 'restart':
+          if (command.minerId) {
+            await handleStopMiner(command.minerId);
+            setTimeout(() => handleStartMiner(command.minerId), 2000);
+          } else {
+            await handleStopAll();
+            setTimeout(handleStartAll, 2000);
+          }
+          break;
+          
+        default:
+          console.warn('[App] Unknown command:', command.action);
+      }
+    };
+
+    masterServer.on('configUpdate', handleConfigUpdate);
+    masterServer.on('command', handleCommand);
+
+    return () => {
+      masterServer.off('configUpdate', handleConfigUpdate);
+      masterServer.off('command', handleCommand);
+    };
+  }, [miners]); // Include miners for command handlers
+
+  // Handle bound state changes from Dashboard
+  const handleBoundStateChange = (bound, data) => {
+    console.log('[App] handleBoundStateChange - bound:', bound, 'data:', data, 'initialized:', boundStateInitialized.current);
+    
+    // If this is the initial restore from localStorage, don't do anything
+    // The state is already set in useState initializer
+    if (!boundStateInitialized.current && bound && data === null) {
+      console.log('[App] Initial bound state restore - skipping actions');
+      boundStateInitialized.current = true;
+      
+      // If bound, ensure status updates are running
+      if (bound && masterServer.isConnected()) {
+        startStatusUpdates();
+      }
+      return;
+    }
+    
+    // Mark as initialized after first call
+    if (!boundStateInitialized.current) {
+      boundStateInitialized.current = true;
+    }
+    
+    // Only update state if it actually changed
+    if (isBoundToMaster === bound) {
+      console.log('[App] Bound state unchanged, skipping');
+      return;
+    }
+    
+    setIsBoundToMaster(bound);
+    localStorage.setItem('master-server-bound', bound ? 'true' : 'false');
+    
+    if (bound) {
+      addNotification('Bound to Master Server', 'success');
+      
+      // Request or apply global configs
+      if (data?.configs) {
+        console.log('[App] Applying configs from bind data');
+        applyGlobalConfigs(data.configs, false); // Show notification for new bind
+      } else {
+        console.log('[App] Requesting configs from server');
+        // Small delay to ensure connection is fully established
+        setTimeout(() => {
+          if (masterServer.isConnected()) {
+            masterServer.requestConfigs();
+          }
+        }, 500);
+      }
+      
+      // Start periodic status updates
+      startStatusUpdates();
+    } else {
+      addNotification('Unbound from Master Server', 'info');
+      stopStatusUpdates();
+    }
+  };
+
+  // Apply global configs from master server
+  const applyGlobalConfigs = (globalConfigs, silent = false) => {
+    setMiners(prev => prev.map(miner => {
+      const globalConfig = globalConfigs[miner.type];
+      if (!globalConfig) return miner;
+
+      // Merge global config with local config
+      // Keep password, rigName, and gpus from local config
+      const mergedConfig = {
+        ...globalConfig,
+        password: miner.config.password || globalConfig.password,
+        rigName: miner.config.rigName || globalConfig.rigName,
+        gpus: miner.config.gpus || []  // Preserve local GPU selection
+      };
+
+      return {
+        ...miner,
+        config: mergedConfig
+      };
+    }));
+
+    if (!silent) {
+      addNotification('Global configurations applied', 'success');
+    }
+  };
+
+  // Start periodic status updates to server
+  const startStatusUpdates = () => {
+    stopStatusUpdates(); // Clear any existing interval
+    
+    const sendUpdate = async () => {
+      if (!masterServer.isConnected() || !masterServer.isBound()) return;
+
+      try {
+        // Get system info
+        const systemInfo = window.electronAPI ? await window.electronAPI.getSystemInfo() : null;
+        
+        // Collect miner statuses
+        const minerStatuses = miners.map(m => ({
+          id: m.id,
+          type: m.type,
+          deviceType: m.deviceType,
+          running: m.running,
+          enabled: m.enabled,
+          hashrate: m.hashrate,
+          algorithm: m.config.algorithm,
+          coin: m.config.coin
+        }));
+
+        // Send status update
+        await masterServer.sendStatusUpdate({
+          systemInfo,
+          miners: minerStatuses,
+          mining: miners.some(m => m.running)
+        });
+
+        // Send hashrate updates for running miners
+        miners.forEach(async (miner) => {
+          if (miner.running && miner.hashrate) {
+            await masterServer.sendHashrateUpdate({
+              minerId: miner.id,
+              deviceType: miner.deviceType,
+              algorithm: miner.config.algorithm,
+              hashrate: miner.hashrate
+            });
+          }
+        });
+      } catch (error) {
+        console.error('[Master] Error sending status update:', error);
+      }
+    };
+
+    // Send immediately
+    sendUpdate();
+    
+    // Then every 10 seconds
+    statusUpdateInterval.current = setInterval(sendUpdate, 10000);
+  };
+
+  // Stop periodic status updates
+  const stopStatusUpdates = () => {
+    if (statusUpdateInterval.current) {
+      clearInterval(statusUpdateInterval.current);
+      statusUpdateInterval.current = null;
+    }
+  };
 
   // Notification helper
   const addNotification = (message, type = 'info') => {
@@ -456,6 +667,8 @@ function App() {
               onStartAll={handleStartAll}
               onStopAll={handleStopAll}
               onToggleDevice={handleToggleDevice}
+              isBoundToMaster={isBoundToMaster}
+              onBoundChange={handleBoundStateChange}
             />
           ) : (
             currentMiner && (
@@ -466,6 +679,7 @@ function App() {
                     onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
                     onStart={() => handleStartMiner(currentMiner.id)}
                     onStop={() => handleStopMiner(currentMiner.id)}
+                    isBoundToMaster={isBoundToMaster}
                   />
                 ) : (
                   <MinerConfig
@@ -473,6 +687,7 @@ function App() {
                     onConfigChange={(config) => handleConfigChange(currentMiner.id, config)}
                     onStart={() => handleStartMiner(currentMiner.id)}
                     onStop={() => handleStopMiner(currentMiner.id)}
+                    isBoundToMaster={isBoundToMaster}
                   />
                 )}
                 

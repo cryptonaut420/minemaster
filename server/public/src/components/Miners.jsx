@@ -54,6 +54,17 @@ function Miners() {
     }
   };
 
+  const handleStart = async (id, name) => {
+    if (!confirm(`Start mining on ${name}?`)) return;
+    try {
+      await minersAPI.start(id, {});
+      success(`Start command sent to ${name}`, 3000);
+    } catch (err) {
+      error(`Failed to start ${name}: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error starting miner:', err);
+    }
+  };
+
   const handleDelete = async (id, name) => {
     if (!confirm(`Remove ${name} from the system? This won't affect the actual miner.`)) return;
     try {
@@ -185,6 +196,11 @@ function Miners() {
                   {miner.status === 'offline' && '⭕ '}
                   {miner.status}
                 </span>
+                {miner.bound && (
+                  <span className="bound-badge" title="Bound to Master">
+                    🔗 Bound
+                  </span>
+                )}
                 {miner.currentMiner && (
                   <span className="miner-type">{miner.currentMiner}</span>
                 )}
@@ -209,6 +225,37 @@ function Miners() {
                     <span className="info-value">{miner.version}</span>
                   </div>
                 </div>
+
+                {miner.hardware && (miner.hardware.cpu || miner.hardware.gpus?.length > 0) && (
+                  <div className="hardware-info">
+                    <h4 className="hardware-title">Hardware</h4>
+                    {miner.hardware.cpu && (
+                      <div className="hardware-item">
+                        <span className="hardware-label">CPU:</span>
+                        <span className="hardware-value">
+                          {miner.hardware.cpu.brand || 'Unknown CPU'} ({miner.hardware.cpu.cores || 0} cores)
+                        </span>
+                      </div>
+                    )}
+                    {miner.hardware.gpus && miner.hardware.gpus.length > 0 && (
+                      <div className="hardware-item">
+                        <span className="hardware-label">GPU:</span>
+                        <span className="hardware-value">
+                          {miner.hardware.gpus.map(gpu => gpu.model || gpu.name || 'Unknown GPU').join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    {miner.hardware.ram && (
+                      <div className="hardware-item">
+                        <span className="hardware-label">RAM:</span>
+                        <span className="hardware-value">
+                          {(miner.hardware.ram.total / (1024 ** 3)).toFixed(1)} GB
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
 
                 {miner.status === 'mining' && (
                   <div className="mining-stats">
@@ -240,7 +287,7 @@ function Miners() {
                 </div>
               </div>
 
-              {(miner.status === 'online' || miner.status === 'mining') && (
+              {miner.bound && (miner.status === 'online' || miner.status === 'mining') && (
                 <div className="card-actions">
                   {miner.status === 'mining' ? (
                     <button
@@ -249,13 +296,26 @@ function Miners() {
                     >
                       ⏹ Stop
                     </button>
-                  ) : null}
+                  ) : (
+                    <button
+                      className="btn btn-start"
+                      onClick={() => handleStart(miner.id, miner.name)}
+                    >
+                      ▶ Start
+                    </button>
+                  )}
                   <button
                     className="btn btn-restart"
                     onClick={() => handleRestart(miner.id, miner.name)}
                   >
                     🔄 Restart
                   </button>
+                </div>
+              )}
+              
+              {!miner.bound && (
+                <div className="card-info-message">
+                  Not bound to master - connect client to enable remote control
                 </div>
               )}
             </div>

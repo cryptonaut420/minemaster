@@ -3,7 +3,7 @@ import './MinerConfig.css';
 import { formatHashrate } from '../utils/formatters';
 import { useSystemInfo, useGpuList } from '../hooks/useSystemInfo';
 
-function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
+function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false }) {
   const systemInfo = useSystemInfo();
   const gpuList = useGpuList();
   
@@ -12,6 +12,13 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
       ...miner.config,
       [field]: value
     });
+  };
+
+  // Helper to check if field should be disabled
+  const isFieldDisabled = (field) => {
+    if (!isBoundToMaster) return false;
+    // Allow rigName to be edited even when bound
+    return field !== 'rigName';
   };
 
   return (
@@ -62,6 +69,12 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
       )}
 
       <div className="config-form">
+        {isBoundToMaster && (
+          <div className="master-bound-notice">
+            🔗 Bound to Master Server - Most settings are controlled remotely. Only rig name can be changed locally.
+          </div>
+        )}
+
         <div className="form-row">
           <div className="form-group">
             <label>Coin / Currency</label>
@@ -70,7 +83,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
               placeholder="ETH"
               value={miner.config.coin}
               onChange={(e) => handleChange('coin', e.target.value.toUpperCase())}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('coin')}
             />
           </div>
 
@@ -79,7 +92,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
             <select
               value={miner.config.algorithm}
               onChange={(e) => handleChange('algorithm', e.target.value)}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('algorithm')}
             >
               <option value="ethash">Ethash (ETH, ETC, UBQ, EXP, MUSIC, ELLA)</option>
               <option value="etchash">Etchash (ETC)</option>
@@ -101,7 +114,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
             placeholder="eth.2miners.com:2020"
             value={miner.config.pool}
             onChange={(e) => handleChange('pool', e.target.value)}
-            disabled={miner.running}
+            disabled={miner.running || isFieldDisabled('pool')}
           />
         </div>
 
@@ -113,7 +126,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
               placeholder="Your wallet address"
               value={miner.config.user}
               onChange={(e) => handleChange('user', e.target.value)}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('user')}
             />
           </div>
 
@@ -124,7 +137,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
               placeholder="worker1"
               value={miner.config.rigName}
               onChange={(e) => handleChange('rigName', e.target.value)}
-              disabled={miner.running}
+              disabled={miner.running || isFieldDisabled('rigName')}
             />
           </div>
         </div>
@@ -134,7 +147,8 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
             <label>GPU Configuration</label>
             <div className="gpu-selector-advanced">
               {gpuList.map((gpu, idx) => {
-                const isSelected = miner.config.gpus.length === 0 || miner.config.gpus.includes(idx);
+                const gpus = miner.config.gpus || [];
+                const isSelected = gpus.length === 0 || gpus.includes(idx);
                 
                 return (
                   <div key={idx} className={`gpu-card ${isSelected ? 'selected' : ''}`}>
@@ -143,6 +157,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
                         <input
                           type="checkbox"
                           checked={isSelected}
+                          disabled={miner.running || isFieldDisabled('gpus')}
                           onChange={(e) => {
                             let newGpus = [...(miner.config.gpus || [])];
                             if (e.target.checked) {

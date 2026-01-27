@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import './Dashboard.css';
 import { formatHashrate, formatBytes, formatTemp, formatPercent } from '../utils/formatters';
+import MasterServerPanel from './MasterServerPanel';
 
-function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
+function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMaster, onBoundChange }) {
   const [systemInfo, setSystemInfo] = useState(() => {
     // Try to load from sessionStorage first
     const cached = sessionStorage.getItem('minemaster-system-info');
@@ -79,6 +80,12 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
 
   return (
     <div className="dashboard">
+      {/* Master Server Panel */}
+      <MasterServerPanel 
+        systemInfo={systemInfo} 
+        onBoundChange={onBoundChange}
+      />
+      
       {/* Main Control Section */}
       <div className="dashboard-control-section">
         <button

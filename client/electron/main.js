@@ -540,11 +540,14 @@ ipcMain.handle('get-system-info', async () => {
     const cpuInfo = cpus[0] || {};
     
     const basicInfo = {
+      hostname: os.hostname(),
+      platform: os.platform(),
       os: {
         platform: os.platform(),
         distro: os.type(),
         release: os.release(),
-        arch: os.arch()
+        arch: os.arch(),
+        hostname: os.hostname()
       },
       cpu: {
         manufacturer: '',
@@ -983,3 +986,81 @@ function buildXmrigArgs(config) {
 
   return args;
 }
+
+// ============================================
+// MASTER SERVER IPC HANDLERS
+// ============================================
+
+/**
+ * Get MAC address of the primary network interface
+ */
+ipcMain.handle('get-mac-address', async () => {
+  try {
+    const networkInterfaces = await si.networkInterfaces();
+    // Get the first interface with a valid MAC address
+    const primaryInterface = networkInterfaces.find(iface => 
+      iface.mac && 
+      iface.mac !== '00:00:00:00:00:00' && 
+      !iface.internal
+    );
+    
+    if (primaryInterface) {
+      return primaryInterface.mac;
+    }
+    
+    // Fallback: try to get any non-loopback interface
+    const anyInterface = networkInterfaces.find(iface => 
+      iface.mac && 
+      iface.mac !== '00:00:00:00:00:00'
+    );
+    
+    return anyInterface ? anyInterface.mac : 'unknown-mac';
+  } catch (error) {
+    console.error('Error getting MAC address:', error);
+    return 'unknown-mac';
+  }
+});
+
+/**
+ * Load master server configuration
+ */
+ipcMain.handle('load-master-config', async () => {
+  const configPath = path.join(__dirname, '..', 'master-server.json');
+  
+  try {
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(data);
+    } else {
+      // Return default config
+      const defaultConfig = {
+        enabled: false,
+        host: 'localhost',
+        port: 3001,
+        autoReconnect: true,
+        reconnectInterval: 5000,
+        heartbeatInterval: 30000
+      };
+      return defaultConfig;
+    }
+  } catch (error) {
+    console.error('Error loading master server config:', error);
+    throw error;
+  }
+});
+
+/**
+ * Save master server configuration
+ */
+ipcMain.handle('save-master-config', async (event, config) => {
+  const configPath = path.join(__dirname, '..', 'master-server.json');
+  
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log('Master server config saved:', config);
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving master server config:', error);
+    throw error;
+  }
+});

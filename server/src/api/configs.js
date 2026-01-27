@@ -32,11 +32,9 @@ router.put('/:type', async (req, res) => {
   try {
     const config = await Config.update(req.params.type, req.body);
     
-    // Automatically broadcast config update to all connected clients
-    websocketServer.broadcast({
-      type: 'config_updated',
-      minerType: req.params.type,
-      config: config
+    // Automatically send config update to all bound clients
+    await websocketServer.sendCommand('all', {
+      action: 'config-update'
     });
     
     res.json({ success: true, config });
@@ -45,7 +43,7 @@ router.put('/:type', async (req, res) => {
   }
 });
 
-// Apply config and restart all miners using this config type
+// Apply config and restart all bound miners
 router.post('/:type/apply', async (req, res) => {
   try {
     const config = await Config.get(req.params.type);
@@ -53,47 +51,33 @@ router.post('/:type/apply', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Config type not found' });
     }
     
-    const miners = await Miner.getAll();
-    const targetMiners = miners.filter(m => 
-      m.connectionId && 
-      (m.status === 'online' || m.status === 'mining') && 
-      m.currentMiner === req.params.type
-    );
+    // Get all bound miners
+    const boundMiners = await Miner.getAllBound();
+    const connectedMiners = boundMiners.filter(m => m.connectionId && m.status === 'online');
     
-    if (targetMiners.length === 0) {
+    if (connectedMiners.length === 0) {
       return res.json({ 
         success: true, 
-        message: 'No miners currently using this configuration',
+        message: 'No connected bound miners to restart',
         restarted: 0
       });
     }
     
-    let restarted = 0;
+    // Send config update to all bound miners first
+    await websocketServer.sendCommand('all', {
+      action: 'config-update'
+    });
     
-    // Send restart command with new config to all miners using this type
-    for (const miner of targetMiners) {
-      try {
-        // Send restart command with new config
-        websocketServer.sendToMiner(miner.connectionId, {
-          type: 'command',
-          command: 'restart_with_config',
-          params: {
-            minerType: req.params.type,
-            config: config
-          }
-        });
-        
-        restarted++;
-      } catch (error) {
-        console.error(`Error restarting ${miner.name}:`, error);
-      }
-    }
+    // Then send restart command
+    const restarted = await websocketServer.sendCommand('all', {
+      action: 'restart'
+    });
     
     res.json({ 
       success: true, 
-      message: `Restarted ${restarted} miner(s) with new config`,
+      message: `Config applied and restart command sent to ${restarted} miner(s)`,
       restarted,
-      total: targetMiners.length
+      total: connectedMiners.length
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
