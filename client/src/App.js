@@ -4,7 +4,11 @@ import Dashboard from './components/Dashboard';
 import MinerConsole from './components/MinerConsole';
 import MinerConfig from './components/MinerConfig';
 import NanominerConfig from './components/NanominerConfig';
-import { formatHashrate } from './utils/hashrate';
+import ErrorBoundary from './components/ErrorBoundary';
+import NotificationContainer from './components/NotificationContainer';
+import { formatHashrate, parseHashrate } from './utils/formatters';
+import { validateMinerConfig } from './utils/validators';
+import { addConsoleOutput } from './utils/consoleManager';
 
 function App() {
   // Load saved config from localStorage
@@ -31,7 +35,9 @@ function App() {
       deviceType: 'CPU',
       running: false,
       enabled: true,
+      loading: false,
       hashrate: null,
+      startTime: null,
       config: savedConfig?.['xmrig-1'] || {
         pool: '',
         user: '',
@@ -44,7 +50,8 @@ function App() {
         customPath: '',
         additionalArgs: ''
       },
-      output: []
+      output: [],
+      validationErrors: []
     },
     {
       id: 'nanominer-1',
@@ -53,7 +60,9 @@ function App() {
       deviceType: 'GPU',
       running: false,
       enabled: true,
+      loading: false,
       hashrate: null,
+      startTime: null,
       config: savedConfig?.['nanominer-1'] || {
         algorithm: 'ethash',
         coin: 'ETH',
@@ -64,12 +73,14 @@ function App() {
         gpus: [], // Empty = use all GPUs
         customPath: ''
       },
-      output: []
+      output: [],
+      validationErrors: []
     }
   ]);
 
   const [selectedView, setSelectedView] = useState('dashboard');
   const [selectedMiner, setSelectedMiner] = useState('xmrig-1');
+  const [notifications, setNotifications] = useState([]);
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
@@ -109,52 +120,63 @@ function App() {
     checkRunningMiners();
   }, []);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (event) => {
+      // Only handle if Ctrl/Cmd is pressed
+      if (!event.ctrlKey && !event.metaKey) return;
+
+      switch (event.key.toLowerCase()) {
+        case 's':
+          event.preventDefault();
+          handleStartAll();
+          break;
+        case 'x':
+          event.preventDefault();
+          handleStopAll();
+          break;
+        case 'd':
+          event.preventDefault();
+          setSelectedView('dashboard');
+          break;
+        case '1':
+          event.preventDefault();
+          setSelectedView('xmrig-1');
+          setSelectedMiner('xmrig-1');
+          break;
+        case '2':
+          event.preventDefault();
+          setSelectedView('nanominer-1');
+          setSelectedMiner('nanominer-1');
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [miners]); // Include miners for handleStartAll/StopAll closures
+
   useEffect(() => {
     // Set up listeners for miner events
     if (window.electronAPI) {
       window.electronAPI.onMinerOutput((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
-            // Parse hashrate from output
-            let newHashrate = miner.hashrate;
+            // Parse hashrate from output using new utility
+            const parsedHashrate = parseHashrate(data.data);
+            const newHashrate = parsedHashrate || miner.hashrate;
             
-            // XMRig format: "speed 10s/60s/15m ... H/s"
-            const xmrigPattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
-            
-            // Nanominer format: "Total: 25.5 Mh/s" or "GPU0: 12.3 Mh/s"
-            const nanominerPattern = /Total:\s*([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)/i;
-            
-            let match = data.data.match(xmrigPattern) || data.data.match(nanominerPattern);
-            
-            if (match) {
-              const value = parseFloat(match[1]);
-              const unit = match[2].toLowerCase();
-              
-              // Convert to base H/s for storage
-              let baseHashrate = value;
-              switch (unit) {
-                case 'kh/s':
-                  baseHashrate = value * 1000;
-                  break;
-                case 'mh/s':
-                  baseHashrate = value * 1000000;
-                  break;
-                case 'gh/s':
-                  baseHashrate = value * 1000000000;
-                  break;
-                case 'th/s':
-                  baseHashrate = value * 1000000000000;
-                  break;
-              }
-              
-              newHashrate = baseHashrate;
-            }
+            // Use console manager to prevent memory leaks
+            const newOutput = addConsoleOutput(miner.output, data.data);
             
             return {
               ...miner,
               running: true,
+              loading: false,
               hashrate: newHashrate,
-              output: [...miner.output, data.data]
+              output: newOutput
             };
           }
           return miner;
@@ -164,59 +186,153 @@ function App() {
       window.electronAPI.onMinerError((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
+            const newOutput = addConsoleOutput(miner.output, `ERROR: ${data.error}\n`);
             return {
               ...miner,
-              output: [...miner.output, `ERROR: ${data.error}\n`]
+              loading: false,
+              output: newOutput
             };
           }
           return miner;
         }));
+        
+        // Add notification for error
+        addNotification(`Miner Error: ${data.error}`, 'error');
       });
 
       window.electronAPI.onMinerClosed((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
+            const exitMessage = `\nMiner exited with code: ${data.code}\n`;
+            const newOutput = addConsoleOutput(miner.output, exitMessage);
+            const hadError = data.code !== 0;
+            
             return {
               ...miner,
               running: false,
+              loading: false,
               hashrate: null,
-              output: [...miner.output, `\nMiner exited with code: ${data.code}\n`]
+              startTime: null,
+              output: newOutput
             };
           }
           return miner;
         }));
+        
+        // Notify if crashed
+        if (data.code !== 0) {
+          addNotification(`Miner crashed with exit code ${data.code}`, 'error');
+        }
       });
     }
   }, []);
+
+  // Notification helper
+  const addNotification = (message, type = 'info') => {
+    const notification = {
+      id: Date.now(),
+      message,
+      type, // 'info', 'success', 'warning', 'error'
+      timestamp: Date.now()
+    };
+    
+    setNotifications(prev => [...prev, notification]);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
+    }, 5000);
+  };
 
   const handleStartMiner = async (minerId) => {
     const miner = miners.find(m => m.id === minerId);
     if (!miner) return;
 
-    const result = await window.electronAPI.startMiner({
-      minerId: miner.id,
-      minerType: miner.type,
-      config: miner.config
-    });
+    // Validate configuration before starting
+    const validation = validateMinerConfig(miner.type, miner.config);
+    if (!validation.valid) {
+      setMiners(prev => prev.map(m => 
+        m.id === minerId ? { ...m, validationErrors: validation.errors } : m
+      ));
+      addNotification(`Configuration invalid: ${validation.errors[0]}`, 'error');
+      return;
+    }
 
-    if (result.success) {
+    // Set loading state
+    setMiners(prev => prev.map(m => 
+      m.id === minerId ? { ...m, loading: true, validationErrors: [] } : m
+    ));
+
+    try {
+      const result = await window.electronAPI.startMiner({
+        minerId: miner.id,
+        minerType: miner.type,
+        config: miner.config
+      });
+
+      if (result.success) {
+        setMiners(prev => prev.map(m => 
+          m.id === minerId ? { 
+            ...m, 
+            running: true, 
+            loading: false,
+            startTime: Date.now(),
+            output: [`Starting miner (PID: ${result.pid})...\n`] 
+          } : m
+        ));
+        addNotification(`${miner.name} started successfully`, 'success');
+      } else {
+        setMiners(prev => prev.map(m => 
+          m.id === minerId ? { 
+            ...m, 
+            loading: false,
+            output: addConsoleOutput(m.output, `Failed to start: ${result.error}\n`)
+          } : m
+        ));
+        addNotification(`Failed to start ${miner.name}: ${result.error}`, 'error');
+      }
+    } catch (error) {
       setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, running: true, output: [`Starting miner (PID: ${result.pid})...\n`] } : m
+        m.id === minerId ? { ...m, loading: false } : m
       ));
-    } else {
-      setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, output: [...m.output, `Failed to start: ${result.error}\n`] } : m
-      ));
+      addNotification(`Error starting miner: ${error.message}`, 'error');
     }
   };
 
   const handleStopMiner = async (minerId) => {
-    const result = await window.electronAPI.stopMiner({ minerId });
-    
-    if (result.success) {
+    const miner = miners.find(m => m.id === minerId);
+    if (!miner) return;
+
+    // Set loading state
+    setMiners(prev => prev.map(m => 
+      m.id === minerId ? { ...m, loading: true } : m
+    ));
+
+    try {
+      const result = await window.electronAPI.stopMiner({ minerId });
+      
+      if (result.success) {
+        setMiners(prev => prev.map(m => 
+          m.id === minerId ? { 
+            ...m, 
+            running: false, 
+            loading: false,
+            hashrate: null,
+            startTime: null
+          } : m
+        ));
+        addNotification(`${miner.name} stopped`, 'info');
+      } else {
+        setMiners(prev => prev.map(m => 
+          m.id === minerId ? { ...m, loading: false } : m
+        ));
+        addNotification(`Failed to stop ${miner.name}`, 'error');
+      }
+    } catch (error) {
       setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, running: false } : m
+        m.id === minerId ? { ...m, loading: false } : m
       ));
+      addNotification(`Error stopping miner: ${error.message}`, 'error');
     }
   };
 
@@ -230,6 +346,10 @@ function App() {
     setMiners(prev => prev.map(m => 
       m.id === minerId ? { ...m, output: [] } : m
     ));
+  };
+
+  const handleDismissNotification = (notificationId) => {
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
   };
 
   const handleStartAll = () => {
@@ -257,11 +377,18 @@ function App() {
   const currentMiner = miners.find(m => m.id === selectedMiner);
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>⛏️ MineMaster</h1>
-        <p className="subtitle">Crypto Mining Manager</p>
-      </header>
+    <ErrorBoundary>
+      <div className="App">
+        {/* Notification System */}
+        <NotificationContainer 
+          notifications={notifications}
+          onDismiss={handleDismissNotification}
+        />
+        
+        <header className="App-header">
+          <h1>⛏️ MineMaster</h1>
+          <p className="subtitle">Crypto Mining Manager</p>
+        </header>
 
       <div className="App-content">
         <div className="sidebar">
@@ -347,7 +474,8 @@ function App() {
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }
 

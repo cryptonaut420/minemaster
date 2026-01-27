@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Dashboard.css';
-import { formatHashrate } from '../utils/hashrate';
+import { formatHashrate, formatBytes, formatTemp, formatPercent } from '../utils/formatters';
 
 function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
   const [systemInfo, setSystemInfo] = useState(() => {
@@ -74,29 +74,20 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
   }, []);
 
   const anyRunning = miners.some(m => m.running);
+  const anyLoading = miners.some(m => m.loading);
   const enabledMiners = miners.filter(m => m.enabled !== false);
-
-  const formatBytes = (bytes) => {
-    if (!bytes) return 'N/A';
-    const gb = bytes / (1024 ** 3);
-    return `${gb.toFixed(1)} GB`;
-  };
-
-  const formatTemp = (temp) => {
-    if (temp === null || temp === undefined) return 'N/A';
-    return `${Math.round(temp)}°C`;
-  };
 
   return (
     <div className="dashboard">
       {/* Main Control Section */}
       <div className="dashboard-control-section">
         <button
-          className={`master-control ${anyRunning ? 'stop' : 'start'}`}
+          className={`master-control ${anyRunning ? 'stop' : 'start'} ${anyLoading ? 'loading' : ''}`}
           onClick={anyRunning ? onStopAll : onStartAll}
-          title={anyRunning ? 'Stop All Mining' : 'Start All Mining'}
+          disabled={anyLoading}
+          title={anyRunning ? 'Stop All Mining (Ctrl+X)' : 'Start All Mining (Ctrl+S)'}
         >
-          {anyRunning ? '⏸' : '▶'}
+          {anyLoading ? '⏳' : (anyRunning ? '⏸' : '▶')}
         </button>
 
         {/* Devices Section */}
@@ -187,7 +178,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
                 <div className="stat">
                   <span className="stat-label">Usage:</span>
                   <span className="stat-value">
-                    {systemStats ? `${systemStats.cpu.usage.toFixed(1)}%` : '...'}
+                    {systemStats ? formatPercent(systemStats.cpu.usage) : '...'}
                   </span>
                 </div>
                 <div className="stat">
@@ -212,7 +203,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
                 <div className="stat">
                   <span className="stat-label">Used:</span>
                   <span className="stat-value">
-                    {systemStats ? `${systemStats.memory.usagePercent.toFixed(1)}%` : '...'}
+                    {systemStats ? formatPercent(systemStats.memory.usagePercent) : '...'}
                   </span>
                 </div>
                 <div className="stat">
@@ -241,7 +232,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice }) {
                         <div className="stat">
                           <span className="stat-label">Usage:</span>
                           <span className="stat-value">
-                            {gpu.usage.toFixed(1)}%
+                            {formatPercent(gpu.usage)}
                           </span>
                         </div>
                       )}

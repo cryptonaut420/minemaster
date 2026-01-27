@@ -1,6 +1,6 @@
 import React from 'react';
 import './MinerConfig.css';
-import { formatHashrate } from '../utils/hashrate';
+import { formatHashrate } from '../utils/formatters';
 import { useSystemInfo, useGpuList } from '../hooks/useSystemInfo';
 
 function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
@@ -33,21 +33,33 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
             <button 
               className="btn btn-start"
               onClick={onStart}
-              disabled={!miner.config.pool || !miner.config.user || !miner.config.algorithm}
-              title={!miner.config.pool || !miner.config.user ? 'Pool address and wallet address required' : ''}
+              disabled={miner.loading || !miner.config.pool || !miner.config.user || !miner.config.algorithm}
+              title={!miner.config.pool || !miner.config.user ? 'Pool address and wallet address required' : 'Start Mining'}
             >
-              ▶ Start Mining
+              {miner.loading ? '⏳ Starting...' : '▶ Start Mining'}
             </button>
           ) : (
             <button 
               className="btn btn-stop"
               onClick={onStop}
+              disabled={miner.loading}
             >
-              ⏹ Stop Mining
+              {miner.loading ? '⏳ Stopping...' : '⏹ Stop Mining'}
             </button>
           )}
         </div>
       </div>
+
+      {/* Validation Errors */}
+      {miner.validationErrors && miner.validationErrors.length > 0 && (
+        <div className="validation-errors">
+          {miner.validationErrors.map((error, idx) => (
+            <div key={idx} className="validation-error">
+              ⚠️ {error}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="config-form">
         <div className="form-row">

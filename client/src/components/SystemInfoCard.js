@@ -1,17 +1,8 @@
 import React from 'react';
 import './SystemInfoCard.css';
+import { formatBytes, formatTemp, formatPercent } from '../utils/formatters';
 
 function SystemInfoCard({ systemInfo, systemStats }) {
-  const formatBytes = (bytes) => {
-    if (!bytes) return 'N/A';
-    const gb = bytes / (1024 ** 3);
-    return `${gb.toFixed(1)} GB`;
-  };
-
-  const formatTemp = (temp) => {
-    if (temp === null || temp === undefined) return 'N/A';
-    return `${Math.round(temp)}°C`;
-  };
 
   return (
     <div className="system-info-cards">
@@ -26,7 +17,7 @@ function SystemInfoCard({ systemInfo, systemStats }) {
               <>
                 <span className="sys-stat">
                   <span className="sys-stat-label">Usage:</span>
-                  <span className="sys-stat-value">{systemStats.cpu.usage.toFixed(1)}%</span>
+                  <span className="sys-stat-value">{formatPercent(systemStats.cpu.usage)}</span>
                 </span>
                 {systemStats.cpu.temperature && (
                   <span className="sys-stat">
