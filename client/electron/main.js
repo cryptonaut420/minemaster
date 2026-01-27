@@ -653,16 +653,6 @@ function createNanominerConfig(minerId, config) {
     configContent += `devices = ${config.gpus.join(',')}\n`;
   }
   
-  // Add power limits for each GPU
-  if (config.gpus && config.gpus.length > 0) {
-    config.gpus.forEach(gpuIdx => {
-      const powerLimit = config[`gpu${gpuIdx}Power`];
-      if (powerLimit && powerLimit !== 100) {
-        configContent += `gpu${gpuIdx}PowerLimit = ${powerLimit}\n`;
-      }
-    });
-  }
-  
   configContent += `\n`;
   
   // Add global settings

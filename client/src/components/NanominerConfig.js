@@ -187,29 +187,6 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop }) {
                           </div>
                         )}
                       </div>
-                      
-                      {isSelected && (
-                        <div className="gpu-intensity-control">
-                          <label>
-                            Power Limit: <span className="intensity-value">{miner.config[`gpu${idx}Power`] || 100}%</span>
-                          </label>
-                          <input
-                            type="range"
-                            min="50"
-                            max="100"
-                            step="5"
-                            value={miner.config[`gpu${idx}Power`] || 100}
-                            onChange={(e) => handleChange(`gpu${idx}Power`, parseInt(e.target.value))}
-                            disabled={miner.running}
-                            className="intensity-slider"
-                          />
-                          <div className="slider-ticks-small">
-                            <span>50%</span>
-                            <span>75%</span>
-                            <span>100%</span>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
