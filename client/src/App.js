@@ -248,6 +248,12 @@ function App() {
     const miner = miners.find(m => m.id === minerId);
     if (!miner) return;
 
+    // Prevent starting if already running or loading
+    if (miner.running || miner.loading) {
+      console.log(`[handleStartMiner] Miner ${minerId} is already ${miner.running ? 'running' : 'starting'}`);
+      return;
+    }
+
     // Validate configuration before starting
     const validation = validateMinerConfig(miner.type, miner.config);
     if (!validation.valid) {
@@ -309,6 +315,7 @@ function App() {
     ));
 
     try {
+      addNotification(`Stopping ${miner.name}...`, 'info');
       const result = await window.electronAPI.stopMiner({ minerId });
       
       if (result.success) {
@@ -321,18 +328,24 @@ function App() {
             startTime: null
           } : m
         ));
-        addNotification(`${miner.name} stopped`, 'info');
+        
+        // Show different message if force killed
+        const message = result.message || `${miner.name} stopped successfully`;
+        const type = message.includes('force killed') ? 'warning' : 'success';
+        addNotification(message, type);
       } else {
         setMiners(prev => prev.map(m => 
-          m.id === minerId ? { ...m, loading: false } : m
+          m.id === minerId ? { ...m, loading: false, running: false } : m
         ));
-        addNotification(`Failed to stop ${miner.name}`, 'error');
+        addNotification(`Failed to stop ${miner.name}: ${result.error || 'Unknown error'}`, 'error');
+        console.error('Stop miner error:', result.error);
       }
     } catch (error) {
       setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, loading: false } : m
+        m.id === minerId ? { ...m, loading: false, running: false } : m
       ));
       addNotification(`Error stopping miner: ${error.message}`, 'error');
+      console.error('Stop miner exception:', error);
     }
   };
 
