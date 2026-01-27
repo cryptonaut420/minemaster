@@ -20,6 +20,20 @@ function MinerConsole({ minerId, output, running, onClear }) {
     }
   };
 
+  const scrollToTop = () => {
+    if (consoleRef.current) {
+      consoleRef.current.scrollTop = 0;
+      autoScrollRef.current = false;
+    }
+  };
+
+  const scrollToBottom = () => {
+    if (consoleRef.current) {
+      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+      autoScrollRef.current = true;
+    }
+  };
+
   return (
     <div className="miner-console">
       <div className="console-header">
@@ -29,9 +43,17 @@ function MinerConsole({ minerId, output, running, onClear }) {
           {running && <span className="status-badge running">Running</span>}
           {!running && output.length > 0 && <span className="status-badge stopped">Stopped</span>}
         </div>
-        <button className="btn-clear" onClick={onClear}>
-          Clear
-        </button>
+        <div className="console-controls">
+          <button className="btn-scroll" onClick={scrollToTop} title="Scroll to top">
+            ⬆
+          </button>
+          <button className="btn-scroll" onClick={scrollToBottom} title="Scroll to bottom">
+            ⬇
+          </button>
+          <button className="btn-clear" onClick={onClear}>
+            Clear
+          </button>
+        </div>
       </div>
       
       <div 

@@ -48,6 +48,35 @@
   color: #ef4444;
 }
 
+.console-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-scroll {
+  padding: 6px 10px;
+  background-color: #2d2d2d;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.btn-scroll:hover {
+  background-color: #353535;
+  color: white;
+  border-color: #4a4a4a;
+  transform: translateY(-1px);
+}
+
+.btn-scroll:active {
+  transform: translateY(0);
+}
+
 .btn-clear {
   padding: 6px 14px;
   background-color: #2d2d2d;
