@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { configsAPI } from '../services/api';
+import { useToast } from '../hooks/useToast';
+import ToastContainer from './ToastContainer';
 import './Configs.css';
 
 function Configs() {
@@ -8,7 +10,7 @@ function Configs() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({});
-  const [saveStatus, setSaveStatus] = useState(null);
+  const { toasts, success, error, dismissToast } = useToast();
 
   useEffect(() => {
     fetchConfigs();
@@ -20,7 +22,6 @@ function Configs() {
     } else {
       setFormData({});
     }
-    setSaveStatus(null);
   }, [selectedType, configs]);
 
   const fetchConfigs = async () => {
@@ -39,20 +40,17 @@ function Configs() {
       ...prev,
       [field]: value
     }));
-    setSaveStatus(null);
   };
 
   const handleSave = async () => {
     setSaving(true);
-    setSaveStatus(null);
     try {
       await configsAPI.update(selectedType, formData);
       await fetchConfigs();
-      setSaveStatus('success');
-      setTimeout(() => setSaveStatus(null), 3000);
-    } catch (error) {
-      setSaveStatus('error');
-      console.error('Error saving config:', error);
+      success(`Configuration saved successfully!`, 4000);
+    } catch (err) {
+      error(`Failed to save configuration: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error saving config:', err);
     } finally {
       setSaving(false);
     }
@@ -64,13 +62,13 @@ function Configs() {
     setSaving(true);
     try {
       await configsAPI.update(selectedType, formData);
-      await configsAPI.apply(selectedType);
+      const response = await configsAPI.apply(selectedType);
       await fetchConfigs();
-      setSaveStatus('applied');
-      setTimeout(() => setSaveStatus(null), 3000);
-    } catch (error) {
-      console.error('Error applying config:', error);
-      setSaveStatus('error');
+      const restarted = response.data?.restarted || 0;
+      success(`Configuration applied and ${restarted} miner(s) restarted!`, 5000);
+    } catch (err) {
+      error(`Failed to apply configuration: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error applying config:', err);
     } finally {
       setSaving(false);
     }
@@ -87,6 +85,8 @@ function Configs() {
 
   return (
     <div className="configs">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      
       <div className="configs-header">
         <div className="header-left">
           <h2>Global Configurations</h2>
@@ -122,16 +122,6 @@ function Configs() {
         )}
 
         <div className="config-actions">
-          {saveStatus === 'success' && (
-            <div className="save-status success">✓ Configuration saved</div>
-          )}
-          {saveStatus === 'applied' && (
-            <div className="save-status success">✓ Applied and miners restarted</div>
-          )}
-          {saveStatus === 'error' && (
-            <div className="save-status error">✕ Failed to save</div>
-          )}
-          
           <div className="action-buttons">
             <button
               className="btn btn-save"

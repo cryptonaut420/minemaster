@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { minersAPI } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useToast } from '../hooks/useToast';
+import ToastContainer from './ToastContainer';
 import './Miners.css';
 
 function Miners() {
   const [miners, setMiners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const { toasts, success, error, dismissToast } = useToast();
 
   const fetchMiners = useCallback(async () => {
     try {
@@ -33,8 +36,10 @@ function Miners() {
     if (!confirm(`Restart ${name}?`)) return;
     try {
       await minersAPI.restart(id);
-    } catch (error) {
-      console.error('Error restarting miner:', error);
+      success(`Restart command sent to ${name}`, 3000);
+    } catch (err) {
+      error(`Failed to restart ${name}: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error restarting miner:', err);
     }
   };
 
@@ -42,8 +47,10 @@ function Miners() {
     if (!confirm(`Stop mining on ${name}?`)) return;
     try {
       await minersAPI.stop(id);
-    } catch (error) {
-      console.error('Error stopping miner:', error);
+      success(`Stop command sent to ${name}`, 3000);
+    } catch (err) {
+      error(`Failed to stop ${name}: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error stopping miner:', err);
     }
   };
 
@@ -51,9 +58,11 @@ function Miners() {
     if (!confirm(`Remove ${name} from the system? This won't affect the actual miner.`)) return;
     try {
       await minersAPI.delete(id);
+      success(`${name} removed from system`, 3000);
       fetchMiners();
-    } catch (error) {
-      console.error('Error deleting miner:', error);
+    } catch (err) {
+      error(`Failed to remove ${name}: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error deleting miner:', err);
     }
   };
 
@@ -104,6 +113,8 @@ function Miners() {
 
   return (
     <div className="miners">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      
       <div className="miners-header">
         <div className="header-left">
           <h2>Miners</h2>
