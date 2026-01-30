@@ -22,7 +22,8 @@ class Miner {
     this.deviceType = data.deviceType || null; // CPU, GPU
     this.algorithm = data.algorithm || null; // rx/0, kawpow, etc.
     this.hashrate = data.hashrate || null;
-    this.uptime = data.uptime || 0; // seconds
+    this.miningStartTime = data.miningStartTime || null; // ISO timestamp when mining started
+    this.uptime = data.uptime || 0; // seconds (calculated from miningStartTime)
     this.mining = data.mining !== undefined ? data.mining : false; // Is currently mining
     
     // Device states - tracks individual device status for remote control
@@ -191,6 +192,14 @@ class Miner {
   }
 
   toJSON() {
+    // Calculate uptime if currently mining
+    let calculatedUptime = this.uptime;
+    if (this.mining && this.miningStartTime) {
+      const startTime = new Date(this.miningStartTime);
+      const now = new Date();
+      calculatedUptime = Math.floor((now - startTime) / 1000); // seconds
+    }
+    
     return {
       id: this.id,
       systemId: this.systemId,
@@ -209,7 +218,8 @@ class Miner {
       deviceType: this.deviceType,
       algorithm: this.algorithm,
       hashrate: this.hashrate,
-      uptime: this.uptime,
+      miningStartTime: this.miningStartTime,
+      uptime: calculatedUptime,
       mining: this.mining,
       devices: this.devices,
       hardware: this.hardware,

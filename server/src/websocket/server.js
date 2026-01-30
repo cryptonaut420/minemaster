@@ -320,7 +320,7 @@ async function handleStatusUpdate(connectionId, data) {
           ? statusData.devices.cpu.enabled 
           : (currentMiner?.devices?.cpu?.enabled ?? true),
         running: statusData.devices.cpu?.running || false,
-        hashrate: statusData.devices.cpu?.hashrate || null,
+        hashrate: statusData.devices.cpu?.hashrate !== undefined ? statusData.devices.cpu?.hashrate : null,
         algorithm: statusData.devices.cpu?.algorithm || null
       },
       gpus: []
@@ -339,7 +339,7 @@ async function handleStatusUpdate(connectionId, data) {
             ? gpu.enabled 
             : (existingGpu?.enabled ?? true),
           running: gpu.running || false,
-          hashrate: gpu.hashrate || null,
+          hashrate: gpu.hashrate !== undefined ? gpu.hashrate : null,
           algorithm: gpu.algorithm || null
         };
       });
@@ -357,13 +357,19 @@ async function handleStatusUpdate(connectionId, data) {
     updateData.mining = anyMining;
     updateData.status = anyMining ? 'mining' : 'online';
     
-    // Update hashrate from running miners
+    // Update hashrate from running miners, or clear if none running
     const runningMiner = statusData.miners.find(m => m.running && m.hashrate);
     if (runningMiner) {
       updateData.hashrate = runningMiner.hashrate;
       updateData.algorithm = runningMiner.algorithm;
       updateData.deviceType = runningMiner.deviceType;
       updateData.currentMiner = runningMiner.type;
+    } else if (!anyMining) {
+      // No miners running - explicitly clear hashrate and related fields
+      updateData.hashrate = null;
+      updateData.algorithm = null;
+      updateData.deviceType = null;
+      updateData.currentMiner = null;
     }
     
     // Also update device states from miners array if devices not provided directly
@@ -378,7 +384,7 @@ async function handleStatusUpdate(connectionId, data) {
           // Sync enabled state from client if provided
           enabled: cpuMiner.enabled !== undefined ? cpuMiner.enabled : (devices.cpu?.enabled !== false),
           running: cpuMiner.running || false,
-          hashrate: cpuMiner.hashrate || null,
+          hashrate: cpuMiner.hashrate !== undefined ? cpuMiner.hashrate : null,
           algorithm: cpuMiner.algorithm || null
         };
       }
@@ -395,14 +401,16 @@ async function handleStatusUpdate(connectionId, data) {
               ...gpu,
               enabled: gpuEnabled,
               running: true,
-              hashrate: gpuMiner.hashrate || null,
+              hashrate: gpuMiner.hashrate !== undefined ? gpuMiner.hashrate : null,
               algorithm: gpuMiner.algorithm || null
             }));
           } else {
             devices.gpus = (devices.gpus || []).map(gpu => ({
               ...gpu,
               enabled: gpuEnabled,
-              running: false
+              running: false,
+              hashrate: null,
+              algorithm: null
             }));
           }
         } else {
@@ -423,8 +431,20 @@ async function handleStatusUpdate(connectionId, data) {
   if (devices) {
     const cpuRunning = devices.cpu?.running;
     const anyGpuRunning = devices.gpus?.some(g => g.running);
-    updateData.mining = cpuRunning || anyGpuRunning;
-    updateData.status = updateData.mining ? 'mining' : 'online';
+    const newMiningState = cpuRunning || anyGpuRunning;
+    
+    // Track mining start time for uptime calculation
+    if (newMiningState && !currentMiner?.mining) {
+      // Mining just started
+      updateData.miningStartTime = new Date().toISOString();
+    } else if (!newMiningState && currentMiner?.mining) {
+      // Mining just stopped
+      updateData.miningStartTime = null;
+      updateData.uptime = 0;
+    }
+    
+    updateData.mining = newMiningState;
+    updateData.status = newMiningState ? 'mining' : 'online';
   }
   
   const miner = await Miner.update(connection.minerId, updateData);
@@ -454,14 +474,22 @@ async function handleMiningUpdate(connectionId, data) {
       });
       
       // Update miner's current hashrate
-      await Miner.update(connection.minerId, {
+      const currentMiner = await Miner.getById(connection.minerId);
+      const updateData = {
         hashrate: hashData.hashrate,
         algorithm: hashData.algorithm,
         deviceType: hashData.deviceType,
         mining: true,
         status: 'mining',
         lastSeen: new Date().toISOString()
-      });
+      };
+      
+      // Set mining start time if not already set
+      if (!currentMiner?.miningStartTime) {
+        updateData.miningStartTime = new Date().toISOString();
+      }
+      
+      await Miner.update(connection.minerId, updateData);
     } catch (error) {
       console.error('Error recording hash rate:', error);
     }

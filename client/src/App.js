@@ -576,7 +576,7 @@ function App() {
         cpu: {
           enabled: cpuMiner?.enabled !== false,
           running: cpuMiner?.running || false,
-          hashrate: cpuMiner?.hashrate || null,
+          hashrate: cpuMiner?.running ? cpuMiner.hashrate : null,
           algorithm: cpuMiner?.config?.algorithm || null
         },
         gpus: []
@@ -601,7 +601,7 @@ function App() {
         deviceType: m.deviceType,
         running: m.running,
         enabled: m.enabled !== false,
-        hashrate: m.hashrate,
+        hashrate: m.running ? m.hashrate : null,
         algorithm: m.config.algorithm,
         coin: m.config.coin
       }));

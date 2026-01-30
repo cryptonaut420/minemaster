@@ -745,6 +745,24 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
+.device-algorithm {
+  font-size: 0.7rem;
+  color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.15);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+}
+
+.device-uptime {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
 .device-state {
   font-size: 0.7rem;
   font-weight: 600;

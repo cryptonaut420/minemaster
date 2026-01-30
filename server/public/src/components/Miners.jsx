@@ -294,8 +294,18 @@ function Miners() {
                         </div>
                         {miner.devices?.cpu?.enabled !== false && (
                           <div className="device-status">
-                            {miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate && (
-                              <span className="device-hashrate mono">{formatHashrate(miner.devices.cpu.hashrate)}</span>
+                            {miner.devices?.cpu?.running && (
+                              <>
+                                {miner.devices?.cpu?.hashrate && (
+                                  <span className="device-hashrate mono">{formatHashrate(miner.devices.cpu.hashrate)}</span>
+                                )}
+                                {miner.devices?.cpu?.algorithm && (
+                                  <span className="device-algorithm mono">{miner.devices.cpu.algorithm}</span>
+                                )}
+                                {miner.uptime && (
+                                  <span className="device-uptime">{formatUptime(miner.uptime)}</span>
+                                )}
+                              </>
                             )}
                             <span className={`device-state ${miner.devices?.cpu?.running ? 'active' : 'idle'}`}>
                               {miner.devices?.cpu?.running ? '⚡ Mining' : '⏸ Idle'}
@@ -350,10 +360,22 @@ function Miners() {
                               </div>
                               {gpusEnabled && (
                                 <div className="device-status">
-                                  {anyGpuRunning && miner.devices?.gpus?.find(g => g.hashrate) && (
-                                    <span className="device-hashrate mono">
-                                      {formatHashrate(miner.devices.gpus.find(g => g.hashrate)?.hashrate)}
-                                    </span>
+                                  {anyGpuRunning && (
+                                    <>
+                                      {miner.devices?.gpus?.find(g => g.hashrate) && (
+                                        <span className="device-hashrate mono">
+                                          {formatHashrate(miner.devices.gpus.find(g => g.hashrate)?.hashrate)}
+                                        </span>
+                                      )}
+                                      {miner.devices?.gpus?.find(g => g.algorithm) && (
+                                        <span className="device-algorithm mono">
+                                          {miner.devices.gpus.find(g => g.algorithm)?.algorithm}
+                                        </span>
+                                      )}
+                                      {miner.uptime && (
+                                        <span className="device-uptime">{formatUptime(miner.uptime)}</span>
+                                      )}
+                                    </>
                                   )}
                                   <span className={`device-state ${anyGpuRunning ? 'active' : 'idle'}`}>
                                     {anyGpuRunning ? '⚡ Mining' : '⏸ Idle'}
@@ -494,32 +516,6 @@ function Miners() {
                         <span className="hardware-value">
                           {(miner.hardware.ram.total / (1024 ** 3)).toFixed(1)} GB
                         </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-
-                {miner.status === 'mining' && (
-                  <div className="mining-stats">
-                    <div className="stat">
-                      <span className="stat-label">Hashrate</span>
-                      <span className="stat-value hashrate mono">{formatHashrate(miner.hashrate)}</span>
-                    </div>
-                    <div className="stat">
-                      <span className="stat-label">Uptime</span>
-                      <span className="stat-value">{formatUptime(miner.uptime)}</span>
-                    </div>
-                    {miner.deviceType && (
-                      <div className="stat">
-                        <span className="stat-label">Device</span>
-                        <span className="stat-value">{miner.deviceType}</span>
-                      </div>
-                    )}
-                    {miner.algorithm && (
-                      <div className="stat">
-                        <span className="stat-label">Algorithm</span>
-                        <span className="stat-value mono">{miner.algorithm}</span>
                       </div>
                     )}
                   </div>
