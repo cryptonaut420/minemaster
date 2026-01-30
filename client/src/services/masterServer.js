@@ -88,13 +88,14 @@ class MasterServerService {
 
         this.ws.onclose = () => {
           console.log('Disconnected from master server');
+          const wasBound = this.bound;
           this.connected = false;
           this.bound = false;
           this.emit('disconnected');
           this.stopHeartbeat();
           
           // Auto-reconnect if enabled
-          if (this.config?.autoReconnect) {
+          if (this.config?.autoReconnect && wasBound) {
             this.scheduleReconnect();
           }
         };
@@ -118,7 +119,11 @@ class MasterServerService {
    * Disconnect from master server
    */
   disconnect() {
-    this.config.enabled = false;
+    // Disable auto-reconnect
+    if (this.config) {
+      this.config.enabled = false;
+    }
+    
     this.stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -133,7 +138,7 @@ class MasterServerService {
   }
 
   /**
-   * Schedule reconnection attempt
+   * Schedule reconnection attempt (for auto-reconnect when bound)
    */
   scheduleReconnect() {
     if (this.reconnectTimer) {
@@ -141,11 +146,20 @@ class MasterServerService {
     }
 
     const interval = this.config?.reconnectInterval || 5000;
-    this.reconnectTimer = setTimeout(() => {
-      console.log('Attempting to reconnect to master server...');
-      this.connect().catch(err => {
+    this.reconnectTimer = setTimeout(async () => {
+      console.log('Attempting to reconnect and re-bind to master server...');
+      try {
+        await this.connect();
+        // After reconnecting, we need to re-register
+        // This will be handled by MasterServerPanel's auto-reconnect logic
+        // which calls bind() with silent=true
+      } catch (err) {
         console.error('Reconnection failed:', err);
-      });
+        // Schedule another attempt if still enabled
+        if (this.config?.autoReconnect) {
+          this.scheduleReconnect();
+        }
+      }
     }, interval);
   }
 
@@ -233,9 +247,26 @@ class MasterServerService {
   }
 
   /**
-   * Register/bind this client to the master server
+   * Bind this client to the master server (connects + registers)
    */
-  async bind(systemInfo) {
+  async bind(systemInfo, silent = false) {
+    // First ensure we're connected
+    if (!this.connected) {
+      if (!this.config) {
+        await this.loadConfig();
+      }
+      
+      if (!this.config.enabled) {
+        // Enable connection
+        this.config.enabled = true;
+        await this.saveConfig(this.config);
+      }
+      
+      // Connect to server
+      await this.connect();
+    }
+    
+    // Now register/bind
     const systemId = await getSystemId();
     
     this.send({
@@ -243,24 +274,34 @@ class MasterServerService {
       data: {
         systemId,
         systemInfo,
+        silent, // For silent re-registration on reconnect
         timestamp: Date.now()
       }
     });
+    
+    // Note: bound event will be emitted when server responds
   }
 
   /**
-   * Unbind this client from the master server
+   * Unbind this client from the master server (unregisters + disconnects)
    */
   async unbind() {
-    const systemId = await getSystemId();
+    // First unregister if bound
+    if (this.bound) {
+      const systemId = await getSystemId();
+      
+      this.send({
+        type: 'unbound',
+        data: {
+          systemId
+        }
+      });
+    }
     
-    this.send({
-      type: 'unbound',
-      data: {
-        systemId
-      }
-    });
-
+    // Then disconnect
+    this.disconnect();
+    
+    // Emit unbound event
     this.bound = false;
     this.emit('unbound');
   }

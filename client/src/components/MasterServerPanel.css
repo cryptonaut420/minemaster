@@ -52,12 +52,12 @@
   font-weight: 500;
 }
 
-.status-indicator.connected {
+.status-indicator.bound {
   background: rgba(52, 211, 153, 0.2);
   color: #34d399;
 }
 
-.status-indicator.disconnected {
+.status-indicator.unbound {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
 }

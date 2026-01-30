@@ -4,19 +4,37 @@ import './MasterServerPanel.css';
 
 function MasterServerPanel({ onBoundChange, systemInfo }) {
   const [config, setConfig] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
   const [isBound, setIsBound] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
+
+  // Handler for auto-reconnect (when connection is restored)
+  const handleAutoReconnect = async () => {
+    const wasBound = localStorage.getItem('master-server-bound') === 'true';
+    if (wasBound) {
+      console.log('[MasterServerPanel] Auto-reconnected, re-registering...');
+      // Get system info and send silent register
+      let sysInfo = systemInfo;
+      if (!sysInfo && window.electronAPI) {
+        sysInfo = await window.electronAPI.getSystemInfo();
+      }
+      if (sysInfo) {
+        try {
+          await masterServer.bind(sysInfo, true); // silent = true for reconnect
+        } catch (err) {
+          console.error('[MasterServerPanel] Auto-re-registration failed:', err);
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     const init = async () => {
       const cfg = await loadConfig();
       
       // Setup event listeners
-      masterServer.on('connected', handleConnected);
-      masterServer.on('disconnected', handleDisconnected);
+      masterServer.on('connected', handleAutoReconnect);
       masterServer.on('bound', handleBound);
       masterServer.on('unbound', handleUnbound);
       masterServer.on('error', handleError);
@@ -24,17 +42,29 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
       // Restore UI state from localStorage
       const wasBound = localStorage.getItem('master-server-bound') === 'true';
       if (wasBound && cfg?.enabled) {
-        console.log('[MasterServerPanel] Restoring UI bound state from localStorage');
+        console.log('[MasterServerPanel] Restoring bound state from localStorage');
         setIsBound(true);
-        // Don't call onBoundChange here - App already initialized from localStorage
+        // Auto-reconnect and re-register if was bound
+        try {
+          await masterServer.connect();
+          // Get system info and send silent register
+          let sysInfo = systemInfo;
+          if (!sysInfo && window.electronAPI) {
+            sysInfo = await window.electronAPI.getSystemInfo();
+          }
+          if (sysInfo) {
+            await masterServer.bind(sysInfo, true); // silent = true for reconnect
+          }
+        } catch (err) {
+          console.error('[MasterServerPanel] Auto-reconnect failed:', err);
+        }
       }
     };
     
     init();
 
     return () => {
-      masterServer.off('connected', handleConnected);
-      masterServer.off('disconnected', handleDisconnected);
+      masterServer.off('connected', handleAutoReconnect);
       masterServer.off('bound', handleBound);
       masterServer.off('unbound', handleUnbound);
       masterServer.off('error', handleError);
@@ -45,12 +75,6 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
     try {
       const cfg = await masterServer.loadConfig();
       setConfig(cfg);
-      
-      // Auto-connect if enabled
-      if (cfg.enabled) {
-        handleConnect();
-      }
-      
       return cfg;
     } catch (error) {
       console.error('Error loading config:', error);
@@ -59,53 +83,11 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
     }
   };
 
-  const handleConnected = async () => {
-    setIsConnected(true);
-    setIsConnecting(false);
-    setError(null);
-    
-    // If was previously bound, silently re-register with server
-    // Don't trigger full bind flow to avoid notification spam
-    const wasBound = localStorage.getItem('master-server-bound') === 'true';
-    if (wasBound) {
-      console.log('[MasterServerPanel] Silently re-registering on reconnect');
-      
-      // Get system info and send silent register
-      let sysInfo = systemInfo;
-      if (!sysInfo && window.electronAPI) {
-        sysInfo = await window.electronAPI.getSystemInfo();
-      }
-      
-      if (sysInfo) {
-        try {
-          const systemId = await window.electronAPI.getSystemId();
-          masterServer.send({
-            type: 'register',
-            data: {
-              systemId,
-              systemInfo: sysInfo,
-              silent: true, // Tell server this is a reconnect
-              timestamp: Date.now()
-            }
-          });
-          console.log('[MasterServerPanel] Silent re-registration sent');
-        } catch (err) {
-          console.error('[MasterServerPanel] Silent re-registration failed:', err);
-        }
-      }
-    }
-  };
-
-  const handleDisconnected = () => {
-    setIsConnected(false);
-    setIsConnecting(false);
-    setIsBound(false);
-    if (onBoundChange) onBoundChange(false);
-  };
-
   const handleBound = (data) => {
     console.log('[MasterServerPanel] handleBound called with data:', data);
     setIsBound(true);
+    setIsBinding(false);
+    setError(null);
     localStorage.setItem('master-server-bound', 'true');
     if (onBoundChange) {
       console.log('[MasterServerPanel] Calling onBoundChange(true, data)');
@@ -117,40 +99,25 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
 
   const handleUnbound = () => {
     setIsBound(false);
+    setIsBinding(false);
     localStorage.removeItem('master-server-bound');
     if (onBoundChange) onBoundChange(false);
   };
 
   const handleError = (err) => {
     setError(err.message || 'Connection error');
-    setIsConnecting(false);
-  };
-
-  const handleConnect = async () => {
-    setIsConnecting(true);
-    setError(null);
-    
-    try {
-      await masterServer.connect();
-    } catch (err) {
-      setError(err.message || 'Failed to connect');
-      setIsConnecting(false);
-    }
-  };
-
-  const handleDisconnect = () => {
-    masterServer.disconnect();
-    setIsConnected(false);
-    setIsBound(false);
-    if (onBoundChange) onBoundChange(false);
+    setIsBinding(false);
   };
 
   const handleBind = async () => {
-    if (!isConnected) {
-      setError('Not connected to master server');
+    if (!config || !config.host || !config.port) {
+      setError('Please configure host and port in settings first');
       return;
     }
 
+    setIsBinding(true);
+    setError(null);
+    
     try {
       // Get fresh system info if not available
       let sysInfo = systemInfo;
@@ -158,19 +125,26 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
         sysInfo = await window.electronAPI.getSystemInfo();
       }
       
+      // Bind will handle connection + registration
       await masterServer.bind(sysInfo);
-      localStorage.setItem('master-server-bound', 'true');
+      // Note: handleBound will be called via event listener
     } catch (err) {
-      setError(err.message || 'Failed to bind');
+      setError(err.message || 'Failed to bind to master server');
+      setIsBinding(false);
     }
   };
 
   const handleUnbind = async () => {
+    setIsBinding(true);
+    setError(null);
+    
     try {
+      // Unbind will handle unregistration + disconnection
       await masterServer.unbind();
-      localStorage.removeItem('master-server-bound');
+      // Note: handleUnbound will be called via event listener
     } catch (err) {
       setError(err.message || 'Failed to unbind');
+      setIsBinding(false);
     }
   };
 
@@ -191,10 +165,9 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
     try {
       await masterServer.saveConfig(newConfig);
       
-      if (newConfig.enabled) {
-        handleConnect();
-      } else {
-        handleDisconnect();
+      // If disabling, unbind (which will disconnect)
+      if (!newConfig.enabled && isBound) {
+        await handleUnbind();
       }
     } catch (err) {
       setError('Failed to update settings');
@@ -211,8 +184,8 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
         <div className="panel-title">
           <span className="panel-icon">🔗</span>
           <h3>Master Server</h3>
-          <div className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
-            {isConnected ? '● Connected' : '○ Disconnected'}
+          <div className={`status-indicator ${isBound ? 'bound' : 'unbound'}`}>
+            {isBound ? '● Bound' : '○ Unbound'}
           </div>
         </div>
         <button 
@@ -285,41 +258,27 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
               </>
             ) : (
               <p className="bind-info">
-                Connect and bind to allow remote management and monitoring.
+                Bind to allow remote management and monitoring from the master server.
               </p>
             )}
           </div>
 
           <div className="panel-actions">
-            {!isConnected ? (
+            {!isBound ? (
               <button
-                className="btn btn-connect"
-                onClick={handleToggleEnabled}
-                disabled={isConnecting}
+                className="btn btn-bind"
+                onClick={handleBind}
+                disabled={isBinding || !config?.host || !config?.port}
               >
-                {isConnecting ? 'Connecting...' : '🔌 Connect & Enable'}
+                {isBinding ? '⏳ Binding...' : '🔗 Bind to Master'}
               </button>
-            ) : !isBound ? (
-              <>
-                <button
-                  className="btn btn-bind"
-                  onClick={handleBind}
-                >
-                  🔗 Bind to Master
-                </button>
-                <button
-                  className="btn btn-disconnect"
-                  onClick={handleToggleEnabled}
-                >
-                  Disconnect
-                </button>
-              </>
             ) : (
               <button
                 className="btn btn-unbind"
                 onClick={handleUnbind}
+                disabled={isBinding}
               >
-                🔓 Unbind
+                {isBinding ? '⏳ Unbinding...' : '🔓 Unbind'}
               </button>
             )}
           </div>

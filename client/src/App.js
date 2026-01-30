@@ -430,7 +430,7 @@ function App() {
       boundStateInitialized.current = true;
       
       // If bound, ensure status updates are running
-      if (bound && masterServer.isConnected()) {
+      if (bound && masterServer.isBound()) {
         startStatusUpdates();
       }
       return;
@@ -461,7 +461,7 @@ function App() {
         console.log('[App] Requesting configs from server');
         // Small delay to ensure connection is fully established
         setTimeout(() => {
-          if (masterServer.isConnected()) {
+          if (masterServer.isBound()) {
             masterServer.requestConfigs();
           }
         }, 500);
@@ -506,7 +506,7 @@ function App() {
     stopStatusUpdates(); // Clear any existing interval
     
     const sendUpdate = async () => {
-      if (!masterServer.isConnected() || !masterServer.isBound()) return;
+      if (!masterServer.isBound()) return;
 
       try {
         // Get system info
