@@ -532,115 +532,116 @@ function App() {
     }
   };
 
+  // Helper to send immediate status update
+  const sendImmediateStatusUpdate = async () => {
+    if (!masterServer.isBound()) return;
+    
+    try {
+      // Get system info and stats
+      const [systemInfo, cpuStats, memoryStats, gpuStats] = window.electronAPI 
+        ? await Promise.all([
+            window.electronAPI.getSystemInfo(),
+            window.electronAPI.getCpuStats().catch(() => null),
+            window.electronAPI.getMemoryStats().catch(() => null),
+            window.electronAPI.getGpuStats().catch(() => null)
+          ])
+        : [null, null, null, null];
+      
+      // Build stats object for server
+      const stats = {
+        cpu: cpuStats ? {
+          usage: cpuStats.usage ?? null,
+          temperature: cpuStats.temperature ?? null
+        } : { usage: null, temperature: null },
+        memory: memoryStats ? {
+          used: memoryStats.used ?? null,
+          total: memoryStats.total ?? null,
+          usagePercent: memoryStats.usagePercent ?? null
+        } : { used: null, total: null, usagePercent: null },
+        gpus: gpuStats && Array.isArray(gpuStats) && gpuStats.length > 0 ? gpuStats.map(gpu => ({
+          usage: gpu.usage ?? null,
+          temperature: gpu.temperature ?? null,
+          vramUsed: gpu.vramUsed ?? null,
+          vramTotal: gpu.vramTotal ?? null
+        })) : []
+      };
+      
+      // Find CPU and GPU miners - use latest state from ref
+      const currentMiners = minersRef.current;
+      const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
+      const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
+      
+      // Build device states for the server
+      const devices = {
+        cpu: {
+          enabled: cpuMiner?.enabled !== false,
+          running: cpuMiner?.running || false,
+          hashrate: cpuMiner?.hashrate || null,
+          algorithm: cpuMiner?.config?.algorithm || null
+        },
+        gpus: []
+      };
+      
+      // Add GPU states if available
+      if (systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0) {
+        devices.gpus = systemInfo.gpus.map((gpu, idx) => ({
+          id: idx,
+          model: gpu.model || gpu.name || `GPU ${idx}`,
+          enabled: gpuMiner?.enabled !== false,
+          running: gpuMiner?.running || false,
+          hashrate: gpuMiner?.running ? gpuMiner.hashrate : null,
+          algorithm: gpuMiner?.config?.algorithm || null
+        }));
+      }
+      
+      // Collect miner statuses
+      const minerStatuses = currentMiners.map(m => ({
+        id: m.id,
+        type: m.type,
+        deviceType: m.deviceType,
+        running: m.running,
+        enabled: m.enabled !== false,
+        hashrate: m.hashrate,
+        algorithm: m.config.algorithm,
+        coin: m.config.coin
+      }));
+
+      // Send status update
+      await masterServer.sendStatusUpdate({
+        systemInfo,
+        stats,
+        miners: minerStatuses,
+        devices,
+        mining: currentMiners.some(m => m.running)
+      });
+
+      // Send hashrate updates for running miners
+      currentMiners.forEach(async (miner) => {
+        if (miner.running && miner.hashrate) {
+          await masterServer.sendHashrateUpdate({
+            minerId: miner.id,
+            deviceType: miner.deviceType,
+            algorithm: miner.config.algorithm,
+            hashrate: miner.hashrate
+          });
+        }
+      });
+      
+      console.log('[App] Status update sent');
+    } catch (error) {
+      console.error('[App] Error sending status update:', error);
+    }
+  };
+
   // Start periodic status updates to server
   const startStatusUpdates = () => {
     stopStatusUpdates(); // Clear any existing interval
     
-    const sendUpdate = async () => {
-      if (!masterServer.isBound()) return;
-
-      try {
-        // Get system info and stats
-        const [systemInfo, cpuStats, memoryStats, gpuStats] = window.electronAPI 
-          ? await Promise.all([
-              window.electronAPI.getSystemInfo(),
-              window.electronAPI.getCpuStats().catch(() => null),
-              window.electronAPI.getMemoryStats().catch(() => null),
-              window.electronAPI.getGpuStats().catch(() => null)
-            ])
-          : [null, null, null, null];
-        
-        // Build stats object for server - ALWAYS send stats, even if null
-        // Use 'gpus' key to match server expectations
-        const stats = {
-          cpu: cpuStats ? {
-            usage: cpuStats.usage ?? null,
-            temperature: cpuStats.temperature ?? null
-          } : { usage: null, temperature: null },
-          memory: memoryStats ? {
-            used: memoryStats.used ?? null,
-            total: memoryStats.total ?? null,
-            usagePercent: memoryStats.usagePercent ?? null
-          } : { used: null, total: null, usagePercent: null },
-          gpus: gpuStats && Array.isArray(gpuStats) && gpuStats.length > 0 ? gpuStats.map(gpu => ({
-            usage: gpu.usage ?? null,
-            temperature: gpu.temperature ?? null,
-            vramUsed: gpu.vramUsed ?? null,
-            vramTotal: gpu.vramTotal ?? null
-          })) : []
-        };
-        
-        
-        // Find CPU and GPU miners
-        const cpuMiner = miners.find(m => m.deviceType === 'CPU');
-        const gpuMiner = miners.find(m => m.deviceType === 'GPU');
-        
-        // Build device states for the server (include enabled state)
-        const devices = {
-          cpu: {
-            enabled: cpuMiner?.enabled !== false, // Send enabled state from client
-            running: cpuMiner?.running || false,
-            hashrate: cpuMiner?.hashrate || null,
-            algorithm: cpuMiner?.config?.algorithm || null
-          },
-          gpus: []
-        };
-        
-        // Add GPU states if available (only if GPUs are detected)
-        if (systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0) {
-          devices.gpus = systemInfo.gpus.map((gpu, idx) => ({
-            id: idx,
-            model: gpu.model || gpu.name || `GPU ${idx}`,
-            enabled: gpuMiner?.enabled !== false, // Send enabled state from client
-            running: gpuMiner?.running || false, // All GPUs share same state for now
-            hashrate: gpuMiner?.running ? gpuMiner.hashrate : null,
-            algorithm: gpuMiner?.config?.algorithm || null
-          }));
-        }
-        // Don't add GPU entry if no GPUs detected - this tells server there are no GPUs
-        
-        // Collect miner statuses (legacy format for backward compatibility)
-        const minerStatuses = miners.map(m => ({
-          id: m.id,
-          type: m.type,
-          deviceType: m.deviceType,
-          running: m.running,
-          enabled: m.enabled !== false, // Ensure boolean
-          hashrate: m.hashrate,
-          algorithm: m.config.algorithm,
-          coin: m.config.coin
-        }));
-
-        // Send status update with device states and stats
-        await masterServer.sendStatusUpdate({
-          systemInfo,
-          stats, // System stats (CPU/GPU usage, RAM, temps)
-          miners: minerStatuses,
-          devices, // New device states format
-          mining: miners.some(m => m.running)
-        });
-
-        // Send hashrate updates for running miners
-        miners.forEach(async (miner) => {
-          if (miner.running && miner.hashrate) {
-            await masterServer.sendHashrateUpdate({
-              minerId: miner.id,
-              deviceType: miner.deviceType,
-              algorithm: miner.config.algorithm,
-              hashrate: miner.hashrate
-            });
-          }
-        });
-      } catch (error) {
-        console.error('[Master] Error sending status update:', error);
-      }
-    };
-
     // Send immediately
-    sendUpdate();
+    sendImmediateStatusUpdate();
     
-    // Then every 10 seconds
-    statusUpdateInterval.current = setInterval(sendUpdate, 10000);
+    // Then every 5 seconds for responsive updates
+    statusUpdateInterval.current = setInterval(sendImmediateStatusUpdate, 5000);
   };
 
   // Stop periodic status updates
@@ -743,6 +744,9 @@ function App() {
           } : m
         ));
         addNotification(`${miner.name} started successfully`, 'success');
+        
+        // Send immediate status update to master server
+        setTimeout(sendImmediateStatusUpdate, 500);
       } else {
         setMiners(prev => prev.map(m => 
           m.id === minerId ? { 
@@ -789,6 +793,9 @@ function App() {
         const message = result.message || `${miner.name} stopped successfully`;
         const type = message.includes('force killed') ? 'warning' : 'success';
         addNotification(message, type);
+        
+        // Send immediate status update to master server
+        setTimeout(sendImmediateStatusUpdate, 500);
       } else {
         setMiners(prev => prev.map(m => 
           m.id === minerId ? { ...m, loading: false, running: false } : m
@@ -853,6 +860,9 @@ function App() {
     setMiners(prev => prev.map(m =>
       m.id === minerId ? { ...m, enabled: newEnabledState } : m
     ));
+    
+    // Send immediate status update to master server after toggle
+    setTimeout(sendImmediateStatusUpdate, 100);
     
     // Prevent enabling GPU if no GPU detected (validate async in background)
     if (miner.deviceType === 'GPU' && newEnabledState) {

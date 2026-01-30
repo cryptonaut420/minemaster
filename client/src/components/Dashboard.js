@@ -11,10 +11,6 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
     return cached ? JSON.parse(cached) : null;
   });
   const [systemStats, setSystemStats] = useState(null);
-  
-  // Track previous enabled states to detect changes
-  const prevEnabledRef = useRef({ cpu: true, gpu: true });
-  const firstSyncRef = useRef(true); // Track if this is the first sync
 
   useEffect(() => {
     // Load system info initially and re-fetch after 3 seconds to get GPU model
@@ -79,99 +75,8 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
     };
   }, []);
 
-  // Send system stats to master server when bound
-  useEffect(() => {
-    if (!isBoundToMaster || !masterServer.isBound()) {
-      return;
-    }
-
-    // Reset first sync flag when binding changes
-    firstSyncRef.current = true;
-    let mounted = true;
-    
-    const sendStats = async () => {
-      if (!mounted || !systemStats) return;
-      
-      try {
-        // Prepare device states from miners
-        const cpuMiner = miners.find(m => m.deviceType === 'CPU');
-        const gpuMiner = miners.find(m => m.deviceType === 'GPU');
-        
-        const currentCpuEnabled = cpuMiner?.enabled !== false;
-        const currentGpuEnabled = gpuMiner?.enabled !== false;
-        
-        // Check if this is the first sync or if states changed
-        const cpuChanged = firstSyncRef.current || prevEnabledRef.current.cpu !== currentCpuEnabled;
-        const gpuChanged = firstSyncRef.current || prevEnabledRef.current.gpu !== currentGpuEnabled;
-        
-        const devices = {
-          cpu: {
-            // Send enabled on first sync or if it changed
-            ...(cpuChanged ? { enabled: currentCpuEnabled } : {}),
-            running: cpuMiner?.running || false,
-            hashrate: cpuMiner?.hashrate || null,
-            algorithm: cpuMiner?.config?.algorithm || null
-          },
-          gpus: systemStats.gpu && Array.isArray(systemStats.gpu) 
-            ? systemStats.gpu.map((gpu, idx) => ({
-                id: idx,
-                model: systemInfo?.gpus?.[idx]?.model || `GPU ${idx}`,
-                // Send enabled on first sync or if it changed (same for all GPUs)
-                ...(gpuChanged ? { enabled: currentGpuEnabled } : {}),
-                running: gpuMiner?.running || false,
-                hashrate: gpuMiner?.running ? gpuMiner?.hashrate : null,
-                algorithm: gpuMiner?.config?.algorithm || null
-              }))
-            : []
-        };
-        
-        // Mark first sync as complete and update previous enabled states
-        firstSyncRef.current = false;
-        prevEnabledRef.current = {
-          cpu: currentCpuEnabled,
-          gpu: currentGpuEnabled
-        };
-        
-        // Send status update with system stats (normalize gpu -> gpus for server)
-        const normalizedStats = {
-          cpu: systemStats.cpu,
-          memory: systemStats.memory,
-          gpus: systemStats.gpu // Server expects 'gpus' plural
-        };
-        
-        await masterServer.sendStatusUpdate({
-          stats: normalizedStats,
-          systemInfo: systemInfo,
-          devices: devices,
-          miners: miners.map(m => ({
-            type: m.type,
-            deviceType: m.deviceType,
-            enabled: m.enabled,
-            running: m.running,
-            hashrate: m.hashrate,
-            algorithm: m.config?.algorithm
-          }))
-        });
-        
-        console.log('[Dashboard] Sent system stats to master server');
-      } catch (e) {
-        console.error('[Dashboard] Failed to send stats to master server:', e);
-      }
-    };
-    
-    // Send stats every 5 seconds when bound
-    const interval = setInterval(sendStats, 5000);
-    
-    // Send immediately on mount if already have stats
-    if (systemStats) {
-      sendStats();
-    }
-    
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [isBoundToMaster, systemStats, systemInfo, miners]);
+  // Note: Status updates to master server are handled in App.js
+  // This component only collects local system stats for display
 
   // Force disable GPU miner if no GPU detected
   useEffect(() => {
