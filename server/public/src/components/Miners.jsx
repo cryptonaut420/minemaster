@@ -237,7 +237,11 @@ function Miners() {
                   </div>
                   <div className="info-item">
                     <span className="info-label">IP Address</span>
-                    <span className="info-value mono">{miner.ip}</span>
+                    <span className="info-value mono">{miner.ip !== 'unknown' ? miner.ip : '—'}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">MAC Address</span>
+                    <span className="info-value mono">{miner.systemId || '—'}</span>
                   </div>
                   <div className="info-item">
                     <span className="info-label">OS</span>
@@ -248,6 +252,45 @@ function Miners() {
                     <span className="info-value">{miner.version}</span>
                   </div>
                 </div>
+                
+                {/* System Stats - Compact inline display */}
+                {miner.stats && (
+                  <div className="system-stats-compact">
+                    {miner.stats.cpu?.usage != null ? (
+                      <span className="stat-badge">
+                        CPU: {Math.round(miner.stats.cpu.usage)}%
+                        {miner.stats.cpu.temperature != null && (
+                          <span className="stat-temp"> {Math.round(miner.stats.cpu.temperature)}°C</span>
+                        )}
+                      </span>
+                    ) : null}
+                    {miner.stats.memory?.usagePercent != null ? (
+                      <span className="stat-badge">
+                        RAM: {Math.round(miner.stats.memory.usagePercent)}%
+                        {miner.stats.memory.used != null && miner.stats.memory.total != null && (
+                          <span className="stat-ram-detail">
+                            {' '}({(miner.stats.memory.used / (1024 ** 3)).toFixed(1)}/{(miner.stats.memory.total / (1024 ** 3)).toFixed(1)} GB)
+                          </span>
+                        )}
+                      </span>
+                    ) : null}
+                    {miner.stats.gpus && miner.stats.gpus.length > 0 && miner.stats.gpus.map((gpu, idx) => 
+                      gpu?.usage != null && (
+                        <span key={idx} className="stat-badge">
+                          GPU{idx}: {Math.round(gpu.usage)}%
+                          {gpu.temperature != null && (
+                            <span className="stat-temp"> {Math.round(gpu.temperature)}°C</span>
+                          )}
+                          {gpu.vramUsed != null && gpu.vramTotal != null && (
+                            <span className="stat-vram">
+                              {' '}VRAM: {(gpu.vramUsed / 1024).toFixed(1)}/{(gpu.vramTotal / 1024).toFixed(1)} GB
+                            </span>
+                          )}
+                        </span>
+                      )
+                    )}
+                  </div>
+                )}
 
                 {/* Device Controls Section */}
                 {miner.bound && (miner.status === 'online' || miner.status === 'mining') && (
@@ -291,33 +334,57 @@ function Miners() {
                     )}
                     
                     {/* GPU Devices */}
-                    {miner.hardware?.gpus && miner.hardware.gpus.length > 0 ? (
+                    {miner.hardware?.gpus && 
+                     Array.isArray(miner.hardware.gpus) && 
+                     miner.hardware.gpus.length > 0 &&
+                     miner.hardware.gpus.some(gpu => gpu && (gpu.model || gpu.name)) ? (
                       <>
                         {miner.hardware.gpus.map((gpu, idx) => {
                           const gpuState = miner.devices?.gpus?.[idx] || { enabled: true, running: false };
+                          // Check if this GPU actually exists and is valid
+                          const hasGpu = gpu && 
+                                         (gpu.model || gpu.name) &&
+                                         !gpu.model?.toLowerCase().includes('no gpu') &&
+                                         !gpu.name?.toLowerCase().includes('no gpu');
+                          const isDisabled = !miner.bound || 
+                                            miner.status === 'offline' || 
+                                            !hasGpu;
+                          
                           return (
-                            <div key={idx} className={`device-row ${gpuState?.running ? 'running' : ''}`}>
+                            <div key={idx} className={`device-row ${gpuState?.running ? 'running' : ''} ${!hasGpu ? 'no-gpu' : ''}`}>
                               <div className="device-main">
                                 <label className="toggle-switch">
                                   <input
                                     type="checkbox"
-                                    checked={gpuState.enabled !== false}
-                                    onChange={() => handleToggleGpu(miner.id, miner.name, gpuState.enabled !== false, idx)}
-                                    disabled={!miner.bound || miner.status === 'offline'}
+                                    checked={hasGpu ? (gpuState.enabled !== false) : false}
+                                    onChange={() => {
+                                      if (!hasGpu) {
+                                        return; // Prevent toggle if no GPU
+                                      }
+                                      handleToggleGpu(miner.id, miner.name, gpuState.enabled !== false, idx);
+                                    }}
+                                    disabled={isDisabled}
+                                    title={!hasGpu ? 'No GPU detected' : undefined}
                                   />
                                   <span className="toggle-slider"></span>
                                 </label>
                                 <div className="device-info">
                                   <div className="device-header-row">
                                     <span className="device-icon">🎮</span>
-                                    <span className="device-name">GPU {idx}</span>
+                                    <span className="device-name">
+                                      {hasGpu ? `GPU ${idx}` : 'No GPU detected'}
+                                    </span>
                                   </div>
                                   <div className="device-details">
-                                    <span className="device-model">{gpu.model || gpu.name || `GPU ${idx}`}</span>
+                                    {hasGpu ? (
+                                      <span className="device-model">{gpu.model || gpu.name || `GPU ${idx}`}</span>
+                                    ) : (
+                                      <span className="device-model no-gpu-text">GPU mining unavailable</span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
-                              {gpuState.enabled !== false && (
+                              {hasGpu && gpuState.enabled !== false && (
                                 <div className="device-status">
                                   {gpuState?.running && gpuState?.hashrate && (
                                     <span className="device-hashrate mono">{formatHashrate(gpuState.hashrate)}</span>

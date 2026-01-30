@@ -10,9 +10,14 @@ function initialize(webSocketServer) {
   
   wss.on('connection', (ws, req) => {
     const connectionId = uuidv4();
-    console.log(`[WebSocket] New connection: ${connectionId}`);
+    // Extract IP address from request
+    const ip = req.socket.remoteAddress || 
+               req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+               req.connection?.remoteAddress || 
+               'unknown';
+    console.log(`[WebSocket] New connection: ${connectionId} from ${ip}`);
     
-    connections.set(connectionId, { ws, minerId: null });
+    connections.set(connectionId, { ws, minerId: null, ip });
     
     // Send connection ID to client
     ws.send(JSON.stringify({
@@ -94,7 +99,11 @@ async function handleRegister(connectionId, data) {
   const {systemId, systemInfo, silent } = data.data || data;
   const Config = require('../models/Config');
   
-  console.log('[WebSocket] Registration data:', { systemId, silent });
+  // Get IP from connection
+  const connection = connections.get(connectionId);
+  const ip = connection?.ip || 'unknown';
+  
+  console.log('[WebSocket] Registration data:', { systemId, silent, ip });
   
   // Find or create miner by systemId (MAC address)
   let miner = await Miner.getBySystemId(systemId);
@@ -102,6 +111,11 @@ async function handleRegister(connectionId, data) {
   // Extract system details
   const hostname = systemInfo?.hostname || systemInfo?.os?.hostname || 'unknown';
   const platform = systemInfo?.platform || systemInfo?.os?.platform || 'unknown';
+  // Get full OS name if available
+  const osName = systemInfo?.os?.distro || 
+                 systemInfo?.os?.release || 
+                 systemInfo?.os?.name || 
+                 platform;
   const cpuInfo = systemInfo?.cpu || systemInfo?.hardware?.cpu || null;
   const gpuInfo = systemInfo?.gpus || systemInfo?.gpu?.controllers || [];
   const memoryInfo = systemInfo?.memory || systemInfo?.mem || null;
@@ -153,8 +167,8 @@ async function handleRegister(connectionId, data) {
       systemId,
       name: hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`,
       hostname,
-      ip: 'unknown', // Will be updated from connection
-      os: platform,
+      ip: ip,
+      os: osName,
       version: '1.0.0',
       hardware: {
         cpu: cpuInfo,
@@ -178,7 +192,8 @@ async function handleRegister(connectionId, data) {
       status: 'online',
       bound: true,
       systemInfo,
-      lastSeen: new Date().toISOString()
+      lastSeen: new Date().toISOString(),
+      ip: ip // Update IP address
     };
     
     // Update hostname if available
@@ -188,8 +203,8 @@ async function handleRegister(connectionId, data) {
     }
     
     // Update OS if available
-    if (platform !== 'unknown') {
-      updateData.os = platform;
+    if (osName !== 'unknown') {
+      updateData.os = osName;
     }
     
     // Update hardware info
@@ -229,8 +244,9 @@ async function handleRegister(connectionId, data) {
   // Get global configs
   const configs = await Config.getAll();
   
-  // For silent reconnects, send simple ack without triggering client-side bind event
-  if (silent || isReconnect) {
+  // Only send 'registered' for silent auto-reconnects
+  // If silent is false, it's an explicit bind action, so always send 'bound'
+  if (silent) {
     sendToConnection(connectionId, {
       type: 'registered',
       data: {
@@ -240,7 +256,7 @@ async function handleRegister(connectionId, data) {
     });
     console.log(`[WebSocket] Silent registration complete for ${miner.name}`);
   } else {
-    // For new binds, send full bound response
+    // For explicit binds (user clicked Bind button), always send 'bound'
     sendToConnection(connectionId, {
       type: 'bound',
       data: {
@@ -248,7 +264,7 @@ async function handleRegister(connectionId, data) {
         configs
       }
     });
-    console.log(`[WebSocket] New bind complete for ${miner.name}`);
+    console.log(`[WebSocket] Bind complete for ${miner.name} (${isReconnect ? 'reconnect' : 'new'})`);
   }
   
   // Broadcast to all dashboard clients
@@ -277,6 +293,12 @@ async function handleStatusUpdate(connectionId, data) {
       gpus: statusData.systemInfo.gpus || [],
       ram: statusData.systemInfo.memory || null
     };
+  }
+  
+  // Update system stats (CPU/GPU usage, RAM, temps) - ALWAYS update if provided
+  if (statusData.stats !== undefined) {
+    // Store stats exactly as received from client
+    updateData.stats = statusData.stats;
   }
   
   // Update device states from client status

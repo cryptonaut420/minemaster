@@ -509,8 +509,36 @@ function App() {
       if (!masterServer.isBound()) return;
 
       try {
-        // Get system info
-        const systemInfo = window.electronAPI ? await window.electronAPI.getSystemInfo() : null;
+        // Get system info and stats
+        const [systemInfo, cpuStats, memoryStats, gpuStats] = window.electronAPI 
+          ? await Promise.all([
+              window.electronAPI.getSystemInfo(),
+              window.electronAPI.getCpuStats().catch(() => null),
+              window.electronAPI.getMemoryStats().catch(() => null),
+              window.electronAPI.getGpuStats().catch(() => null)
+            ])
+          : [null, null, null, null];
+        
+        // Build stats object for server - ALWAYS send stats, even if null
+        // Use 'gpus' key to match server expectations
+        const stats = {
+          cpu: cpuStats ? {
+            usage: cpuStats.usage ?? null,
+            temperature: cpuStats.temperature ?? null
+          } : { usage: null, temperature: null },
+          memory: memoryStats ? {
+            used: memoryStats.used ?? null,
+            total: memoryStats.total ?? null,
+            usagePercent: memoryStats.usagePercent ?? null
+          } : { used: null, total: null, usagePercent: null },
+          gpus: gpuStats && Array.isArray(gpuStats) && gpuStats.length > 0 ? gpuStats.map(gpu => ({
+            usage: gpu.usage ?? null,
+            temperature: gpu.temperature ?? null,
+            vramUsed: gpu.vramUsed ?? null,
+            vramTotal: gpu.vramTotal ?? null
+          })) : []
+        };
+        
         
         // Find CPU and GPU miners
         const cpuMiner = miners.find(m => m.deviceType === 'CPU');
@@ -552,9 +580,10 @@ function App() {
           coin: m.config.coin
         }));
 
-        // Send status update with device states
+        // Send status update with device states and stats
         await masterServer.sendStatusUpdate({
           systemInfo,
+          stats, // System stats (CPU/GPU usage, RAM, temps)
           miners: minerStatuses,
           devices, // New device states format
           mining: miners.some(m => m.running)
@@ -590,6 +619,29 @@ function App() {
       statusUpdateInterval.current = null;
     }
   };
+
+  // Start status updates when server confirms we're registered/bound
+  useEffect(() => {
+    const handleServerReady = () => {
+      console.log('[App] Server confirmed registration - starting status updates');
+      startStatusUpdates();
+    };
+
+    masterServer.on('bound', handleServerReady);
+    masterServer.on('registered', handleServerReady);
+
+    // If already bound, start updates immediately
+    if (masterServer.isBound()) {
+      console.log('[App] Already bound on mount - starting status updates');
+      startStatusUpdates();
+    }
+
+    return () => {
+      masterServer.off('bound', handleServerReady);
+      masterServer.off('registered', handleServerReady);
+      stopStatusUpdates();
+    };
+  }, []); // Run once on mount
 
   // Notification helper
   const addNotification = (message, type = 'info') => {

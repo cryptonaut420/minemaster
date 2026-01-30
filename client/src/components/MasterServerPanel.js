@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { masterServer } from '../services/masterServer';
 import './MasterServerPanel.css';
 
@@ -8,6 +8,7 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
   const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
+  const bindTimeoutRef = useRef(null);
 
   // Handler for auto-reconnect (when connection is restored)
   const handleAutoReconnect = async () => {
@@ -85,6 +86,13 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
 
   const handleBound = (data) => {
     console.log('[MasterServerPanel] handleBound called with data:', data);
+    
+    // Clear bind timeout if it exists
+    if (bindTimeoutRef.current) {
+      clearTimeout(bindTimeoutRef.current);
+      bindTimeoutRef.current = null;
+    }
+    
     setIsBound(true);
     setIsBinding(false);
     setError(null);
@@ -115,8 +123,25 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
       return;
     }
 
+    // Clear any existing timeout
+    if (bindTimeoutRef.current) {
+      clearTimeout(bindTimeoutRef.current);
+    }
+
     setIsBinding(true);
     setError(null);
+    
+    // Set a timeout to prevent infinite "Binding..." state
+    bindTimeoutRef.current = setTimeout(() => {
+      setIsBinding(prev => {
+        if (prev) {
+          setError('Bind timeout - server did not respond. Please check your connection and try again.');
+          return false;
+        }
+        return prev;
+      });
+      bindTimeoutRef.current = null;
+    }, 10000); // 10 second timeout
     
     try {
       // Get fresh system info if not available
@@ -127,8 +152,16 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
       
       // Bind will handle connection + registration
       await masterServer.bind(sysInfo);
-      // Note: handleBound will be called via event listener
+      // Note: handleBound will be called via event listener, which will clear isBinding
+      if (bindTimeoutRef.current) {
+        clearTimeout(bindTimeoutRef.current);
+        bindTimeoutRef.current = null;
+      }
     } catch (err) {
+      if (bindTimeoutRef.current) {
+        clearTimeout(bindTimeoutRef.current);
+        bindTimeoutRef.current = null;
+      }
       setError(err.message || 'Failed to bind to master server');
       setIsBinding(false);
     }

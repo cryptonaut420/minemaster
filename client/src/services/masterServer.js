@@ -217,9 +217,10 @@ class MasterServerService {
           break;
         case 'registered':
           // Silent registration acknowledgment (reconnect)
-          // Update internal state but don't emit bound event to avoid notification spam
+          // Update internal state and emit registered event (not bound to avoid notification spam)
           this.bound = true;
           console.log('Silently registered/reconnected to server');
+          this.emit('registered', message.data);
           break;
         case 'unbound':
           this.bound = false;

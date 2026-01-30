@@ -46,6 +46,10 @@ class Miner {
     // Detailed system info from client
     this.systemInfo = data.systemInfo || null;
     
+    // System stats (CPU/GPU usage, RAM, temps) - updated from client status updates
+    // Preserve stats exactly as they come from the database/client
+    this.stats = data.stats || null;
+    
     // Connection info
     this.connectionId = data.connectionId || null; // WebSocket connection ID
   }
@@ -210,6 +214,7 @@ class Miner {
       devices: this.devices,
       hardware: this.hardware,
       systemInfo: this.systemInfo,
+      stats: this.stats,
       connectionId: this.connectionId
     };
   }
