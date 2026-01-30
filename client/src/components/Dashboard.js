@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import './Dashboard.css';
 import { formatHashrate, formatBytes, formatTemp, formatPercent } from '../utils/formatters';
 import MasterServerPanel from './MasterServerPanel';
+import { masterServer } from '../services/masterServer';
 
 function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMaster, onBoundChange }) {
   const [systemInfo, setSystemInfo] = useState(() => {
@@ -10,6 +11,10 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
     return cached ? JSON.parse(cached) : null;
   });
   const [systemStats, setSystemStats] = useState(null);
+  
+  // Track previous enabled states to detect changes
+  const prevEnabledRef = useRef({ cpu: true, gpu: true });
+  const firstSyncRef = useRef(true); // Track if this is the first sync
 
   useEffect(() => {
     // Load system info initially and re-fetch after 3 seconds to get GPU model
@@ -74,6 +79,100 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
     };
   }, []);
 
+  // Send system stats to master server when bound
+  useEffect(() => {
+    if (!isBoundToMaster || !masterServer.isBound()) {
+      return;
+    }
+
+    // Reset first sync flag when binding changes
+    firstSyncRef.current = true;
+    let mounted = true;
+    
+    const sendStats = async () => {
+      if (!mounted || !systemStats) return;
+      
+      try {
+        // Prepare device states from miners
+        const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+        const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+        
+        const currentCpuEnabled = cpuMiner?.enabled !== false;
+        const currentGpuEnabled = gpuMiner?.enabled !== false;
+        
+        // Check if this is the first sync or if states changed
+        const cpuChanged = firstSyncRef.current || prevEnabledRef.current.cpu !== currentCpuEnabled;
+        const gpuChanged = firstSyncRef.current || prevEnabledRef.current.gpu !== currentGpuEnabled;
+        
+        const devices = {
+          cpu: {
+            // Send enabled on first sync or if it changed
+            ...(cpuChanged ? { enabled: currentCpuEnabled } : {}),
+            running: cpuMiner?.running || false,
+            hashrate: cpuMiner?.hashrate || null,
+            algorithm: cpuMiner?.config?.algorithm || null
+          },
+          gpus: systemStats.gpu && Array.isArray(systemStats.gpu) 
+            ? systemStats.gpu.map((gpu, idx) => ({
+                id: idx,
+                model: systemInfo?.gpus?.[idx]?.model || `GPU ${idx}`,
+                // Send enabled on first sync or if it changed (same for all GPUs)
+                ...(gpuChanged ? { enabled: currentGpuEnabled } : {}),
+                running: gpuMiner?.running || false,
+                hashrate: gpuMiner?.running ? gpuMiner?.hashrate : null,
+                algorithm: gpuMiner?.config?.algorithm || null
+              }))
+            : []
+        };
+        
+        // Mark first sync as complete and update previous enabled states
+        firstSyncRef.current = false;
+        prevEnabledRef.current = {
+          cpu: currentCpuEnabled,
+          gpu: currentGpuEnabled
+        };
+        
+        // Send status update with system stats (normalize gpu -> gpus for server)
+        const normalizedStats = {
+          cpu: systemStats.cpu,
+          memory: systemStats.memory,
+          gpus: systemStats.gpu // Server expects 'gpus' plural
+        };
+        
+        await masterServer.sendStatusUpdate({
+          stats: normalizedStats,
+          systemInfo: systemInfo,
+          devices: devices,
+          miners: miners.map(m => ({
+            type: m.type,
+            deviceType: m.deviceType,
+            enabled: m.enabled,
+            running: m.running,
+            hashrate: m.hashrate,
+            algorithm: m.config?.algorithm
+          }))
+        });
+        
+        console.log('[Dashboard] Sent system stats to master server');
+      } catch (e) {
+        console.error('[Dashboard] Failed to send stats to master server:', e);
+      }
+    };
+    
+    // Send stats every 5 seconds when bound
+    const interval = setInterval(sendStats, 5000);
+    
+    // Send immediately on mount if already have stats
+    if (systemStats) {
+      sendStats();
+    }
+    
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [isBoundToMaster, systemStats, systemInfo, miners]);
+
   // Force disable GPU miner if no GPU detected
   useEffect(() => {
     if (!systemInfo) return;
@@ -99,33 +198,35 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
     }
   }, [systemInfo, miners]);
 
-  const anyRunning = miners.some(m => m.running);
-  const anyLoading = miners.some(m => m.loading);
-  const enabledMiners = miners.filter(m => m.enabled !== false);
+  // Memoize expensive calculations to prevent lag
+  const anyRunning = useMemo(() => miners.some(m => m.running), [miners]);
+  const anyLoading = useMemo(() => miners.some(m => m.loading), [miners]);
+  const enabledMiners = useMemo(() => miners.filter(m => m.enabled !== false), [miners]);
   
-  // Check if GPUs are detected - be very explicit
-  // A GPU is considered valid if:
-  // 1. gpus array exists and has length > 0
-  // 2. At least one GPU has a valid model (not "No GPU detected" or empty)
-  const hasGpu = systemInfo?.gpus && 
-                 Array.isArray(systemInfo.gpus) && 
-                 systemInfo.gpus.length > 0 &&
-                 systemInfo.gpus.some(gpu => {
-                   if (!gpu) return false;
-                   const model = (gpu.model || gpu.name || '').toLowerCase();
-                   // Exclude "no gpu detected" or empty models
-                   return model && 
-                          !model.includes('no gpu') && 
-                          !model.includes('detected') &&
-                          model.trim().length > 0;
-                 });
-  
-  console.log('[Dashboard] GPU detection check:', { 
-    hasGpu, 
-    gpus: systemInfo?.gpus, 
-    gpuLength: systemInfo?.gpus?.length,
-    gpuModels: systemInfo?.gpus?.map(g => g?.model || g?.name)
-  });
+  // Check if GPUs are detected - memoized to only recalculate when systemInfo changes
+  const hasGpu = useMemo(() => {
+    const result = systemInfo?.gpus && 
+                   Array.isArray(systemInfo.gpus) && 
+                   systemInfo.gpus.length > 0 &&
+                   systemInfo.gpus.some(gpu => {
+                     if (!gpu) return false;
+                     const model = (gpu.model || gpu.name || '').toLowerCase();
+                     // Exclude "no gpu detected" or empty models
+                     return model && 
+                            !model.includes('no gpu') && 
+                            !model.includes('detected') &&
+                            model.trim().length > 0;
+                   });
+    
+    console.log('[Dashboard] GPU detection check:', { 
+      hasGpu: result, 
+      gpus: systemInfo?.gpus, 
+      gpuLength: systemInfo?.gpus?.length,
+      gpuModels: systemInfo?.gpus?.map(g => g?.model || g?.name)
+    });
+    
+    return result;
+  }, [systemInfo]);
 
   return (
     <div className="dashboard">
@@ -133,6 +234,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
       <MasterServerPanel 
         systemInfo={systemInfo} 
         onBoundChange={onBoundChange}
+        miners={miners}
       />
       
       {/* Main Control Section */}
@@ -160,66 +262,28 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
                 <div className="device-main">
                   <label 
                     className="toggle-switch" 
-                    style={{ pointerEvents: shouldDisable ? 'none' : 'auto', cursor: shouldDisable ? 'not-allowed' : 'pointer' }}
-                    onMouseDown={(e) => {
-                      if (shouldDisable) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return false;
-                      }
-                    }}
-                    onClick={(e) => {
-                      if (shouldDisable) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('[Dashboard] BLOCKED label click - no GPU');
-                        return false;
-                      }
+                    style={{ 
+                      pointerEvents: shouldDisable ? 'none' : 'auto', 
+                      cursor: shouldDisable ? 'not-allowed' : 'pointer' 
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={shouldDisable ? false : (miner.enabled !== false)}
                       onChange={(e) => {
-                        console.log('[Dashboard] onChange fired for', miner.id, 'shouldDisable:', shouldDisable, 'hasGpu:', hasGpu);
-                        
-                        // CRITICAL: Always prevent default and check condition FIRST
-                        e.preventDefault();
-                        e.stopPropagation();
-                        
-                        // If disabled, NEVER call the callback
+                        // If disabled, don't call the callback
                         if (shouldDisable) {
-                          console.log('[Dashboard] BLOCKED - No GPU detected, not calling onToggleDevice');
-                          return false;
+                          e.preventDefault();
+                          return;
                         }
                         
-                        // Only call callback if NOT disabled
-                        console.log('[Dashboard] Allowing toggle for', miner.id);
+                        // Let the checkbox update naturally, just call our handler
                         onToggleDevice(miner.id);
                       }}
-                      onMouseDown={(e) => {
-                        if (shouldDisable) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          console.log('[Dashboard] BLOCKED mousedown');
-                          return false;
-                        }
-                      }}
-                      onClick={(e) => {
-                        if (shouldDisable) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          console.log('[Dashboard] BLOCKED click');
-                          return false;
-                        }
-                      }}
                       disabled={shouldDisable}
-                      readOnly={shouldDisable}
                       tabIndex={shouldDisable ? -1 : 0}
                       style={{ 
-                        pointerEvents: shouldDisable ? 'none' : 'auto', 
                         cursor: shouldDisable ? 'not-allowed' : 'pointer',
-                        userSelect: 'none'
                       }}
                       title={shouldDisable ? 'No GPU detected' : 'Toggle mining'}
                     />

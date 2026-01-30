@@ -2,13 +2,40 @@ import React, { useState, useEffect, useRef } from 'react';
 import { masterServer } from '../services/masterServer';
 import './MasterServerPanel.css';
 
-function MasterServerPanel({ onBoundChange, systemInfo }) {
+function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
   const [config, setConfig] = useState(null);
   const [isBound, setIsBound] = useState(false);
   const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
   const bindTimeoutRef = useRef(null);
+
+  // Helper function to build device states from miners
+  const getDeviceStatesFromMiners = () => {
+    if (!miners || miners.length === 0) return null;
+    
+    const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+    const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+    
+    return {
+      cpu: {
+        enabled: cpuMiner?.enabled !== false,
+        running: cpuMiner?.running || false,
+        hashrate: cpuMiner?.hashrate || null,
+        algorithm: cpuMiner?.config?.algorithm || null
+      },
+      gpus: systemInfo?.gpus && Array.isArray(systemInfo.gpus)
+        ? systemInfo.gpus.map((gpu, idx) => ({
+            id: idx,
+            model: gpu.model || `GPU ${idx}`,
+            enabled: gpuMiner?.enabled !== false,
+            running: gpuMiner?.running || false,
+            hashrate: gpuMiner?.hashrate || null,
+            algorithm: gpuMiner?.config?.algorithm || null
+          }))
+        : []
+    };
+  };
 
   // Handler for auto-reconnect (when connection is restored)
   const handleAutoReconnect = async () => {
@@ -22,7 +49,8 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
       }
       if (sysInfo) {
         try {
-          await masterServer.bind(sysInfo, true); // silent = true for reconnect
+          const devices = getDeviceStatesFromMiners();
+          await masterServer.bind(sysInfo, true, devices); // silent = true for reconnect
         } catch (err) {
           console.error('[MasterServerPanel] Auto-re-registration failed:', err);
         }
@@ -54,7 +82,8 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
             sysInfo = await window.electronAPI.getSystemInfo();
           }
           if (sysInfo) {
-            await masterServer.bind(sysInfo, true); // silent = true for reconnect
+            const devices = getDeviceStatesFromMiners();
+            await masterServer.bind(sysInfo, true, devices); // silent = true for reconnect
           }
         } catch (err) {
           console.error('[MasterServerPanel] Auto-reconnect failed:', err);
@@ -150,8 +179,11 @@ function MasterServerPanel({ onBoundChange, systemInfo }) {
         sysInfo = await window.electronAPI.getSystemInfo();
       }
       
+      // Get current device states from miners
+      const devices = getDeviceStatesFromMiners();
+      
       // Bind will handle connection + registration
-      await masterServer.bind(sysInfo);
+      await masterServer.bind(sysInfo, false, devices);
       // Note: handleBound will be called via event listener, which will clear isBinding
       if (bindTimeoutRef.current) {
         clearTimeout(bindTimeoutRef.current);

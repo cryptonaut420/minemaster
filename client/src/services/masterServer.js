@@ -250,7 +250,7 @@ class MasterServerService {
   /**
    * Bind this client to the master server (connects + registers)
    */
-  async bind(systemInfo, silent = false) {
+  async bind(systemInfo, silent = false, devices = null) {
     // First ensure we're connected
     if (!this.connected) {
       if (!this.config) {
@@ -270,14 +270,21 @@ class MasterServerService {
     // Now register/bind
     const systemId = await getSystemId();
     
+    const registrationData = {
+      systemId,
+      systemInfo,
+      silent, // For silent re-registration on reconnect
+      timestamp: Date.now()
+    };
+    
+    // Include device states if provided (so server knows current enabled states)
+    if (devices) {
+      registrationData.devices = devices;
+    }
+    
     this.send({
       type: 'register',
-      data: {
-        systemId,
-        systemInfo,
-        silent, // For silent re-registration on reconnect
-        timestamp: Date.now()
-      }
+      data: registrationData
     });
     
     // Note: bound event will be emitted when server responds

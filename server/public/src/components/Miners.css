@@ -635,6 +635,91 @@
   width: 100%;
 }
 
+.device-stats-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.device-stats-inline .stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.device-stats-inline .stat-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.device-stats-inline .stat-item:has(.stat-label):not(:has(.stat-label:only-child)) {
+  color: var(--text-primary);
+}
+
+/* GPU Specs Section */
+.gpu-specs-section {
+  margin-top: 0.75rem;
+  margin-left: 2.5rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--border-color);
+}
+
+.gpu-specs-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.gpu-spec-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.gpu-spec-row:last-child {
+  border-bottom: none;
+}
+
+.gpu-spec-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gpu-spec-icon {
+  font-size: 1rem;
+}
+
+.gpu-spec-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gpu-spec-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-left: 1.5rem;
+}
+
+.gpu-spec-model {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
 .device-model {
   font-size: 0.7rem;
   color: var(--text-muted);

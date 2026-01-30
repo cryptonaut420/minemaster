@@ -129,7 +129,12 @@ async function handleRegister(connectionId, data) {
   const buildDeviceStates = (existingDevices) => {
     const devices = {
       cpu: {
-        enabled: existingDevices?.cpu?.enabled !== false, // Default to enabled
+        // Priority: 1) Existing DB state, 2) Client-provided state, 3) Default to enabled
+        enabled: existingDevices?.cpu?.enabled !== undefined
+          ? existingDevices.cpu.enabled
+          : (clientDevices?.cpu?.enabled !== undefined 
+              ? clientDevices.cpu.enabled 
+              : true),
         running: clientDevices?.cpu?.running || false,
         hashrate: clientDevices?.cpu?.hashrate || null,
         algorithm: clientDevices?.cpu?.algorithm || null
@@ -145,7 +150,12 @@ async function handleRegister(connectionId, data) {
         return {
           id: idx,
           model: gpu.model || gpu.name || `GPU ${idx}`,
-          enabled: existingGpu?.enabled !== false, // Preserve existing setting, default to enabled
+          // Priority: 1) Existing DB state, 2) Client-provided state, 3) Default to enabled
+          enabled: existingGpu?.enabled !== undefined
+            ? existingGpu.enabled
+            : (clientGpu?.enabled !== undefined 
+                ? clientGpu.enabled 
+                : true),
           running: clientGpu?.running || false,
           hashrate: clientGpu?.hashrate || null,
           algorithm: clientGpu?.algorithm || null
@@ -305,10 +315,10 @@ async function handleStatusUpdate(connectionId, data) {
   if (statusData.devices) {
     const devices = {
       cpu: {
-        // Sync enabled state from client if provided, otherwise preserve server state
+        // Preserve existing enabled state if not provided by client
         enabled: statusData.devices.cpu?.enabled !== undefined 
           ? statusData.devices.cpu.enabled 
-          : (currentMiner?.devices?.cpu?.enabled !== false),
+          : (currentMiner?.devices?.cpu?.enabled ?? true),
         running: statusData.devices.cpu?.running || false,
         hashrate: statusData.devices.cpu?.hashrate || null,
         algorithm: statusData.devices.cpu?.algorithm || null
@@ -318,20 +328,24 @@ async function handleStatusUpdate(connectionId, data) {
     
     // Update GPU states (only if GPUs are detected)
     if (statusData.devices.gpus && Array.isArray(statusData.devices.gpus) && statusData.devices.gpus.length > 0) {
-      devices.gpus = statusData.devices.gpus.map((gpu, idx) => ({
-        id: idx,
-        model: gpu.model || currentMiner?.devices?.gpus?.[idx]?.model || `GPU ${idx}`,
-        // Sync enabled state from client if provided, otherwise preserve server state
-        enabled: gpu.enabled !== undefined 
-          ? gpu.enabled 
-          : (currentMiner?.devices?.gpus?.[idx]?.enabled !== false),
-        running: gpu.running || false,
-        hashrate: gpu.hashrate || null,
-        algorithm: gpu.algorithm || null
-      }));
+      devices.gpus = statusData.devices.gpus.map((gpu, idx) => {
+        const existingGpu = currentMiner?.devices?.gpus?.[idx];
+        return {
+          id: idx,
+          model: gpu.model || existingGpu?.model || `GPU ${idx}`,
+          // Preserve existing enabled state if not provided by client
+          // All GPUs should have the same enabled state (controlled by nanominer on/off)
+          enabled: gpu.enabled !== undefined 
+            ? gpu.enabled 
+            : (existingGpu?.enabled ?? true),
+          running: gpu.running || false,
+          hashrate: gpu.hashrate || null,
+          algorithm: gpu.algorithm || null
+        };
+      });
     } else {
-      // No GPUs detected - clear GPU devices array
-      devices.gpus = [];
+      // No GPUs detected - preserve existing GPU device states if they exist
+      devices.gpus = currentMiner?.devices?.gpus || [];
     }
     
     updateData.devices = devices;

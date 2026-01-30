@@ -846,20 +846,30 @@ function App() {
     
     console.log('[handleToggleDevice] Toggling:', minerId, 'Type:', miner.deviceType);
     
-    // Prevent enabling GPU if no GPU detected
-    if (miner.deviceType === 'GPU') {
-      console.log('[handleToggleDevice] GPU miner detected, checking for GPU...');
+    // Calculate new enabled state
+    const newEnabledState = !miner.enabled;
+    
+    // Optimistic UI update - update immediately for responsive feel
+    setMiners(prev => prev.map(m =>
+      m.id === minerId ? { ...m, enabled: newEnabledState } : m
+    ));
+    
+    // Prevent enabling GPU if no GPU detected (validate async in background)
+    if (miner.deviceType === 'GPU' && newEnabledState) {
+      console.log('[handleToggleDevice] GPU miner being enabled, validating GPU availability...');
       
       if (!window.electronAPI) {
         console.log('[handleToggleDevice] No electron API available');
-        addNotification('Cannot toggle GPU: System info unavailable', 'error');
+        addNotification('Cannot enable GPU: System info unavailable', 'error');
+        // Revert the optimistic update
+        setMiners(prev => prev.map(m =>
+          m.id === minerId ? { ...m, enabled: false } : m
+        ));
         return;
       }
       
       try {
         const systemInfo = await window.electronAPI.getSystemInfo();
-        console.log('[handleToggleDevice] System info:', systemInfo);
-        console.log('[handleToggleDevice] GPUs:', systemInfo?.gpus);
         
         const hasGpu = systemInfo?.gpus && 
                        Array.isArray(systemInfo.gpus) && 
@@ -867,40 +877,35 @@ function App() {
                        systemInfo.gpus.some(gpu => {
                          if (!gpu) return false;
                          const model = (gpu.model || gpu.name || '').toLowerCase();
-                         // Exclude "no gpu detected" or empty models
                          return model && 
                                 !model.includes('no gpu') && 
                                 !model.includes('detected') &&
                                 model.trim().length > 0;
                        });
         
-        console.log('[handleToggleDevice] Has GPU?', hasGpu);
-        
         if (!hasGpu) {
-          // No GPU detected - prevent any toggle
-          console.log('[handleToggleDevice] BLOCKING toggle - no GPU detected');
-          addNotification('Cannot toggle GPU mining: No GPU detected', 'warning');
-          // Force disable if somehow enabled
+          // No GPU detected - revert the optimistic update
+          console.log('[handleToggleDevice] BLOCKING - no GPU detected, reverting');
+          addNotification('Cannot enable GPU mining: No GPU detected', 'warning');
           setMiners(prev => prev.map(m =>
             m.id === minerId ? { ...m, enabled: false } : m
           ));
           return;
         }
         
-        console.log('[handleToggleDevice] GPU detected, allowing toggle');
+        console.log('[handleToggleDevice] GPU validated successfully');
       } catch (error) {
         console.error('[handleToggleDevice] Error checking GPU:', error);
-        // On error, be safe and prevent toggle
-        addNotification('Error checking GPU status', 'error');
+        addNotification('Error validating GPU status', 'error');
+        // Revert on error
+        setMiners(prev => prev.map(m =>
+          m.id === minerId ? { ...m, enabled: false } : m
+        ));
         return;
       }
     }
     
-    // Allow toggle (CPU or GPU with detection)
-    console.log('[handleToggleDevice] Proceeding with toggle');
-    setMiners(prev => prev.map(m =>
-      m.id === minerId ? { ...m, enabled: !m.enabled } : m
-    ));
+    console.log('[handleToggleDevice] Toggle complete:', newEnabledState ? 'enabled' : 'disabled');
   };
 
   const currentMiner = miners.find(m => m.id === selectedMiner);
