@@ -44,7 +44,6 @@ function Miners() {
   };
 
   const handleStop = async (id, name) => {
-    if (!confirm(`Stop mining on ${name}?`)) return;
     try {
       await minersAPI.stop(id);
       success(`Stop command sent to ${name}`, 3000);
@@ -55,7 +54,6 @@ function Miners() {
   };
 
   const handleStart = async (id, name) => {
-    if (!confirm(`Start mining on ${name}?`)) return;
     try {
       await minersAPI.start(id, {});
       success(`Start command sent to ${name}`, 3000);

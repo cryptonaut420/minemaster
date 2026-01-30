@@ -88,6 +88,12 @@ function App() {
   });
   const statusUpdateInterval = useRef(null);
   const boundStateInitialized = useRef(false);
+  const minersRef = useRef(miners); // Keep a ref to always have latest miners
+  
+  // Update ref whenever miners changes
+  useEffect(() => {
+    minersRef.current = miners;
+  }, [miners]);
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
@@ -265,15 +271,23 @@ function App() {
     const handleCommand = async (command) => {
       console.log('[App] Received command from server', command);
       
+      // Use ref to get latest miners state (avoid stale closure)
+      const currentMiners = minersRef.current;
+      
       switch (command.action) {
         case 'start':
           if (command.minerId) {
             await handleStartMiner(command.minerId);
           } else if (command.deviceType) {
-            const miner = miners.find(m => m.deviceType === command.deviceType);
+            const miner = currentMiners.find(m => m.deviceType === command.deviceType);
             if (miner) await handleStartMiner(miner.id);
           } else {
-            await handleStartAll();
+            // Start all ENABLED miners only
+            for (const miner of currentMiners) {
+              if (miner.enabled !== false && !miner.running) {
+                await handleStartMiner(miner.id);
+              }
+            }
           }
           break;
           
@@ -281,10 +295,15 @@ function App() {
           if (command.minerId) {
             await handleStopMiner(command.minerId);
           } else if (command.deviceType) {
-            const miner = miners.find(m => m.deviceType === command.deviceType);
+            const miner = currentMiners.find(m => m.deviceType === command.deviceType);
             if (miner) await handleStopMiner(miner.id);
           } else {
-            await handleStopAll();
+            // Stop all running miners
+            for (const miner of currentMiners) {
+              if (miner.running) {
+                await handleStopMiner(miner.id);
+              }
+            }
           }
           break;
           
@@ -293,8 +312,20 @@ function App() {
             await handleStopMiner(command.minerId);
             setTimeout(() => handleStartMiner(command.minerId), 2000);
           } else {
-            await handleStopAll();
-            setTimeout(handleStartAll, 2000);
+            // Stop all, then start all enabled
+            for (const miner of currentMiners) {
+              if (miner.running) {
+                await handleStopMiner(miner.id);
+              }
+            }
+            setTimeout(async () => {
+              const latestMiners = minersRef.current;
+              for (const miner of latestMiners) {
+                if (miner.enabled !== false && !miner.running) {
+                  await handleStartMiner(miner.id);
+                }
+              }
+            }, 2000);
           }
           break;
         
@@ -302,7 +333,7 @@ function App() {
         case 'device-enable':
           {
             if (command.deviceType === 'cpu') {
-              const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+              const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
               if (cpuMiner) {
                 setMiners(prev => prev.map(m => 
                   m.id === cpuMiner.id ? { ...m, enabled: true } : m
@@ -310,7 +341,7 @@ function App() {
                 addNotification('CPU mining enabled (remote command)', 'info');
               }
             } else if (command.deviceType === 'gpu') {
-              const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+              const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
               if (gpuMiner) {
                 setMiners(prev => prev.map(m => 
                   m.id === gpuMiner.id ? { ...m, enabled: true } : m
@@ -324,7 +355,7 @@ function App() {
         case 'device-disable':
           {
             if (command.deviceType === 'cpu') {
-              const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+              const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
               if (cpuMiner) {
                 setMiners(prev => prev.map(m => 
                   m.id === cpuMiner.id ? { ...m, enabled: false } : m
@@ -338,7 +369,7 @@ function App() {
                 }
               }
             } else if (command.deviceType === 'gpu') {
-              const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+              const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
               if (gpuMiner) {
                 setMiners(prev => prev.map(m => 
                   m.id === gpuMiner.id ? { ...m, enabled: false } : m
@@ -358,7 +389,7 @@ function App() {
         // Device-specific start/stop commands (legacy, for direct control)
         case 'start-cpu':
           {
-            const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
             if (cpuMiner && cpuMiner.enabled !== false && !cpuMiner.running) {
               addNotification('Starting CPU mining (remote command)', 'info');
               await handleStartMiner(cpuMiner.id);
@@ -368,7 +399,7 @@ function App() {
           
         case 'stop-cpu':
           {
-            const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
             if (cpuMiner && cpuMiner.running) {
               addNotification('Stopping CPU mining (remote command)', 'info');
               await handleStopMiner(cpuMiner.id);
@@ -378,7 +409,7 @@ function App() {
           
         case 'start-gpu':
           {
-            const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
             if (gpuMiner && gpuMiner.enabled !== false && !gpuMiner.running) {
               addNotification('Starting GPU mining (remote command)', 'info');
               await handleStartMiner(gpuMiner.id);
@@ -388,7 +419,7 @@ function App() {
           
         case 'stop-gpu':
           {
-            const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
             if (gpuMiner && gpuMiner.running) {
               addNotification('Stopping GPU mining (remote command)', 'info');
               await handleStopMiner(gpuMiner.id);
@@ -661,7 +692,9 @@ function App() {
   };
 
   const handleStartMiner = async (minerId) => {
-    const miner = miners.find(m => m.id === minerId);
+    // Use ref to get latest miners state (avoid stale closure)
+    const currentMiners = minersRef.current;
+    const miner = currentMiners.find(m => m.id === minerId);
     if (!miner) return;
 
     // Prevent starting if disabled
