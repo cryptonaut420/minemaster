@@ -24,6 +24,7 @@
       "build/**/*",
       "electron/**/*",
       "miners/**/*",
+      "assets/**/*",
       "node_modules/**/*",
       "package.json"
     ],
@@ -31,6 +32,11 @@
       {
         "from": "miners",
         "to": "miners",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "assets",
+        "to": "app/assets",
         "filter": ["**/*"]
       }
     ],
@@ -42,6 +48,11 @@
       "target": ["AppImage", "deb"],
       "icon": "assets/icon.png",
       "category": "Utility"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities"
     }
   },
   "dependencies": {

@@ -17,9 +17,15 @@ let systemInfoCache = null;
 
 
 function createWindow() {
+  // Get icon path based on platform
+  const iconPath = isDev
+    ? path.join(__dirname, '../assets/icon.png')
+    : path.join(process.resourcesPath, 'app/assets/icon.png');
+  
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
