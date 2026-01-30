@@ -42,18 +42,41 @@ function createWindow() {
   mainWindow.on('closed', () => {
     // Kill all running miners when window closes
     console.log('Window closing - stopping all miners...');
-    Object.entries(miners).forEach(([minerId, minerProcess]) => {
+    Object.entries(miners).forEach(([minerId, minerData]) => {
+      const minerProcess = minerData.process;
       if (minerProcess && !minerProcess.killed) {
-        console.log(`Stopping miner: ${minerId} (PID: ${minerProcess.pid})`);
-        minerProcess.kill('SIGTERM'); // Graceful shutdown
+        const pid = minerProcess.pid;
+        console.log(`Stopping miner: ${minerId} (PID: ${pid})`);
         
-        // Force kill after 3 seconds if still running
-        setTimeout(() => {
-          if (!minerProcess.killed) {
-            console.log(`Force killing miner: ${minerId}`);
-            minerProcess.kill('SIGKILL');
-          }
-        }, 3000);
+        // Clean up log watchers
+        if (minerProcess._logWatcher) {
+          try { minerProcess._logWatcher.close(); } catch (e) {}
+        }
+        if (minerProcess._logPollInterval) {
+          clearInterval(minerProcess._logPollInterval);
+        }
+        
+        if (process.platform === 'win32') {
+          // Windows: Use taskkill for reliable termination
+          exec(`taskkill /PID ${pid} /T /F`, (err) => {
+            if (err) console.error(`Failed to kill PID ${pid}:`, err.message);
+          });
+        } else {
+          // Linux/macOS: Use signals
+          try {
+            minerProcess.kill('SIGTERM'); // Graceful shutdown
+          } catch (e) {}
+          
+          // Force kill after 3 seconds if still running
+          setTimeout(() => {
+            if (!minerProcess.killed) {
+              console.log(`Force killing miner: ${minerId}`);
+              try {
+                minerProcess.kill('SIGKILL');
+              } catch (e) {}
+            }
+          }, 3000);
+        }
       }
     });
     mainWindow = null;
@@ -64,9 +87,15 @@ app.on('ready', createWindow);
 
 app.on('window-all-closed', () => {
   // Kill all miners before quitting
-  Object.values(miners).forEach(minerProcess => {
+  Object.values(miners).forEach(minerData => {
+    const minerProcess = minerData.process;
     if (minerProcess && !minerProcess.killed) {
-      minerProcess.kill('SIGKILL');
+      const pid = minerProcess.pid;
+      if (process.platform === 'win32') {
+        exec(`taskkill /PID ${pid} /T /F`, () => {});
+      } else {
+        try { minerProcess.kill('SIGKILL'); } catch (e) {}
+      }
     }
   });
   
@@ -224,14 +253,18 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
 
       // Nanominer parent process doesn't output to stdout/stderr
       // The child process writes to log files instead
-      // Tail the log file to get real-time output
+      // Watch the log file to get real-time output (cross-platform)
       const logDir = path.join(nanominerDir, 'logs');
-      let logTailer = null;
       
       // Wait a moment for nanominer to create the log file
       setTimeout(() => {
         try {
           // Find the most recent log file
+          if (!fs.existsSync(logDir)) {
+            console.log('[nanominer] Log directory not found yet');
+            return;
+          }
+          
           const logFiles = fs.readdirSync(logDir)
             .filter(f => f.startsWith('log_'))
             .map(f => ({
@@ -243,25 +276,60 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
           
           if (logFiles.length > 0) {
             const latestLog = logFiles[0].path;
-            console.log(`[nanominer] Tailing log file: ${latestLog}`);
+            console.log(`[nanominer] Watching log file: ${latestLog}`);
             
-            // Tail the log file
-            logTailer = spawn('tail', ['-f', '-n', '0', latestLog]);
+            // Cross-platform log file watching
+            let lastSize = 0;
+            try {
+              lastSize = fs.statSync(latestLog).size;
+            } catch (e) {}
             
-            logTailer.stdout.on('data', (data) => {
-              const output = stripAnsi(data.toString());
-              console.log(`[nanominer log]: ${output}`);
-              mainWindow.webContents.send('miner-output', {
-                minerId,
-                data: output
+            // Read new content from log file
+            const readNewContent = () => {
+              try {
+                const stats = fs.statSync(latestLog);
+                if (stats.size > lastSize) {
+                  const fd = fs.openSync(latestLog, 'r');
+                  const buffer = Buffer.alloc(stats.size - lastSize);
+                  fs.readSync(fd, buffer, 0, buffer.length, lastSize);
+                  fs.closeSync(fd);
+                  
+                  const output = stripAnsi(buffer.toString('utf8'));
+                  if (output.trim()) {
+                    console.log(`[nanominer log]: ${output}`);
+                    mainWindow.webContents.send('miner-output', {
+                      minerId,
+                      data: output
+                    });
+                  }
+                  lastSize = stats.size;
+                }
+              } catch (e) {
+                // File might be locked or rotated
+              }
+            };
+            
+            // Poll the log file every 500ms (more reliable than fs.watch on Windows)
+            const logPollInterval = setInterval(readNewContent, 500);
+            
+            // Also try fs.watch for faster updates on Linux/macOS
+            let logWatcher = null;
+            try {
+              logWatcher = fs.watch(latestLog, (eventType) => {
+                if (eventType === 'change') {
+                  readNewContent();
+                }
               });
-            });
+            } catch (e) {
+              console.log('[nanominer] fs.watch not available, using polling only');
+            }
             
-            // Store tailer so we can kill it later
-            minerProcess._logTailer = logTailer;
+            // Store watcher and interval so we can clean up later
+            minerProcess._logWatcher = logWatcher;
+            minerProcess._logPollInterval = logPollInterval;
           }
         } catch (e) {
-          console.error('[nanominer] Failed to tail log file:', e);
+          console.error('[nanominer] Failed to watch log file:', e);
         }
       }, 2000); // Wait 2 seconds for log file to be created
 
@@ -276,13 +344,16 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       minerProcess.on('close', (code) => {
         console.log(`[nanominer] Process closed with code: ${code}`);
         
-        // Kill log tailer if it exists
-        if (minerProcess._logTailer && !minerProcess._logTailer.killed) {
+        // Clean up log watcher and poll interval
+        if (minerProcess._logWatcher) {
           try {
-            minerProcess._logTailer.kill('SIGKILL');
+            minerProcess._logWatcher.close();
           } catch (e) {
-            console.error('[nanominer] Failed to kill log tailer:', e);
+            console.error('[nanominer] Failed to close log watcher:', e);
           }
+        }
+        if (minerProcess._logPollInterval) {
+          clearInterval(minerProcess._logPollInterval);
         }
         
         mainWindow.webContents.send('miner-closed', {
@@ -402,14 +473,18 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
     console.log(`[stop-miner] Stopping ${minerType} ${minerId} (Main PID: ${mainPID})`);
     console.log(`[stop-miner] Config: ${configPath}`);
     
-    // Kill log tailer if it exists (for nanominer)
-    if (minerProcess._logTailer && !minerProcess._logTailer.killed) {
+    // Clean up log watcher and poll interval (for nanominer)
+    if (minerProcess._logWatcher) {
       try {
-        minerProcess._logTailer.kill('SIGKILL');
-        console.log(`[stop-miner] Killed log tailer`);
+        minerProcess._logWatcher.close();
+        console.log(`[stop-miner] Closed log watcher`);
       } catch (e) {
-        console.error('[stop-miner] Failed to kill log tailer:', e);
+        console.error('[stop-miner] Failed to close log watcher:', e);
       }
+    }
+    if (minerProcess._logPollInterval) {
+      clearInterval(minerProcess._logPollInterval);
+      console.log(`[stop-miner] Cleared log poll interval`);
     }
     
     // Find ALL related PIDs (in case of orphaned processes)
@@ -467,17 +542,22 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
       }
     }
     
-    // Step 3: Last resort - pkill/killall by name
-    console.log(`[stop-miner] Direct kill failed, trying pkill...`);
+    // Step 3: Last resort - platform-specific process kill by name
+    console.log(`[stop-miner] Direct kill failed, trying system kill...`);
     try {
-      if (process.platform !== 'win32') {
+      if (process.platform === 'win32') {
+        // Windows: Use taskkill by image name
+        const exeName = minerType === 'xmrig' ? 'xmrig.exe' : 'nanominer.exe';
+        await execAsync(`taskkill /F /IM ${exeName} 2>nul`);
+      } else {
+        // Linux/macOS: Use pkill
         if (configPath) {
           await execAsync(`pkill -9 -f "${configPath}"`);
         }
         await execAsync(`pkill -9 ${minerType}`);
       }
     } catch (e) {
-      // pkill will error if no processes found, that's okay
+      // kill commands will error if no processes found, that's okay
     }
     
     // Final check
@@ -642,25 +722,57 @@ let cachedGpuStats = []; // Array to support multiple GPUs
 let tempUpdateInProgress = false;
 let gpuUpdateInProgress = false;
 
-// Background update for CPU temp (non-blocking)
+// Background update for CPU temp (non-blocking) - Cross-platform
 function updateCpuTempAsync() {
-  if (tempUpdateInProgress || process.platform !== 'linux') return;
+  if (tempUpdateInProgress) return;
   tempUpdateInProgress = true;
   
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
-      const zones = [
-        '/sys/class/thermal/thermal_zone0/temp',
-        '/sys/class/hwmon/hwmon0/temp1_input',
-        '/sys/class/hwmon/hwmon1/temp1_input'
-      ];
-      
-      for (const zone of zones) {
+      if (process.platform === 'linux') {
+        // Linux: Read directly from sysfs
+        const zones = [
+          '/sys/class/thermal/thermal_zone0/temp',
+          '/sys/class/hwmon/hwmon0/temp1_input',
+          '/sys/class/hwmon/hwmon1/temp1_input'
+        ];
+        
+        for (const zone of zones) {
+          try {
+            if (fs.existsSync(zone)) {
+              const temp = parseInt(fs.readFileSync(zone, 'utf8')) / 1000;
+              cachedCpuTemp = temp;
+              break;
+            }
+          } catch (e) {}
+        }
+      } else if (process.platform === 'win32') {
+        // Windows: Use systeminformation library
         try {
-          if (fs.existsSync(zone)) {
-            const temp = parseInt(fs.readFileSync(zone, 'utf8')) / 1000;
-            cachedCpuTemp = temp;
-            break;
+          const cpuTemp = await si.cpuTemperature();
+          if (cpuTemp && cpuTemp.main !== null && cpuTemp.main !== -1) {
+            cachedCpuTemp = cpuTemp.main;
+          }
+        } catch (e) {
+          // Try WMI as fallback (requires admin or specific hardware support)
+          try {
+            const { stdout } = await execAsync('wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature 2>nul');
+            const lines = stdout.split('\n').filter(l => l.trim() && !isNaN(l.trim()));
+            if (lines.length > 0) {
+              // WMI returns temp in tenths of Kelvin
+              const tempKelvin = parseInt(lines[0].trim()) / 10;
+              cachedCpuTemp = tempKelvin - 273.15;
+            }
+          } catch (e2) {
+            // Temperature monitoring not available on this Windows system
+          }
+        }
+      } else if (process.platform === 'darwin') {
+        // macOS: Use systeminformation
+        try {
+          const cpuTemp = await si.cpuTemperature();
+          if (cpuTemp && cpuTemp.main !== null && cpuTemp.main !== -1) {
+            cachedCpuTemp = cpuTemp.main;
           }
         } catch (e) {}
       }
@@ -672,78 +784,123 @@ function updateCpuTempAsync() {
   }, 0);
 }
 
-// Background update for GPU info (non-blocking)
+// Background update for GPU info (non-blocking) - Cross-platform
 function updateGpuInfoAsync() {
-  if (gpuUpdateInProgress || process.platform !== 'linux') return;
+  if (gpuUpdateInProgress) return;
   gpuUpdateInProgress = true;
   
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
       console.log('[GPU Detection] Starting...');
       const detectedGpus = [];
       
-      // Try AMD GPUs (check card0, card1, card2, etc.)
-      for (let cardNum = 0; cardNum < 8; cardNum++) {
-        const amdPath = `/sys/class/drm/card${cardNum}/device`;
-        if (fs.existsSync(amdPath)) {
-          console.log(`[GPU Detection] Found AMD GPU at card${cardNum}`);
-          const gpuInfo = { id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
-          
-          // Try to read temp
-          try {
-            const hwmonPath = `${amdPath}/hwmon`;
-            if (fs.existsSync(hwmonPath)) {
-              const hwmons = fs.readdirSync(hwmonPath);
-              if (hwmons.length > 0) {
-                const tempFile = `${hwmonPath}/${hwmons[0]}/temp1_input`;
-                if (fs.existsSync(tempFile)) {
-                  gpuInfo.temperature = parseInt(fs.readFileSync(tempFile, 'utf8')) / 1000;
+      if (process.platform === 'linux') {
+        // Linux: Read AMD GPUs from sysfs
+        for (let cardNum = 0; cardNum < 8; cardNum++) {
+          const amdPath = `/sys/class/drm/card${cardNum}/device`;
+          if (fs.existsSync(amdPath)) {
+            console.log(`[GPU Detection] Found AMD GPU at card${cardNum}`);
+            const gpuInfo = { id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
+            
+            // Try to read temp
+            try {
+              const hwmonPath = `${amdPath}/hwmon`;
+              if (fs.existsSync(hwmonPath)) {
+                const hwmons = fs.readdirSync(hwmonPath);
+                if (hwmons.length > 0) {
+                  const tempFile = `${hwmonPath}/${hwmons[0]}/temp1_input`;
+                  if (fs.existsSync(tempFile)) {
+                    gpuInfo.temperature = parseInt(fs.readFileSync(tempFile, 'utf8')) / 1000;
+                  }
                 }
               }
+            } catch (e) {}
+            
+            // Try to read usage
+            try {
+              const usageFile = `${amdPath}/gpu_busy_percent`;
+              if (fs.existsSync(usageFile)) {
+                gpuInfo.usage = parseInt(fs.readFileSync(usageFile, 'utf8'));
+              }
+            } catch (e) {}
+            
+            // Try to read VRAM info
+            try {
+              const vramUsedFile = `${amdPath}/mem_info_vram_used`;
+              const vramTotalFile = `${amdPath}/mem_info_vram_total`;
+              if (fs.existsSync(vramUsedFile) && fs.existsSync(vramTotalFile)) {
+                gpuInfo.vramUsed = parseInt(fs.readFileSync(vramUsedFile, 'utf8')) / (1024 * 1024); // bytes to MB
+                gpuInfo.vramTotal = parseInt(fs.readFileSync(vramTotalFile, 'utf8')) / (1024 * 1024); // bytes to MB
+              }
+            } catch (e) {}
+            
+            // Only add if it has valid stats AND isn't integrated graphics (> 1GB VRAM or no VRAM info)
+            const hasValidStats = gpuInfo.temperature !== null || gpuInfo.usage !== null;
+            const isNotIntegrated = gpuInfo.vramTotal === null || gpuInfo.vramTotal > 1024; // > 1GB
+            
+            if (hasValidStats && isNotIntegrated) {
+              detectedGpus.push(gpuInfo);
+              console.log(`[GPU Detection] AMD GPU ${cardNum} cached:`, gpuInfo);
+            } else if (hasValidStats) {
+              console.log(`[GPU Detection] AMD GPU ${cardNum} skipped (integrated graphics):`, gpuInfo);
             }
-          } catch (e) {}
-          
-          // Try to read usage
-          try {
-            const usageFile = `${amdPath}/gpu_busy_percent`;
-            if (fs.existsSync(usageFile)) {
-              gpuInfo.usage = parseInt(fs.readFileSync(usageFile, 'utf8'));
-            }
-          } catch (e) {}
-          
-          // Try to read VRAM info
-          try {
-            const vramUsedFile = `${amdPath}/mem_info_vram_used`;
-            const vramTotalFile = `${amdPath}/mem_info_vram_total`;
-            if (fs.existsSync(vramUsedFile) && fs.existsSync(vramTotalFile)) {
-              gpuInfo.vramUsed = parseInt(fs.readFileSync(vramUsedFile, 'utf8')) / (1024 * 1024); // bytes to MB
-              gpuInfo.vramTotal = parseInt(fs.readFileSync(vramTotalFile, 'utf8')) / (1024 * 1024); // bytes to MB
-            }
-          } catch (e) {}
-          
-          // Only add if it has valid stats AND isn't integrated graphics (> 1GB VRAM or no VRAM info)
-          const hasValidStats = gpuInfo.temperature !== null || gpuInfo.usage !== null;
-          const isNotIntegrated = gpuInfo.vramTotal === null || gpuInfo.vramTotal > 1024; // > 1GB
-          
-          if (hasValidStats && isNotIntegrated) {
-            detectedGpus.push(gpuInfo);
-            console.log(`[GPU Detection] AMD GPU ${cardNum} cached:`, gpuInfo);
-          } else if (hasValidStats) {
-            console.log(`[GPU Detection] AMD GPU ${cardNum} skipped (integrated graphics):`, gpuInfo);
           }
+        }
+      } else if (process.platform === 'win32') {
+        // Windows: Use systeminformation for AMD GPUs
+        try {
+          const graphics = await si.graphics();
+          if (graphics && graphics.controllers) {
+            graphics.controllers.forEach((gpu, idx) => {
+              // Skip integrated graphics
+              const model = (gpu.model || '').toLowerCase();
+              const vendor = (gpu.vendor || '').toLowerCase();
+              
+              if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris'))) {
+                return;
+              }
+              if ((vendor.includes('amd') || vendor.includes('ati')) && 
+                  (model.includes('vega') || model.includes('radeon graphics') || 
+                   model.includes('raphael') || model.includes('renoir'))) {
+                return;
+              }
+              
+              // AMD discrete GPU - systeminformation provides limited stats on Windows
+              if ((vendor.includes('amd') || vendor.includes('ati')) && !vendor.includes('nvidia')) {
+                const gpuInfo = {
+                  id: idx,
+                  temperature: gpu.temperatureGpu || null,
+                  usage: gpu.utilizationGpu || null,
+                  vramUsed: gpu.memoryUsed || null,
+                  vramTotal: gpu.vram || null,
+                  type: 'AMD'
+                };
+                
+                if (gpuInfo.vramTotal > 1024) { // Only discrete GPUs with >1GB VRAM
+                  detectedGpus.push(gpuInfo);
+                  console.log(`[GPU Detection] AMD GPU ${idx} (Windows):`, gpuInfo);
+                }
+              }
+            });
+          }
+        } catch (e) {
+          console.error('[GPU Detection] Windows AMD detection failed:', e);
         }
       }
       
-      // Try NVIDIA GPUs (with VRAM info)
-      const { exec } = require('child_process');
-      exec('nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits', (error, stdout) => {
-        if (!error && stdout) {
+      // Try NVIDIA GPUs using nvidia-smi (works on Linux, Windows, and macOS with NVIDIA drivers)
+      const nvidiaSmiCmd = process.platform === 'win32' 
+        ? 'nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>nul'
+        : 'nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null';
+      
+      exec(nvidiaSmiCmd, (error, stdout) => {
+        if (!error && stdout && stdout.trim()) {
           console.log('[GPU Detection] nvidia-smi output:', stdout);
           const lines = stdout.trim().split('\n');
           lines.forEach(line => {
             const parts = line.split(',').map(p => p.trim());
             console.log('[GPU Detection] Parsed parts:', parts);
-            if (parts.length >= 5) {
+            if (parts.length >= 5 && !isNaN(parts[0])) {
               const gpuInfo = {
                 id: parseInt(parts[0]),
                 temperature: parseFloat(parts[1]),
@@ -756,21 +913,20 @@ function updateGpuInfoAsync() {
               console.log(`[GPU Detection] NVIDIA GPU ${gpuInfo.id} cached - VRAM: ${gpuInfo.vramUsed}MB / ${gpuInfo.vramTotal}MB`);
             }
           });
-          
-          if (detectedGpus.length > 0) {
-            cachedGpuStats = detectedGpus;
-          }
-        } else if (detectedGpus.length === 0) {
-          console.log('[GPU Detection] No GPUs found');
-        } else {
-          // We have AMD GPUs already
-          cachedGpuStats = detectedGpus;
         }
+        
+        if (detectedGpus.length > 0) {
+          cachedGpuStats = detectedGpus;
+          console.log(`[GPU Detection] Total ${detectedGpus.length} GPU(s) cached`);
+        } else {
+          console.log('[GPU Detection] No discrete GPUs found');
+        }
+        
+        gpuUpdateInProgress = false;
       });
       
     } catch (e) {
       console.error('[GPU Detection] Error:', e);
-    } finally {
       gpuUpdateInProgress = false;
     }
   }, 0);
@@ -838,23 +994,21 @@ function getXmrigPath(customPath) {
     return customPath;
   }
 
+  // Determine binary name based on platform
+  const binaryName = process.platform === 'win32' ? 'xmrig.exe' : 'xmrig';
+
   // Default to bundled xmrig in miners folder
   const bundledXmrigPath = isDev
-    ? path.join(__dirname, '../miners/xmrig/xmrig')
-    : path.join(process.resourcesPath, 'miners/xmrig/xmrig');
+    ? path.join(__dirname, '../miners/xmrig', binaryName)
+    : path.join(process.resourcesPath, 'miners/xmrig', binaryName);
 
   // Check if bundled version exists, otherwise fall back to system PATH
-  const fs = require('fs');
   if (fs.existsSync(bundledXmrigPath)) {
     return bundledXmrigPath;
   }
 
-  // Fallback paths for xmrig
-  if (process.platform === 'win32') {
-    return 'xmrig.exe';
-  } else {
-    return 'xmrig'; // Linux/Mac (from PATH)
-  }
+  // Fallback to system PATH
+  return binaryName;
 }
 
 function getNanominerPath(customPath) {
@@ -862,22 +1016,21 @@ function getNanominerPath(customPath) {
     return customPath;
   }
 
+  // Determine binary name based on platform
+  const binaryName = process.platform === 'win32' ? 'nanominer.exe' : 'nanominer';
+
   // Default to bundled nanominer in miners folder
   const bundledNanominerPath = isDev
-    ? path.join(__dirname, '../miners/nanominer/nanominer')
-    : path.join(process.resourcesPath, 'miners/nanominer/nanominer');
+    ? path.join(__dirname, '../miners/nanominer', binaryName)
+    : path.join(process.resourcesPath, 'miners/nanominer', binaryName);
 
   // Check if bundled version exists
   if (fs.existsSync(bundledNanominerPath)) {
     return bundledNanominerPath;
   }
 
-  // Fallback paths for nanominer
-  if (process.platform === 'win32') {
-    return path.join(__dirname, '../miners/nanominer/nanominer.exe');
-  } else {
-    return path.join(__dirname, '../miners/nanominer/nanominer');
-  }
+  // Fallback to miners folder (dev mode)
+  return path.join(__dirname, '../miners/nanominer', binaryName);
 }
 
 function createNanominerConfig(minerId, config) {

@@ -108,7 +108,7 @@ Binaries are **not committed to git** - only the download script is tracked.
 
 ## Troubleshooting
 
-### Permission Errors
+### Permission Errors (Linux/macOS)
 ```bash
 sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
 ```
@@ -117,6 +117,23 @@ sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
 - Check pool address format
 - Verify wallet address is correct
 - On Linux: `chmod +x miners/xmrig/xmrig`
+- On Windows: Run as Administrator for best performance
+
+### Windows-Specific Notes
+
+**System Monitoring**:
+- CPU temperature requires compatible hardware/drivers
+- NVIDIA GPU stats require nvidia-smi (included with NVIDIA drivers)
+- AMD GPU stats require Adrenalin drivers
+
+**Running Miners**:
+- For best performance, run MineMaster as Administrator
+- Windows Defender may flag mining software - add exception if needed
+- Ensure GPU drivers are up to date
+
+**Miner Downloads**:
+- Downloads use PowerShell's `Expand-Archive` for extraction
+- If download fails, manually download from releases pages
 
 ### TypeScript Errors
 Already fixed - package.json uses TypeScript 4.9.5 compatible with react-scripts.

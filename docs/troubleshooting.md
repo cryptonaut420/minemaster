@@ -509,8 +509,34 @@ sudo usermod -a -G video $USER
 ```
 
 **Windows**:
-- Update GPU drivers
-- Restart application
+- Update GPU drivers to latest version
+- For NVIDIA GPUs: Ensure `nvidia-smi` is available (installed with NVIDIA drivers)
+- For AMD GPUs: Install AMD Adrenalin drivers (provides GPU monitoring)
+- Run MineMaster as Administrator for full system access
+- Restart application after driver updates
+
+### Windows-Specific: Temperature Monitoring
+
+**Problem**: CPU/GPU temperature shows "N/A" on Windows.
+
+**Solution**:
+Windows temperature monitoring depends on driver support:
+
+1. **CPU Temperature**:
+   - Not all CPUs expose temperature via WMI
+   - Works best with AMD Ryzen and recent Intel CPUs
+   - Try running as Administrator
+
+2. **NVIDIA GPU Temperature**:
+   - Requires NVIDIA drivers with `nvidia-smi`
+   - Verify: Open Command Prompt, run `nvidia-smi`
+   - Should show GPU temperature
+
+3. **AMD GPU Temperature**:
+   - Requires AMD Adrenalin drivers
+   - Some older GPUs may not report temperature
+
+**Note**: Mining will work even if temperature monitoring is unavailable.
 
 ## 💻 System Issues
 
