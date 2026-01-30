@@ -65,6 +65,29 @@ function Miners() {
     }
   };
 
+  const handleToggleCpu = async (id, name, currentEnabled) => {
+    try {
+      await minersAPI.toggleCpu(id, !currentEnabled);
+      success(`CPU mining ${!currentEnabled ? 'enabled' : 'disabled'} on ${name}`, 3000);
+      fetchMiners();
+    } catch (err) {
+      error(`Failed to toggle CPU on ${name}: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error toggling CPU:', err);
+    }
+  };
+
+  const handleToggleGpu = async (id, name, currentEnabled, gpuId = null) => {
+    try {
+      await minersAPI.toggleGpu(id, !currentEnabled, gpuId);
+      const gpuLabel = gpuId !== null ? `GPU ${gpuId}` : 'All GPUs';
+      success(`${gpuLabel} mining ${!currentEnabled ? 'enabled' : 'disabled'} on ${name}`, 3000);
+      fetchMiners();
+    } catch (err) {
+      error(`Failed to toggle GPU on ${name}: ${err.response?.data?.error || err.message}`, 5000);
+      console.error('Error toggling GPU:', err);
+    }
+  };
+
   const handleDelete = async (id, name) => {
     if (!confirm(`Remove ${name} from the system? This won't affect the actual miner.`)) return;
     try {
@@ -226,7 +249,134 @@ function Miners() {
                   </div>
                 </div>
 
-                {miner.hardware && (miner.hardware.cpu || miner.hardware.gpus?.length > 0) && (
+                {/* Device Controls Section */}
+                {miner.bound && (miner.status === 'online' || miner.status === 'mining') && (
+                  <div className="devices-section">
+                    <h4 className="devices-title">Mining Devices</h4>
+                    
+                    {/* CPU Device */}
+                    {miner.hardware?.cpu && (
+                      <div className={`device-row ${miner.devices?.cpu?.running ? 'running' : ''}`}>
+                        <div className="device-main">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={miner.devices?.cpu?.enabled !== false}
+                              onChange={() => handleToggleCpu(miner.id, miner.name, miner.devices?.cpu?.enabled !== false)}
+                              disabled={!miner.bound || miner.status === 'offline'}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                          <div className="device-info">
+                            <div className="device-header-row">
+                              <span className="device-icon">🖥️</span>
+                              <span className="device-name">CPU</span>
+                            </div>
+                            <div className="device-details">
+                              <span className="device-model">{miner.hardware.cpu.brand || 'CPU'} ({miner.hardware.cpu.cores || 0} cores)</span>
+                            </div>
+                          </div>
+                        </div>
+                        {miner.devices?.cpu?.enabled !== false && (
+                          <div className="device-status">
+                            {miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate && (
+                              <span className="device-hashrate mono">{formatHashrate(miner.devices.cpu.hashrate)}</span>
+                            )}
+                            <span className={`device-state ${miner.devices?.cpu?.running ? 'active' : 'idle'}`}>
+                              {miner.devices?.cpu?.running ? '⚡ Mining' : '⏸ Idle'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* GPU Devices */}
+                    {miner.hardware?.gpus && miner.hardware.gpus.length > 0 ? (
+                      <>
+                        {miner.hardware.gpus.map((gpu, idx) => {
+                          const gpuState = miner.devices?.gpus?.[idx] || { enabled: true, running: false };
+                          return (
+                            <div key={idx} className={`device-row ${gpuState?.running ? 'running' : ''}`}>
+                              <div className="device-main">
+                                <label className="toggle-switch">
+                                  <input
+                                    type="checkbox"
+                                    checked={gpuState.enabled !== false}
+                                    onChange={() => handleToggleGpu(miner.id, miner.name, gpuState.enabled !== false, idx)}
+                                    disabled={!miner.bound || miner.status === 'offline'}
+                                  />
+                                  <span className="toggle-slider"></span>
+                                </label>
+                                <div className="device-info">
+                                  <div className="device-header-row">
+                                    <span className="device-icon">🎮</span>
+                                    <span className="device-name">GPU {idx}</span>
+                                  </div>
+                                  <div className="device-details">
+                                    <span className="device-model">{gpu.model || gpu.name || `GPU ${idx}`}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              {gpuState.enabled !== false && (
+                                <div className="device-status">
+                                  {gpuState?.running && gpuState?.hashrate && (
+                                    <span className="device-hashrate mono">{formatHashrate(gpuState.hashrate)}</span>
+                                  )}
+                                  <span className={`device-state ${gpuState?.running ? 'active' : 'idle'}`}>
+                                    {gpuState?.running ? '⚡ Mining' : '⏸ Idle'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
+                    ) : (
+                      // No GPU detected
+                      <div className="device-row no-gpu">
+                        <div className="device-main">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={false}
+                              disabled={true}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                          <div className="device-info">
+                            <div className="device-header-row">
+                              <span className="device-icon">🎮</span>
+                              <span className="device-name">GPU</span>
+                            </div>
+                            <div className="device-details">
+                              <span className="device-model no-gpu-text">No GPU detected</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="device-status">
+                          <span className="device-state idle">N/A</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* RAM info */}
+                    {miner.hardware?.ram && (
+                      <div className="device-row ram-info">
+                        <div className="device-info">
+                          <span className="device-icon">💾</span>
+                          <div className="device-details">
+                            <span className="device-name">RAM</span>
+                            <span className="device-model">{(miner.hardware.ram.total / (1024 ** 3)).toFixed(1)} GB Total</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Show hardware info for offline/unbound miners */}
+                {(!miner.bound || (miner.status !== 'online' && miner.status !== 'mining')) && 
+                  miner.hardware && (miner.hardware.cpu || miner.hardware.gpus?.length > 0) && (
                   <div className="hardware-info">
                     <h4 className="hardware-title">Hardware</h4>
                     {miner.hardware.cpu && (

@@ -60,7 +60,7 @@ function App() {
       type: 'nanominer',
       deviceType: 'GPU',
       running: false,
-      enabled: true,
+      enabled: true, // Will be checked and disabled if no GPU on mount
       loading: false,
       hashrate: null,
       startTime: null,
@@ -98,25 +98,42 @@ function App() {
     localStorage.setItem('minemaster-config', JSON.stringify(configToSave));
   }, [miners]);
 
-  // Check for running miners on mount only (not periodically)
+  // Check for running miners and GPU detection on mount only (not periodically)
   useEffect(() => {
     const checkRunningMiners = async () => {
       if (!window.electronAPI) return;
       
       try {
         const statuses = await window.electronAPI.getAllMinersStatus();
+        const systemInfo = await window.electronAPI.getSystemInfo();
+        
+        // Check if GPU is detected
+        const hasGpu = systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0;
         
         setMiners(prev => prev.map(miner => {
           const status = statuses[miner.id];
+          let updatedMiner = { ...miner };
+          
+          // Reconnect to running miners
           if (status && status.running) {
             console.log(`Reconnecting to running miner: ${miner.id} (PID: ${status.pid})`);
-            return {
-              ...miner,
+            updatedMiner = {
+              ...updatedMiner,
               running: true,
               output: [`[Reconnected to running miner - PID: ${status.pid}]\n`, ...miner.output]
             };
           }
-          return miner;
+          
+          // Disable GPU miner if no GPU detected
+          if (miner.deviceType === 'GPU' && !hasGpu) {
+            updatedMiner = {
+              ...updatedMiner,
+              enabled: false
+            };
+            console.log('GPU miner disabled: No GPU detected');
+          }
+          
+          return updatedMiner;
         }));
       } catch (error) {
         console.error('Failed to check running miners:', error);
@@ -280,10 +297,117 @@ function App() {
             setTimeout(handleStartAll, 2000);
           }
           break;
+        
+        // Device enable/disable commands (from server toggle switches)
+        case 'device-enable':
+          {
+            if (command.deviceType === 'cpu') {
+              const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+              if (cpuMiner) {
+                setMiners(prev => prev.map(m => 
+                  m.id === cpuMiner.id ? { ...m, enabled: true } : m
+                ));
+                addNotification('CPU mining enabled (remote command)', 'info');
+              }
+            } else if (command.deviceType === 'gpu') {
+              const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+              if (gpuMiner) {
+                setMiners(prev => prev.map(m => 
+                  m.id === gpuMiner.id ? { ...m, enabled: true } : m
+                ));
+                addNotification('GPU mining enabled (remote command)', 'info');
+              }
+            }
+          }
+          break;
+          
+        case 'device-disable':
+          {
+            if (command.deviceType === 'cpu') {
+              const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+              if (cpuMiner) {
+                setMiners(prev => prev.map(m => 
+                  m.id === cpuMiner.id ? { ...m, enabled: false } : m
+                ));
+                // Stop mining if running
+                if (cpuMiner.running) {
+                  addNotification('CPU mining disabled and stopped (remote command)', 'info');
+                  await handleStopMiner(cpuMiner.id);
+                } else {
+                  addNotification('CPU mining disabled (remote command)', 'info');
+                }
+              }
+            } else if (command.deviceType === 'gpu') {
+              const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+              if (gpuMiner) {
+                setMiners(prev => prev.map(m => 
+                  m.id === gpuMiner.id ? { ...m, enabled: false } : m
+                ));
+                // Stop mining if running
+                if (gpuMiner.running) {
+                  addNotification('GPU mining disabled and stopped (remote command)', 'info');
+                  await handleStopMiner(gpuMiner.id);
+                } else {
+                  addNotification('GPU mining disabled (remote command)', 'info');
+                }
+              }
+            }
+          }
+          break;
+        
+        // Device-specific start/stop commands (legacy, for direct control)
+        case 'start-cpu':
+          {
+            const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+            if (cpuMiner && cpuMiner.enabled !== false && !cpuMiner.running) {
+              addNotification('Starting CPU mining (remote command)', 'info');
+              await handleStartMiner(cpuMiner.id);
+            }
+          }
+          break;
+          
+        case 'stop-cpu':
+          {
+            const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+            if (cpuMiner && cpuMiner.running) {
+              addNotification('Stopping CPU mining (remote command)', 'info');
+              await handleStopMiner(cpuMiner.id);
+            }
+          }
+          break;
+          
+        case 'start-gpu':
+          {
+            const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+            if (gpuMiner && gpuMiner.enabled !== false && !gpuMiner.running) {
+              addNotification('Starting GPU mining (remote command)', 'info');
+              await handleStartMiner(gpuMiner.id);
+            }
+          }
+          break;
+          
+        case 'stop-gpu':
+          {
+            const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+            if (gpuMiner && gpuMiner.running) {
+              addNotification('Stopping GPU mining (remote command)', 'info');
+              await handleStopMiner(gpuMiner.id);
+            }
+          }
+          break;
           
         default:
           console.warn('[App] Unknown command:', command.action);
       }
+    };
+
+    // Handle device enable/disable updates from server
+    const handleDeviceUpdate = (data) => {
+      console.log('[App] Received device update from server', data);
+      
+      // This will be sent via WebSocket broadcast, we need to check if it's for us
+      // The server sends miner_device_update events, but we need to handle them
+      // For now, we'll rely on status updates to sync device states
     };
 
     masterServer.on('configUpdate', handleConfigUpdate);
@@ -388,22 +512,51 @@ function App() {
         // Get system info
         const systemInfo = window.electronAPI ? await window.electronAPI.getSystemInfo() : null;
         
-        // Collect miner statuses
+        // Find CPU and GPU miners
+        const cpuMiner = miners.find(m => m.deviceType === 'CPU');
+        const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+        
+        // Build device states for the server (include enabled state)
+        const devices = {
+          cpu: {
+            enabled: cpuMiner?.enabled !== false, // Send enabled state from client
+            running: cpuMiner?.running || false,
+            hashrate: cpuMiner?.hashrate || null,
+            algorithm: cpuMiner?.config?.algorithm || null
+          },
+          gpus: []
+        };
+        
+        // Add GPU states if available (only if GPUs are detected)
+        if (systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0) {
+          devices.gpus = systemInfo.gpus.map((gpu, idx) => ({
+            id: idx,
+            model: gpu.model || gpu.name || `GPU ${idx}`,
+            enabled: gpuMiner?.enabled !== false, // Send enabled state from client
+            running: gpuMiner?.running || false, // All GPUs share same state for now
+            hashrate: gpuMiner?.running ? gpuMiner.hashrate : null,
+            algorithm: gpuMiner?.config?.algorithm || null
+          }));
+        }
+        // Don't add GPU entry if no GPUs detected - this tells server there are no GPUs
+        
+        // Collect miner statuses (legacy format for backward compatibility)
         const minerStatuses = miners.map(m => ({
           id: m.id,
           type: m.type,
           deviceType: m.deviceType,
           running: m.running,
-          enabled: m.enabled,
+          enabled: m.enabled !== false, // Ensure boolean
           hashrate: m.hashrate,
           algorithm: m.config.algorithm,
           coin: m.config.coin
         }));
 
-        // Send status update
+        // Send status update with device states
         await masterServer.sendStatusUpdate({
           systemInfo,
           miners: minerStatuses,
+          devices, // New device states format
           mining: miners.some(m => m.running)
         });
 
@@ -458,6 +611,13 @@ function App() {
   const handleStartMiner = async (minerId) => {
     const miner = miners.find(m => m.id === minerId);
     if (!miner) return;
+
+    // Prevent starting if disabled
+    if (miner.enabled === false) {
+      console.log(`[handleStartMiner] Miner ${minerId} is disabled`);
+      addNotification(`${miner.name} is disabled. Enable it first.`, 'warning');
+      return;
+    }
 
     // Prevent starting if already running or loading
     if (miner.running || miner.loading) {
@@ -592,7 +752,67 @@ function App() {
     });
   };
 
-  const handleToggleDevice = (minerId) => {
+  const handleToggleDevice = async (minerId) => {
+    const miner = miners.find(m => m.id === minerId);
+    if (!miner) {
+      console.log('[handleToggleDevice] Miner not found:', minerId);
+      return;
+    }
+    
+    console.log('[handleToggleDevice] Toggling:', minerId, 'Type:', miner.deviceType);
+    
+    // Prevent enabling GPU if no GPU detected
+    if (miner.deviceType === 'GPU') {
+      console.log('[handleToggleDevice] GPU miner detected, checking for GPU...');
+      
+      if (!window.electronAPI) {
+        console.log('[handleToggleDevice] No electron API available');
+        addNotification('Cannot toggle GPU: System info unavailable', 'error');
+        return;
+      }
+      
+      try {
+        const systemInfo = await window.electronAPI.getSystemInfo();
+        console.log('[handleToggleDevice] System info:', systemInfo);
+        console.log('[handleToggleDevice] GPUs:', systemInfo?.gpus);
+        
+        const hasGpu = systemInfo?.gpus && 
+                       Array.isArray(systemInfo.gpus) && 
+                       systemInfo.gpus.length > 0 &&
+                       systemInfo.gpus.some(gpu => {
+                         if (!gpu) return false;
+                         const model = (gpu.model || gpu.name || '').toLowerCase();
+                         // Exclude "no gpu detected" or empty models
+                         return model && 
+                                !model.includes('no gpu') && 
+                                !model.includes('detected') &&
+                                model.trim().length > 0;
+                       });
+        
+        console.log('[handleToggleDevice] Has GPU?', hasGpu);
+        
+        if (!hasGpu) {
+          // No GPU detected - prevent any toggle
+          console.log('[handleToggleDevice] BLOCKING toggle - no GPU detected');
+          addNotification('Cannot toggle GPU mining: No GPU detected', 'warning');
+          // Force disable if somehow enabled
+          setMiners(prev => prev.map(m =>
+            m.id === minerId ? { ...m, enabled: false } : m
+          ));
+          return;
+        }
+        
+        console.log('[handleToggleDevice] GPU detected, allowing toggle');
+      } catch (error) {
+        console.error('[handleToggleDevice] Error checking GPU:', error);
+        // On error, be safe and prevent toggle
+        addNotification('Error checking GPU status', 'error');
+        return;
+      }
+    }
+    
+    // Allow toggle (CPU or GPU with detection)
+    console.log('[handleToggleDevice] Proceeding with toggle');
     setMiners(prev => prev.map(m =>
       m.id === minerId ? { ...m, enabled: !m.enabled } : m
     ));

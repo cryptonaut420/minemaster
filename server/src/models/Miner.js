@@ -25,6 +25,17 @@ class Miner {
     this.uptime = data.uptime || 0; // seconds
     this.mining = data.mining !== undefined ? data.mining : false; // Is currently mining
     
+    // Device states - tracks individual device status for remote control
+    this.devices = data.devices || {
+      cpu: {
+        enabled: true,      // Whether CPU mining is enabled/allowed
+        running: false,     // Whether CPU miner is currently running
+        hashrate: null,     // Current hashrate
+        algorithm: null     // Current algorithm
+      },
+      gpus: []              // Array of GPU states: { id, enabled, running, hashrate, algorithm }
+    };
+    
     // Hardware info
     this.hardware = data.hardware || {
       cpu: null,
@@ -196,6 +207,7 @@ class Miner {
       hashrate: this.hashrate,
       uptime: this.uptime,
       mining: this.mining,
+      devices: this.devices,
       hardware: this.hardware,
       systemInfo: this.systemInfo,
       connectionId: this.connectionId

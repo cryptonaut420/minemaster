@@ -106,10 +106,49 @@ async function handleRegister(connectionId, data) {
   const gpuInfo = systemInfo?.gpus || systemInfo?.gpu?.controllers || [];
   const memoryInfo = systemInfo?.memory || systemInfo?.mem || null;
   
+  // Extract device states from client if provided
+  const clientDevices = systemInfo?.devices || data.data?.devices || null;
+  
   const isReconnect = !!miner; // Check if this is a reconnect
+  
+  // Build initial device states based on hardware
+  const buildDeviceStates = (existingDevices) => {
+    const devices = {
+      cpu: {
+        enabled: existingDevices?.cpu?.enabled !== false, // Default to enabled
+        running: clientDevices?.cpu?.running || false,
+        hashrate: clientDevices?.cpu?.hashrate || null,
+        algorithm: clientDevices?.cpu?.algorithm || null
+      },
+      gpus: []
+    };
+    
+    // Build GPU states from hardware info (only if GPUs are detected)
+    if (gpuInfo && gpuInfo.length > 0) {
+      devices.gpus = gpuInfo.map((gpu, idx) => {
+        const existingGpu = existingDevices?.gpus?.[idx];
+        const clientGpu = clientDevices?.gpus?.[idx];
+        return {
+          id: idx,
+          model: gpu.model || gpu.name || `GPU ${idx}`,
+          enabled: existingGpu?.enabled !== false, // Preserve existing setting, default to enabled
+          running: clientGpu?.running || false,
+          hashrate: clientGpu?.hashrate || null,
+          algorithm: clientGpu?.algorithm || null
+        };
+      });
+    } else {
+      // No GPUs detected - clear GPU devices array
+      devices.gpus = [];
+    }
+    
+    return devices;
+  };
   
   if (!miner) {
     // Create new miner
+    const devices = buildDeviceStates(null);
+    
     miner = await Miner.create({
       systemId,
       name: hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`,
@@ -122,6 +161,7 @@ async function handleRegister(connectionId, data) {
         gpus: gpuInfo,
         ram: memoryInfo
       },
+      devices,
       systemInfo,
       connectionId,
       status: 'online',
@@ -158,6 +198,9 @@ async function handleRegister(connectionId, data) {
       gpus: gpuInfo.length > 0 ? gpuInfo : (miner.hardware?.gpus || []),
       ram: memoryInfo || miner.hardware?.ram
     };
+    
+    // Update device states (preserve enabled settings, update running states)
+    updateData.devices = buildDeviceStates(miner.devices);
     
     console.log(`[WebSocket] Updating miner ${miner.id} with connectionId:`, connectionId);
     const updatedMiner = await Miner.update(miner.id, updateData);
@@ -224,6 +267,9 @@ async function handleStatusUpdate(connectionId, data) {
     lastSeen: new Date().toISOString()
   };
   
+  // Get current miner data to preserve device enabled settings
+  const currentMiner = await Miner.getById(connection.minerId);
+  
   if (statusData.systemInfo) {
     updateData.systemInfo = statusData.systemInfo;
     updateData.hardware = {
@@ -233,8 +279,44 @@ async function handleStatusUpdate(connectionId, data) {
     };
   }
   
+  // Update device states from client status
+  if (statusData.devices) {
+    const devices = {
+      cpu: {
+        // Sync enabled state from client if provided, otherwise preserve server state
+        enabled: statusData.devices.cpu?.enabled !== undefined 
+          ? statusData.devices.cpu.enabled 
+          : (currentMiner?.devices?.cpu?.enabled !== false),
+        running: statusData.devices.cpu?.running || false,
+        hashrate: statusData.devices.cpu?.hashrate || null,
+        algorithm: statusData.devices.cpu?.algorithm || null
+      },
+      gpus: []
+    };
+    
+    // Update GPU states (only if GPUs are detected)
+    if (statusData.devices.gpus && Array.isArray(statusData.devices.gpus) && statusData.devices.gpus.length > 0) {
+      devices.gpus = statusData.devices.gpus.map((gpu, idx) => ({
+        id: idx,
+        model: gpu.model || currentMiner?.devices?.gpus?.[idx]?.model || `GPU ${idx}`,
+        // Sync enabled state from client if provided, otherwise preserve server state
+        enabled: gpu.enabled !== undefined 
+          ? gpu.enabled 
+          : (currentMiner?.devices?.gpus?.[idx]?.enabled !== false),
+        running: gpu.running || false,
+        hashrate: gpu.hashrate || null,
+        algorithm: gpu.algorithm || null
+      }));
+    } else {
+      // No GPUs detected - clear GPU devices array
+      devices.gpus = [];
+    }
+    
+    updateData.devices = devices;
+  }
+  
   if (statusData.miners) {
-    // Update mining status based on client miners
+    // Update mining status based on client miners (legacy format)
     const anyMining = statusData.miners.some(m => m.running);
     updateData.mining = anyMining;
     updateData.status = anyMining ? 'mining' : 'online';
@@ -247,6 +329,66 @@ async function handleStatusUpdate(connectionId, data) {
       updateData.deviceType = runningMiner.deviceType;
       updateData.currentMiner = runningMiner.type;
     }
+    
+    // Also update device states from miners array if devices not provided directly
+    if (!statusData.devices) {
+      const cpuMiner = statusData.miners.find(m => m.type === 'xmrig');
+      const gpuMiner = statusData.miners.find(m => m.type === 'nanominer');
+      
+      const devices = currentMiner?.devices || { cpu: { enabled: true }, gpus: [] };
+      
+      if (cpuMiner) {
+        devices.cpu = {
+          // Sync enabled state from client if provided
+          enabled: cpuMiner.enabled !== undefined ? cpuMiner.enabled : (devices.cpu?.enabled !== false),
+          running: cpuMiner.running || false,
+          hashrate: cpuMiner.hashrate || null,
+          algorithm: cpuMiner.algorithm || null
+        };
+      }
+      
+      if (gpuMiner) {
+        // Sync enabled state from client if provided
+        const gpuEnabled = gpuMiner.enabled !== undefined ? gpuMiner.enabled : true;
+        
+        // Only update GPU states if GPUs are actually detected in hardware
+        if (updateData.hardware?.gpus && updateData.hardware.gpus.length > 0) {
+          if (gpuMiner.running) {
+            // Mark all GPUs as running if nanominer is running
+            devices.gpus = (devices.gpus || []).map(gpu => ({
+              ...gpu,
+              enabled: gpuEnabled,
+              running: true,
+              hashrate: gpuMiner.hashrate || null,
+              algorithm: gpuMiner.algorithm || null
+            }));
+          } else {
+            devices.gpus = (devices.gpus || []).map(gpu => ({
+              ...gpu,
+              enabled: gpuEnabled,
+              running: false
+            }));
+          }
+        } else {
+          // No GPUs detected - clear GPU devices array
+          devices.gpus = [];
+        }
+      } else if (!updateData.hardware?.gpus || updateData.hardware.gpus.length === 0) {
+        // No GPU miner and no GPUs detected - clear GPU devices
+        devices.gpus = [];
+      }
+      
+      updateData.devices = devices;
+    }
+  }
+  
+  // Determine overall status from device states
+  const devices = updateData.devices || currentMiner?.devices;
+  if (devices) {
+    const cpuRunning = devices.cpu?.running;
+    const anyGpuRunning = devices.gpus?.some(g => g.running);
+    updateData.mining = cpuRunning || anyGpuRunning;
+    updateData.status = updateData.mining ? 'mining' : 'online';
   }
   
   const miner = await Miner.update(connection.minerId, updateData);
@@ -395,6 +537,16 @@ async function sendCommand(minerIds, command) {
       const success = sendToConnection(miner.connectionId, {
         type: 'config-update',
         data: configs
+      });
+      if (success) sent++;
+    } else if (command.action === 'device-enable' || command.action === 'device-disable') {
+      // Send device enable/disable command with current device states
+      const success = sendToConnection(miner.connectionId, {
+        type: 'command',
+        data: {
+          ...command,
+          devices: miner.devices // Include current device states
+        }
       });
       if (success) sent++;
     } else {

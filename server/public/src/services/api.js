@@ -20,7 +20,11 @@ export const minersAPI = {
   sendCommand: (id, command, params) => api.post(`/miners/${id}/command`, { command, params }),
   restart: (id) => api.post(`/miners/${id}/restart`),
   stop: (id) => api.post(`/miners/${id}/stop`),
-  start: (id, minerType, config) => api.post(`/miners/${id}/start`, { minerType, config })
+  start: (id, minerType, config) => api.post(`/miners/${id}/start`, { minerType, config }),
+  // Device toggle endpoints
+  toggleCpu: (id, enabled) => api.post(`/miners/${id}/toggle-cpu`, { enabled }),
+  toggleGpu: (id, enabled, gpuId = null) => api.post(`/miners/${id}/toggle-gpu`, { enabled, gpuId }),
+  getDevices: (id) => api.get(`/miners/${id}/devices`)
 };
 
 // Configs API

@@ -209,6 +209,47 @@ input:checked + .toggle-slider:before {
   transform: translateX(20px);
 }
 
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #444;
+  pointer-events: none;
+}
+
+.toggle-switch input:disabled:checked + .toggle-slider {
+  background-color: #444;
+}
+
+.toggle-switch input:disabled {
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.device-row.no-gpu {
+  opacity: 0.6;
+  background-color: rgba(139, 148, 158, 0.1);
+}
+
+.device-row.no-gpu .toggle-switch {
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.device-row.no-gpu .toggle-switch * {
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.device-row.no-gpu .device-name,
+.device-row.no-gpu .device-type-badge {
+  color: #888;
+}
+
+.no-gpu-text {
+  color: #888;
+  font-style: italic;
+}
+
 /* System Stats Section */
 .dashboard-section {
   padding: 0 30px 30px 30px;

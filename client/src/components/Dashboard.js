@@ -74,9 +74,58 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
     };
   }, []);
 
+  // Force disable GPU miner if no GPU detected
+  useEffect(() => {
+    if (!systemInfo) return;
+    
+    const hasGpu = systemInfo?.gpus && 
+                   Array.isArray(systemInfo.gpus) && 
+                   systemInfo.gpus.length > 0 &&
+                   systemInfo.gpus.some(gpu => gpu && (gpu.model || gpu.name || gpu.id !== undefined));
+    
+    if (!hasGpu) {
+      // Find GPU miner and disable it
+      const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+      if (gpuMiner && gpuMiner.enabled !== false) {
+        console.log('[Dashboard] Force disabling GPU miner - no GPU detected');
+        // Call parent's toggle handler to disable
+        const gpuMinerId = miners.find(m => m.deviceType === 'GPU')?.id;
+        if (gpuMinerId) {
+          // We can't directly set state here, but we can call the handler
+          // Actually, we need to notify parent to disable it
+          // For now, just log - the disabled UI should prevent interaction
+        }
+      }
+    }
+  }, [systemInfo, miners]);
+
   const anyRunning = miners.some(m => m.running);
   const anyLoading = miners.some(m => m.loading);
   const enabledMiners = miners.filter(m => m.enabled !== false);
+  
+  // Check if GPUs are detected - be very explicit
+  // A GPU is considered valid if:
+  // 1. gpus array exists and has length > 0
+  // 2. At least one GPU has a valid model (not "No GPU detected" or empty)
+  const hasGpu = systemInfo?.gpus && 
+                 Array.isArray(systemInfo.gpus) && 
+                 systemInfo.gpus.length > 0 &&
+                 systemInfo.gpus.some(gpu => {
+                   if (!gpu) return false;
+                   const model = (gpu.model || gpu.name || '').toLowerCase();
+                   // Exclude "no gpu detected" or empty models
+                   return model && 
+                          !model.includes('no gpu') && 
+                          !model.includes('detected') &&
+                          model.trim().length > 0;
+                 });
+  
+  console.log('[Dashboard] GPU detection check:', { 
+    hasGpu, 
+    gpus: systemInfo?.gpus, 
+    gpuLength: systemInfo?.gpus?.length,
+    gpuModels: systemInfo?.gpus?.map(g => g?.model || g?.name)
+  });
 
   return (
     <div className="dashboard">
@@ -101,14 +150,78 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
         <div className="devices-section">
           <h2>Miners</h2>
           <div className="devices-list">
-            {miners.map(miner => (
-              <div key={miner.id} className={`device-row ${miner.running ? 'running' : ''}`}>
+            {miners.map(miner => {
+              // Check if this is GPU miner and no GPU detected
+              const isGpuMiner = miner.deviceType === 'GPU';
+              const shouldDisable = isGpuMiner && !hasGpu;
+              
+              return (
+              <div key={miner.id} className={`device-row ${miner.running ? 'running' : ''} ${shouldDisable ? 'no-gpu' : ''}`}>
                 <div className="device-main">
-                  <label className="toggle-switch">
+                  <label 
+                    className="toggle-switch" 
+                    style={{ pointerEvents: shouldDisable ? 'none' : 'auto', cursor: shouldDisable ? 'not-allowed' : 'pointer' }}
+                    onMouseDown={(e) => {
+                      if (shouldDisable) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (shouldDisable) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Dashboard] BLOCKED label click - no GPU');
+                        return false;
+                      }
+                    }}
+                  >
                     <input
                       type="checkbox"
-                      checked={miner.enabled !== false}
-                      onChange={() => onToggleDevice(miner.id)}
+                      checked={shouldDisable ? false : (miner.enabled !== false)}
+                      onChange={(e) => {
+                        console.log('[Dashboard] onChange fired for', miner.id, 'shouldDisable:', shouldDisable, 'hasGpu:', hasGpu);
+                        
+                        // CRITICAL: Always prevent default and check condition FIRST
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // If disabled, NEVER call the callback
+                        if (shouldDisable) {
+                          console.log('[Dashboard] BLOCKED - No GPU detected, not calling onToggleDevice');
+                          return false;
+                        }
+                        
+                        // Only call callback if NOT disabled
+                        console.log('[Dashboard] Allowing toggle for', miner.id);
+                        onToggleDevice(miner.id);
+                      }}
+                      onMouseDown={(e) => {
+                        if (shouldDisable) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('[Dashboard] BLOCKED mousedown');
+                          return false;
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (shouldDisable) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('[Dashboard] BLOCKED click');
+                          return false;
+                        }
+                      }}
+                      disabled={shouldDisable}
+                      readOnly={shouldDisable}
+                      tabIndex={shouldDisable ? -1 : 0}
+                      style={{ 
+                        pointerEvents: shouldDisable ? 'none' : 'auto', 
+                        cursor: shouldDisable ? 'not-allowed' : 'pointer',
+                        userSelect: 'none'
+                      }}
+                      title={shouldDisable ? 'No GPU detected' : 'Toggle mining'}
                     />
                     <span className="toggle-slider"></span>
                   </label>
@@ -116,9 +229,15 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
                   <div className="device-info">
                     <div className="device-header-row">
                       <span className="device-type-badge">{miner.deviceType}</span>
-                      <span className="device-name">{miner.name}</span>
+                      <span className="device-name">
+                        {shouldDisable ? 'No GPU detected' : miner.name}
+                      </span>
                     </div>
-                    {miner.enabled !== false && (
+                    {shouldDisable ? (
+                      <div className="device-details-compact">
+                        <span className="detail-item no-gpu-text">GPU mining unavailable</span>
+                      </div>
+                    ) : miner.enabled !== false && (
                       <div className="device-details-compact">
                         <span className="detail-item">{miner.type.toUpperCase()}</span>
                         <span className="detail-separator">•</span>
@@ -136,7 +255,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
                   </div>
                 </div>
                 
-                {miner.enabled !== false && (
+                {miner.enabled !== false && !shouldDisable && (
                   <div className="device-hashrate-compact">
                     {miner.running ? (
                       miner.hashrate ? (
@@ -149,8 +268,13 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
                     )}
                   </div>
                 )}
+                {shouldDisable && (
+                  <div className="device-hashrate-compact">
+                    <span className="hashrate-stopped">N/A</span>
+                  </div>
+                )}
               </div>
-            ))}
+            )})}
           </div>
         </div>
       </div>

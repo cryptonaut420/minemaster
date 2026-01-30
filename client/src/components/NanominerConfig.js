@@ -7,6 +7,20 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
   const systemInfo = useSystemInfo();
   const gpuList = useGpuList();
   
+  // Check if GPU is detected
+  const hasGpu = systemInfo?.gpus && 
+                 Array.isArray(systemInfo.gpus) && 
+                 systemInfo.gpus.length > 0 &&
+                 systemInfo.gpus.some(gpu => {
+                   if (!gpu) return false;
+                   const model = (gpu.model || gpu.name || '').toLowerCase();
+                   // Exclude "no gpu detected" or empty models
+                   return model && 
+                          !model.includes('no gpu') && 
+                          !model.includes('detected') &&
+                          model.trim().length > 0;
+                 });
+  
   const handleChange = (field, value) => {
     onConfigChange({
       ...miner.config,
@@ -19,6 +33,25 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
     if (!isBoundToMaster) return false;
     // Allow rigName to be edited even when bound
     return field !== 'rigName';
+  };
+  
+  // Check if start button should be disabled
+  const isStartDisabled = miner.loading || 
+                          !miner.config.pool || 
+                          !miner.config.user || 
+                          !miner.config.algorithm ||
+                          !hasGpu ||
+                          miner.enabled === false;
+  
+  // Get disabled reason for tooltip
+  const getDisabledReason = () => {
+    if (miner.loading) return 'Miner is starting...';
+    if (!miner.config.pool) return 'Pool address required';
+    if (!miner.config.user) return 'Wallet address required';
+    if (!miner.config.algorithm) return 'Algorithm required';
+    if (!hasGpu) return 'No GPU detected';
+    if (miner.enabled === false) return 'GPU mining is disabled';
+    return 'Start Mining';
   };
 
   return (
@@ -38,10 +71,10 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
         <div className="control-buttons">
           {!miner.running ? (
             <button 
-              className="btn btn-start"
+              className={`btn btn-start ${!hasGpu ? 'disabled-no-gpu' : ''}`}
               onClick={onStart}
-              disabled={miner.loading || !miner.config.pool || !miner.config.user || !miner.config.algorithm}
-              title={!miner.config.pool || !miner.config.user ? 'Pool address and wallet address required' : 'Start Mining'}
+              disabled={isStartDisabled}
+              title={getDisabledReason()}
             >
               {miner.loading ? '⏳ Starting...' : '▶ Start Mining'}
             </button>
@@ -69,6 +102,12 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
       )}
 
       <div className="config-form">
+        {!hasGpu && (
+          <div className="no-gpu-warning">
+            ⚠️ No GPU detected - GPU mining is unavailable on this system. The Start Mining button is disabled.
+          </div>
+        )}
+        
         {isBoundToMaster && (
           <div className="master-bound-notice">
             🔗 Bound to Master Server - Most settings are controlled remotely. Only rig name can be changed locally.

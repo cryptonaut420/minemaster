@@ -275,4 +275,193 @@ router.post('/:id/start', async (req, res) => {
   }
 });
 
+// Enable/Disable CPU mining for a miner
+router.post('/:id/toggle-cpu', async (req, res) => {
+  try {
+    const miner = await Miner.getById(req.params.id);
+    if (!miner) {
+      return res.status(404).json({ success: false, error: 'Miner not found' });
+    }
+    
+    if (!miner.bound) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not bound to master server' 
+      });
+    }
+    
+    if (!miner.connectionId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not connected' 
+      });
+    }
+    
+    const { enabled } = req.body;
+    
+    // Update device state in DB first
+    const devices = miner.devices || { cpu: { enabled: true, running: false }, gpus: [] };
+    const wasEnabled = devices.cpu.enabled;
+    devices.cpu.enabled = enabled;
+    
+    // Send device enable/disable command to client
+    const commandAction = enabled ? 'device-enable' : 'device-disable';
+    const sent = await websocketServer.sendCommand(miner.id, {
+      action: commandAction,
+      deviceType: 'cpu',
+      enabled
+    });
+    
+    if (sent === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Failed to send command to miner' 
+      });
+    }
+    
+    // If disabling and currently running, also stop it
+    if (!enabled && devices.cpu.running) {
+      devices.cpu.running = false;
+      // Send stop command as well
+      await websocketServer.sendCommand(miner.id, {
+        action: 'stop-cpu',
+        deviceType: 'cpu'
+      });
+    }
+    
+    await Miner.update(miner.id, { devices });
+    
+    // Broadcast update
+    websocketServer.broadcast({
+      type: 'miner_device_update',
+      minerId: miner.id,
+      deviceType: 'cpu',
+      enabled
+    });
+    
+    res.json({ success: true, message: `CPU mining ${enabled ? 'enabled' : 'disabled'}` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Enable/Disable GPU mining for a miner
+router.post('/:id/toggle-gpu', async (req, res) => {
+  try {
+    const miner = await Miner.getById(req.params.id);
+    if (!miner) {
+      return res.status(404).json({ success: false, error: 'Miner not found' });
+    }
+    
+    if (!miner.bound) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not bound to master server' 
+      });
+    }
+    
+    if (!miner.connectionId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Miner is not connected' 
+      });
+    }
+    
+    // Check if GPUs are detected
+    if (!miner.hardware?.gpus || miner.hardware.gpus.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No GPUs detected on this miner' 
+      });
+    }
+    
+    const { enabled, gpuId } = req.body; // gpuId is optional, if not provided toggle all GPUs
+    
+    // Update device state in DB first
+    const devices = miner.devices || { cpu: { enabled: true, running: false }, gpus: [] };
+    
+    let shouldStop = false;
+    
+    if (gpuId !== undefined && devices.gpus[gpuId]) {
+      // Toggle specific GPU
+      const wasEnabled = devices.gpus[gpuId].enabled;
+      devices.gpus[gpuId].enabled = enabled;
+      if (!enabled && devices.gpus[gpuId].running) {
+        devices.gpus[gpuId].running = false;
+        shouldStop = true;
+      }
+    } else {
+      // Toggle all GPUs
+      const anyRunning = devices.gpus.some(g => g.running);
+      devices.gpus = devices.gpus.map(gpu => ({
+        ...gpu,
+        enabled,
+        running: enabled ? gpu.running : false
+      }));
+      if (!enabled && anyRunning) {
+        shouldStop = true;
+      }
+    }
+    
+    // Send device enable/disable command to client
+    const commandAction = enabled ? 'device-enable' : 'device-disable';
+    const sent = await websocketServer.sendCommand(miner.id, {
+      action: commandAction,
+      deviceType: 'gpu',
+      gpuId: gpuId !== undefined ? gpuId : null,
+      enabled
+    });
+    
+    if (sent === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Failed to send command to miner' 
+      });
+    }
+    
+    // If disabling and currently running, also stop it
+    if (shouldStop) {
+      // Send stop command as well
+      await websocketServer.sendCommand(miner.id, {
+        action: 'stop-gpu',
+        deviceType: 'gpu',
+        gpuId: gpuId !== undefined ? gpuId : null
+      });
+    }
+    
+    await Miner.update(miner.id, { devices });
+    
+    // Broadcast update
+    websocketServer.broadcast({
+      type: 'miner_device_update',
+      minerId: miner.id,
+      deviceType: 'gpu',
+      gpuId,
+      enabled
+    });
+    
+    res.json({ success: true, message: `GPU mining ${enabled ? 'enabled' : 'disabled'}` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get device states for a miner
+router.get('/:id/devices', async (req, res) => {
+  try {
+    const miner = await Miner.getById(req.params.id);
+    if (!miner) {
+      return res.status(404).json({ success: false, error: 'Miner not found' });
+    }
+    
+    res.json({ 
+      success: true, 
+      devices: miner.devices,
+      hardware: miner.hardware
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router;
