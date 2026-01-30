@@ -233,9 +233,8 @@ function App() {
       window.electronAPI.onMinerClosed((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
-            const exitMessage = `\nMiner exited with code: ${data.code}\n`;
+            const exitMessage = `\nMiner exited with code: ${data.code ?? 'null'}\n`;
             const newOutput = addConsoleOutput(miner.output, exitMessage);
-            const hadError = data.code !== 0;
             
             return {
               ...miner,
@@ -249,9 +248,20 @@ function App() {
           return miner;
         }));
         
-        // Notify if crashed
-        if (data.code !== 0) {
-          addNotification(`Miner crashed with exit code ${data.code}`, 'error');
+        // Only show crash notifications for genuinely unusual exit codes
+        // Normal/expected exit codes that should NOT trigger notifications:
+        // null/undefined = process killed/terminated, 0 = clean exit
+        // 130 = Ctrl+C (SIGINT), 143 = SIGTERM, 137 = SIGKILL, 1 = general error but often from manual stop
+        const normalExitCodes = [null, undefined, 0, 1, 130, 143, 137];
+        const isAbnormalCrash = data.code !== null && 
+                                data.code !== undefined && 
+                                !normalExitCodes.includes(data.code) &&
+                                data.code > 1;
+        
+        if (isAbnormalCrash) {
+          const miner = minersRef.current.find(m => m.id === data.minerId);
+          const minerName = miner?.name || 'Miner';
+          addNotification(`${minerName} crashed unexpectedly (exit code ${data.code})`, 'error');
         }
       });
     }
