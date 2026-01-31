@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_URL = window.REACT_APP_API_URL || 'http://localhost:3001/api';
+// Use same URL detection pattern as api.js
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3001/api' 
+  : '/api';
 
 // Auth token management
 const TOKEN_KEY = 'minemaster_auth_token';
@@ -19,7 +22,8 @@ export const removeToken = () => {
 
 // Create axios instance with auth interceptor
 const api = axios.create({
-  baseURL: API_URL
+  baseURL: API_URL,
+  timeout: 10000
 });
 
 api.interceptors.request.use(
@@ -38,10 +42,9 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // If we get a 401, remove the token and redirect to login
+    // If we get a 401, just reject - let the app handle the redirect
     if (error.response?.status === 401) {
       removeToken();
-      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -49,12 +52,12 @@ api.interceptors.response.use(
 
 export const authAPI = {
   checkSetupRequired: async () => {
-    const response = await axios.get(`${API_URL}/auth/setup-required`);
+    const response = await api.get('/auth/setup-required');
     return response.data;
   },
 
   register: async (email, password) => {
-    const response = await axios.post(`${API_URL}/auth/register`, { email, password });
+    const response = await api.post('/auth/register', { email, password });
     if (response.data.token) {
       setToken(response.data.token);
     }
@@ -62,7 +65,7 @@ export const authAPI = {
   },
 
   login: async (email, password) => {
-    const response = await axios.post(`${API_URL}/auth/login`, { email, password });
+    const response = await api.post('/auth/login', { email, password });
     if (response.data.token) {
       setToken(response.data.token);
     }

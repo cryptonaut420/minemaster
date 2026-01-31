@@ -3,7 +3,7 @@ import { minersAPI } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import './Dashboard.css';
 
-const API_BASE = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001/api';
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001/api' : '/api';
 
 function Dashboard() {
   const [stats, setStats] = useState({
@@ -198,11 +198,11 @@ function Dashboard() {
           </div>
         </div>
         
-        <div className="stat-card offline">
-          <div className="stat-icon">⭕</div>
+        <div className="stat-card hashrate">
+          <div className="stat-icon">📈</div>
           <div className="stat-content">
-            <div className="stat-value">{stats.offline}</div>
-            <div className="stat-label">Offline</div>
+            <div className="stat-value mono">{formatHashrate(stats.totalHashrate)}</div>
+            <div className="stat-label">Total Hashrate</div>
           </div>
         </div>
       </div>

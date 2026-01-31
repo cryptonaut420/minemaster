@@ -35,9 +35,15 @@ function App() {
   }, []);
 
   const checkAuth = async () => {
+    // Add timeout to prevent infinite loading
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Auth check timeout')), 10000)
+    );
+
     try {
       // First check if setup is required
-      const { setupRequired } = await authAPI.checkSetupRequired();
+      const setupCheck = authAPI.checkSetupRequired();
+      const { setupRequired } = await Promise.race([setupCheck, timeout]);
       
       if (setupRequired) {
         setAuthState({
@@ -51,7 +57,8 @@ function App() {
 
       // Try to get current user (validates token)
       try {
-        const { admin } = await authAPI.getCurrentUser();
+        const userCheck = authAPI.getCurrentUser();
+        const { admin } = await Promise.race([userCheck, timeout]);
         setAuthState({
           loading: false,
           authenticated: true,
@@ -68,6 +75,7 @@ function App() {
         });
       }
     } catch (error) {
+      // Timeout or network error - show login screen
       setAuthState({
         loading: false,
         authenticated: false,
@@ -107,8 +115,8 @@ function App() {
     return (
       <div className="app loading-screen">
         <div className="loading-content">
-          <h1>⛏️ MineMaster</h1>
-          <p>Loading...</p>
+          <h1>⛏️</h1>
+          <p>Loading MineMaster...</p>
         </div>
       </div>
     );
@@ -154,16 +162,19 @@ function App() {
         </div>
 
         <div className="navbar-right">
-          <div className="user-info">
-            <span className="user-email">{authState.user?.email}</span>
-            <button className="logout-button" onClick={handleLogout}>
-              🚪 Logout
-            </button>
-          </div>
-          
           <div className={`connection-status ${wsConnected ? 'connected' : 'disconnected'}`}>
             <span className="status-dot"></span>
-            {wsConnected ? 'Connected' : 'Disconnected'}
+            <span>{wsConnected ? 'Live' : 'Offline'}</span>
+          </div>
+          
+          <div className="user-info">
+            <div className="user-avatar">
+              {authState.user?.email?.charAt(0).toUpperCase() || '?'}
+            </div>
+            <span className="user-email">{authState.user?.email}</span>
+            <button className="logout-button" onClick={handleLogout}>
+              Logout
+            </button>
           </div>
         </div>
       </nav>
