@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const HashRate = require('../models/HashRate');
 const Miner = require('../models/Miner');
+const { requireAuth } = require('../middleware/auth');
+
+// Apply authentication to all routes
+router.use(requireAuth);
 
 // Get hash rate statistics broken down by device type and algorithm
 router.get('/hashrates', async (req, res) => {

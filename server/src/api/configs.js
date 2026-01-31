@@ -3,6 +3,10 @@ const router = express.Router();
 const Config = require('../models/Config');
 const Miner = require('../models/Miner');
 const websocketServer = require('../websocket/server');
+const { requireAuth } = require('../middleware/auth');
+
+// Apply authentication to all routes
+router.use(requireAuth);
 
 // Get all configs
 router.get('/', async (req, res) => {

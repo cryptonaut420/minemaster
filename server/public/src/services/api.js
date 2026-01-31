@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { getToken } from './auth';
 
-const API_BASE = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001/api';
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001/api' : '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -9,6 +10,20 @@ const api = axios.create({
   },
   timeout: 10000
 });
+
+// Add auth token to all requests
+api.interceptors.request.use(
+  (config) => {
+    const token = getToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // Miners API
 export const minersAPI = {
