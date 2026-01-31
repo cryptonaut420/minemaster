@@ -692,7 +692,8 @@ function updateCpuTempAsync() {
         const zones = [
           '/sys/class/thermal/thermal_zone0/temp',
           '/sys/class/hwmon/hwmon0/temp1_input',
-          '/sys/class/hwmon/hwmon1/temp1_input'
+          '/sys/class/hwmon/hwmon1/temp1_input',
+          '/sys/class/hwmon/hwmon2/temp1_input'
         ];
         
         for (const zone of zones) {
@@ -705,25 +706,49 @@ function updateCpuTempAsync() {
           } catch (e) {}
         }
       } else if (process.platform === 'win32') {
-        // Windows: Use systeminformation library
+        // Windows: Try multiple methods for CPU temperature
+        let tempFound = false;
+        
+        // Method 1: systeminformation library (works with Open Hardware Monitor / LibreHardwareMonitor)
         try {
           const cpuTemp = await si.cpuTemperature();
-          if (cpuTemp && cpuTemp.main !== null && cpuTemp.main !== -1) {
+          if (cpuTemp && cpuTemp.main !== null && cpuTemp.main !== -1 && cpuTemp.main > 0) {
             cachedCpuTemp = cpuTemp.main;
+            tempFound = true;
           }
-        } catch (e) {
-          // Try WMI as fallback (requires admin or specific hardware support)
+        } catch (e) {}
+        
+        // Method 2: WMI ThermalZone (requires admin on some systems)
+        if (!tempFound) {
           try {
-            const { stdout } = await execAsync('wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature 2>nul');
+            const { stdout } = await execAsync('wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature 2>nul', { timeout: 3000 });
             const lines = stdout.split('\n').filter(l => l.trim() && !isNaN(l.trim()));
             if (lines.length > 0) {
               // WMI returns temp in tenths of Kelvin
               const tempKelvin = parseInt(lines[0].trim()) / 10;
-              cachedCpuTemp = tempKelvin - 273.15;
+              const tempCelsius = tempKelvin - 273.15;
+              // Validate reasonable temperature range (10°C to 110°C)
+              if (tempCelsius > 10 && tempCelsius < 110) {
+                cachedCpuTemp = tempCelsius;
+                tempFound = true;
+              }
             }
-          } catch (e2) {
-            // Temperature monitoring not available on this Windows system
-          }
+          } catch (e2) {}
+        }
+        
+        // Method 3: PowerShell with CIM (modern Windows)
+        if (!tempFound) {
+          try {
+            const psCmd = 'powershell -NoProfile -Command "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty CurrentTemperature"';
+            const { stdout } = await execAsync(psCmd, { timeout: 5000 });
+            const tempValue = parseInt(stdout.trim());
+            if (tempValue && !isNaN(tempValue)) {
+              const tempCelsius = (tempValue / 10) - 273.15;
+              if (tempCelsius > 10 && tempCelsius < 110) {
+                cachedCpuTemp = tempCelsius;
+              }
+            }
+          } catch (e3) {}
         }
       } else if (process.platform === 'darwin') {
         // macOS: Use systeminformation
@@ -800,43 +825,51 @@ function updateGpuInfoAsync() {
           }
         }
       } else if (process.platform === 'win32') {
-        // Windows: Use systeminformation for AMD GPUs
+        // Windows: Use systeminformation for GPU detection
         try {
           const graphics = await si.graphics();
           if (graphics && graphics.controllers) {
-            graphics.controllers.forEach((gpu, idx) => {
+            let gpuIndex = 0;
+            graphics.controllers.forEach((gpu) => {
               // Skip integrated graphics
               const model = (gpu.model || '').toLowerCase();
               const vendor = (gpu.vendor || '').toLowerCase();
               
-              if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris'))) {
+              // Skip Intel integrated graphics
+              if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris') || model.includes('hd graphics'))) {
                 return;
               }
+              // Skip AMD APU integrated graphics
               if ((vendor.includes('amd') || vendor.includes('ati')) && 
                   (model.includes('vega') || model.includes('radeon graphics') || 
-                   model.includes('raphael') || model.includes('renoir'))) {
+                   model.includes('raphael') || model.includes('renoir') ||
+                   model.includes('cezanne') || model.includes('lucienne'))) {
+                return;
+              }
+              // Skip Microsoft Basic Display (virtual/fallback)
+              if (vendor.includes('microsoft') || model.includes('basic display')) {
                 return;
               }
               
-              // AMD discrete GPU - systeminformation provides limited stats on Windows
-              if ((vendor.includes('amd') || vendor.includes('ati')) && !vendor.includes('nvidia')) {
-                const gpuInfo = {
-                  id: idx,
-                  temperature: gpu.temperatureGpu || null,
-                  usage: gpu.utilizationGpu || null,
-                  vramUsed: gpu.memoryUsed || null,
-                  vramTotal: gpu.vram || null,
-                  type: 'AMD'
-                };
-                
-                if (gpuInfo.vramTotal > 1024) { // Only discrete GPUs with >1GB VRAM
-                  detectedGpus.push(gpuInfo);
-                }
+              // Discrete GPU detected
+              const gpuInfo = {
+                id: gpuIndex++,
+                temperature: gpu.temperatureGpu || null,
+                usage: gpu.utilizationGpu || null,
+                vramUsed: gpu.memoryUsed || null,
+                vramTotal: gpu.vram || null,
+                type: vendor.includes('nvidia') ? 'NVIDIA' : 'AMD',
+                model: gpu.model || 'Unknown GPU'
+              };
+              
+              // Only include GPUs with >512MB VRAM (discrete GPUs)
+              if (gpuInfo.vramTotal > 512) {
+                detectedGpus.push(gpuInfo);
               }
             });
           }
         } catch (e) {
-          // Silent fail - will try NVIDIA detection
+          // Silent fail - will try NVIDIA detection with nvidia-smi
         }
       }
       
@@ -920,7 +953,8 @@ ipcMain.handle('get-gpu-stats', () => {
 
 function getXmrigPath(customPath) {
   if (customPath) {
-    return customPath;
+    // Normalize path for the current platform
+    return path.normalize(customPath);
   }
 
   // Determine binary name based on platform
@@ -933,7 +967,7 @@ function getXmrigPath(customPath) {
 
   // Check if bundled version exists, otherwise fall back to system PATH
   if (fs.existsSync(bundledXmrigPath)) {
-    return bundledXmrigPath;
+    return path.normalize(bundledXmrigPath);
   }
 
   // Fallback to system PATH
@@ -942,7 +976,8 @@ function getXmrigPath(customPath) {
 
 function getNanominerPath(customPath) {
   if (customPath) {
-    return customPath;
+    // Normalize path for the current platform
+    return path.normalize(customPath);
   }
 
   // Determine binary name based on platform
@@ -955,11 +990,11 @@ function getNanominerPath(customPath) {
 
   // Check if bundled version exists
   if (fs.existsSync(bundledNanominerPath)) {
-    return bundledNanominerPath;
+    return path.normalize(bundledNanominerPath);
   }
 
   // Fallback to miners folder (dev mode)
-  return path.join(__dirname, '../miners/nanominer', binaryName);
+  return path.normalize(path.join(__dirname, '../miners/nanominer', binaryName));
 }
 
 function createNanominerConfig(minerId, config) {
@@ -968,19 +1003,28 @@ function createNanominerConfig(minerId, config) {
     ? path.join(__dirname, '../miners/nanominer')
     : path.join(process.resourcesPath, 'miners/nanominer');
   
-  const configPath = path.join(configDir, `${minerId}-config.ini`);
+  // Ensure config directory exists
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+  
+  // Use a clean filename (sanitize minerId for Windows compatibility)
+  const safeMinerId = minerId.replace(/[^a-zA-Z0-9-_]/g, '_');
+  const configPath = path.join(configDir, `${safeMinerId}-config.ini`);
   
   // Build config content (flat format, no section headers for single coin)
+  // Use Windows-style line endings on Windows for better compatibility
+  const lineEnding = process.platform === 'win32' ? '\r\n' : '\n';
   let configContent = '';
   
   // Add wallet and pool info
   if (config.user) {
-    configContent += `wallet = ${config.user}\n`;
+    configContent += `wallet = ${config.user}${lineEnding}`;
   }
   
   // Nanominer uses "coin" parameter instead of algorithm section
   if (config.coin) {
-    configContent += `coin = ${config.coin}\n`;
+    configContent += `coin = ${config.coin}${lineEnding}`;
   } else if (config.algorithm) {
     // Fallback: try to map algorithm to coin
     const algoToCoin = {
@@ -989,39 +1033,46 @@ function createNanominerConfig(minerId, config) {
       'ethash': 'ETC',
       'autolykos2': 'ERG',
       'octopus': 'CFX',
-      'randomx': 'XMR'
+      'randomx': 'XMR',
+      'zelhash': 'FLUX',
+      'beamhash': 'BEAM'
     };
     const coin = algoToCoin[config.algorithm.toLowerCase()] || config.algorithm.toUpperCase();
-    configContent += `coin = ${coin}\n`;
+    configContent += `coin = ${coin}${lineEnding}`;
   }
   
   if (config.pool) {
-    configContent += `pool1 = ${config.pool}\n`;
+    configContent += `pool1 = ${config.pool}${lineEnding}`;
   }
   
   if (config.rigName) {
-    configContent += `rigName = ${config.rigName}\n`;
+    configContent += `rigName = ${config.rigName}${lineEnding}`;
   }
   
   if (config.email) {
-    configContent += `email = ${config.email}\n`;
+    configContent += `email = ${config.email}${lineEnding}`;
   }
   
   // GPU selection
   if (config.gpus && config.gpus.length > 0) {
-    configContent += `devices = ${config.gpus.join(',')}\n`;
+    configContent += `devices = ${config.gpus.join(',')}${lineEnding}`;
   }
   
-  configContent += `\n`;
+  configContent += lineEnding;
   
   // Add global settings
-  configContent += `webPort = 0\n`; // Disable web interface to avoid port conflicts
-  configContent += `watchdog = false\n`; // Disable watchdog to prevent parent-child process spawning
+  configContent += `webPort = 0${lineEnding}`; // Disable web interface to avoid port conflicts
+  configContent += `watchdog = false${lineEnding}`; // Disable watchdog to prevent parent-child process spawning
+  
+  // Windows-specific: Add noColor to avoid ANSI issues in some terminals
+  if (process.platform === 'win32') {
+    configContent += `noColor = true${lineEnding}`;
+  }
   
   // Write config file
   fs.writeFileSync(configPath, configContent, 'utf8');
   
-  return configPath;
+  return path.normalize(configPath);
 }
 
 function buildXmrigArgs(config) {

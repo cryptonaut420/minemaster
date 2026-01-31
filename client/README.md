@@ -124,22 +124,36 @@ sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
 #### Windows
 
 **System Monitoring**:
-- CPU temperature requires compatible hardware/drivers
-- NVIDIA GPU stats require nvidia-smi (included with NVIDIA drivers)
-- AMD GPU stats require Adrenalin drivers
+- CPU temperature supports multiple methods:
+  - `systeminformation` library (works with Open Hardware Monitor / LibreHardwareMonitor)
+  - WMI ThermalZone (may require admin privileges)
+  - PowerShell CIM queries (modern Windows 10/11)
+- NVIDIA GPU stats: Detected via `nvidia-smi` (included with NVIDIA drivers)
+- AMD GPU stats: Detected via `systeminformation` (requires Adrenalin drivers)
+- Integrated graphics (Intel UHD, AMD Vega) are automatically filtered out
 
 **Running Miners**:
 - For best performance, run MineMaster as Administrator
-- Windows Defender may flag mining software - add exception if needed
+- Windows Defender may flag mining software - add exceptions for:
+  - `miners/xmrig/xmrig.exe`
+  - `miners/nanominer/nanominer.exe`
 - Ensure GPU drivers are up to date
+- Nanominer config files use Windows line endings for compatibility
 
 **Miner Downloads**:
-- Downloads use PowerShell's `Expand-Archive` for extraction
+- ZIP files: PowerShell `Expand-Archive`
+- TAR.GZ files: Native `tar` (Windows 10 1803+) with PowerShell fallback
 - If download fails, manually download from releases pages
 
 **Stopping Miners**:
-- Uses `taskkill` for process termination
+- Uses `taskkill /T /F` for reliable process tree termination
+- Handles orphaned child processes automatically
 - May require administrator privileges for some operations
+
+**Nanominer on Windows**:
+- Ensure CUDA drivers are installed for NVIDIA GPUs
+- OpenCL runtime required for AMD GPUs
+- Config uses `noColor = true` to avoid ANSI escape code issues
 
 #### Linux
 
@@ -161,6 +175,27 @@ sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
 - NVIDIA support limited (no recent NVIDIA drivers for macOS)
 - AMD GPU detection uses `systeminformation` library
 - CPU temperature via SMC requires additional permissions
+
+### Common Windows Issues
+
+**"Miner not starting"**:
+1. Check Windows Defender hasn't quarantined the miner
+2. Run MineMaster as Administrator
+3. Ensure the miner binary exists in `miners/xmrig/` or `miners/nanominer/`
+
+**"No GPU detected"**:
+1. Update GPU drivers (NVIDIA: nvidia-smi must work, AMD: Adrenalin drivers)
+2. Check Device Manager for GPU status
+3. Integrated graphics are intentionally filtered out
+
+**"CPU temperature not showing"**:
+- Install Open Hardware Monitor or LibreHardwareMonitor
+- Or run as Administrator (WMI access)
+
+**"Miner won't stop"**:
+1. Open Task Manager
+2. End task for `xmrig.exe` or `nanominer.exe`
+3. Check for orphaned `conhost.exe` processes
 
 ### TypeScript Errors
 Already fixed - package.json uses TypeScript 4.9.5 compatible with react-scripts.

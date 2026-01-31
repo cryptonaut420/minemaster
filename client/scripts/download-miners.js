@@ -104,12 +104,44 @@ function extract(archive, destDir, extractedDir) {
   try {
     if (archive.endsWith('.tar.gz')) {
       // Extract tar.gz
-      execSync(`tar -xzf "${archivePath}" -C "${destDir}"`, { stdio: 'inherit' });
+      if (process.platform === 'win32') {
+        // Windows: Use tar command (available on Windows 10 1803+) or PowerShell
+        try {
+          // Try native tar first (works on Windows 10 1803+)
+          execSync(`tar -xzf "${archivePath}" -C "${destDir}"`, { stdio: 'inherit' });
+        } catch (tarError) {
+          // Fallback: Use PowerShell with .NET
+          console.log('Native tar failed, trying PowerShell...');
+          const psScript = `
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $gzStream = [System.IO.File]::OpenRead('${archivePath.replace(/\\/g, '\\\\')}')
+            $gzipStream = New-Object System.IO.Compression.GzipStream($gzStream, [System.IO.Compression.CompressionMode]::Decompress)
+            $tarPath = '${archivePath.replace(/\\/g, '\\\\').replace('.gz', '')}'
+            $tarStream = [System.IO.File]::Create($tarPath)
+            $gzipStream.CopyTo($tarStream)
+            $tarStream.Close()
+            $gzipStream.Close()
+            $gzStream.Close()
+          `;
+          execSync(`powershell -NoProfile -Command "${psScript}"`, { stdio: 'inherit' });
+          // Then extract the tar
+          execSync(`tar -xf "${archivePath.replace('.gz', '')}" -C "${destDir}"`, { stdio: 'inherit' });
+          // Clean up intermediate tar file
+          try { fs.unlinkSync(archivePath.replace('.gz', '')); } catch (e) {}
+        }
+      } else {
+        // Linux/macOS: Use native tar
+        execSync(`tar -xzf "${archivePath}" -C "${destDir}"`, { stdio: 'inherit' });
+      }
     } else if (archive.endsWith('.zip')) {
       // Extract zip
       if (process.platform === 'win32') {
-        execSync(`powershell -command "Expand-Archive -Path '${archivePath}' -DestinationPath '${destDir}' -Force"`, { stdio: 'inherit' });
+        // Windows: Use PowerShell Expand-Archive
+        const escapedArchive = archivePath.replace(/'/g, "''");
+        const escapedDest = destDir.replace(/'/g, "''");
+        execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${escapedArchive}' -DestinationPath '${escapedDest}' -Force"`, { stdio: 'inherit' });
       } else {
+        // Linux/macOS: Use unzip
         execSync(`unzip -o "${archivePath}" -d "${destDir}"`, { stdio: 'inherit' });
       }
     }
@@ -126,7 +158,8 @@ function extract(archive, destDir, extractedDir) {
         }
         fs.renameSync(src, dest);
       });
-      fs.rmdirSync(extractedPath);
+      // Use fs.rmSync for better cross-platform compatibility
+      fs.rmSync(extractedPath, { recursive: true, force: true });
     }
     
     // Remove archive
