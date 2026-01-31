@@ -47,28 +47,11 @@ function Configs() {
     try {
       await configsAPI.update(selectedType, formData);
       await fetchConfigs();
-      success(`Configuration saved successfully!`, 4000);
+      const deviceName = selectedType === 'xmrig' ? 'CPU (XMRig)' : 'GPU (Nanominer)';
+      success(`${deviceName} configuration saved successfully!`, 4000);
     } catch (err) {
       error(`Failed to save configuration: ${err.response?.data?.error || err.message}`, 5000);
       console.error('Error saving config:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleApplyAndRestart = async () => {
-    if (!confirm('This will restart all miners currently using this configuration. Continue?')) return;
-    
-    setSaving(true);
-    try {
-      await configsAPI.update(selectedType, formData);
-      const response = await configsAPI.apply(selectedType);
-      await fetchConfigs();
-      const restarted = response.data?.restarted || 0;
-      success(`Configuration applied and ${restarted} miner(s) restarted!`, 5000);
-    } catch (err) {
-      error(`Failed to apply configuration: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error applying config:', err);
     } finally {
       setSaving(false);
     }
@@ -130,17 +113,10 @@ function Configs() {
             >
               {saving ? 'Saving...' : '💾 Save Configuration'}
             </button>
-            <button
-              className="btn btn-apply"
-              onClick={handleApplyAndRestart}
-              disabled={saving}
-            >
-              🔄 Save & Restart Miners
-            </button>
           </div>
           
           <p className="action-hint">
-            Clients will automatically sync with new configurations on next connection.
+            Configuration saved. Restart miners manually to apply changes.
           </p>
         </div>
       </div>

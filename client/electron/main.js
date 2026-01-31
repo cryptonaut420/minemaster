@@ -797,7 +797,6 @@ function updateGpuInfoAsync() {
   
   setTimeout(async () => {
     try {
-      console.log('[GPU Detection] Starting...');
       const detectedGpus = [];
       
       if (process.platform === 'linux') {
@@ -805,7 +804,6 @@ function updateGpuInfoAsync() {
         for (let cardNum = 0; cardNum < 8; cardNum++) {
           const amdPath = `/sys/class/drm/card${cardNum}/device`;
           if (fs.existsSync(amdPath)) {
-            console.log(`[GPU Detection] Found AMD GPU at card${cardNum}`);
             const gpuInfo = { id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
             
             // Try to read temp
@@ -846,9 +844,6 @@ function updateGpuInfoAsync() {
             
             if (hasValidStats && isNotIntegrated) {
               detectedGpus.push(gpuInfo);
-              console.log(`[GPU Detection] AMD GPU ${cardNum} cached:`, gpuInfo);
-            } else if (hasValidStats) {
-              console.log(`[GPU Detection] AMD GPU ${cardNum} skipped (integrated graphics):`, gpuInfo);
             }
           }
         }
@@ -884,7 +879,6 @@ function updateGpuInfoAsync() {
                 
                 if (gpuInfo.vramTotal > 1024) { // Only discrete GPUs with >1GB VRAM
                   detectedGpus.push(gpuInfo);
-                  console.log(`[GPU Detection] AMD GPU ${idx} (Windows):`, gpuInfo);
                 }
               }
             });
@@ -901,11 +895,9 @@ function updateGpuInfoAsync() {
       
       exec(nvidiaSmiCmd, (error, stdout) => {
         if (!error && stdout && stdout.trim()) {
-          console.log('[GPU Detection] nvidia-smi output:', stdout);
           const lines = stdout.trim().split('\n');
           lines.forEach(line => {
             const parts = line.split(',').map(p => p.trim());
-            console.log('[GPU Detection] Parsed parts:', parts);
             if (parts.length >= 5 && !isNaN(parts[0])) {
               const gpuInfo = {
                 id: parseInt(parts[0]),
@@ -916,16 +908,12 @@ function updateGpuInfoAsync() {
                 type: 'NVIDIA'
               };
               detectedGpus.push(gpuInfo);
-              console.log(`[GPU Detection] NVIDIA GPU ${gpuInfo.id} cached - VRAM: ${gpuInfo.vramUsed}MB / ${gpuInfo.vramTotal}MB`);
             }
           });
         }
         
         if (detectedGpus.length > 0) {
           cachedGpuStats = detectedGpus;
-          console.log(`[GPU Detection] Total ${detectedGpus.length} GPU(s) cached`);
-        } else {
-          console.log('[GPU Detection] No discrete GPUs found');
         }
         
         gpuUpdateInProgress = false;

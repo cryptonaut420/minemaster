@@ -43,17 +43,18 @@ router.put('/:type', async (req, res) => {
   }
 });
 
-// Apply config and restart all bound miners
+// Apply config and restart only the relevant miners (CPU for xmrig, GPU for nanominer)
 router.post('/:type/apply', async (req, res) => {
   try {
-    const config = await Config.get(req.params.type);
+    const configType = req.params.type; // 'xmrig' or 'nanominer'
+    const config = await Config.get(configType);
     if (!config) {
       return res.status(404).json({ success: false, error: 'Config type not found' });
     }
     
     // Get all bound miners
     const boundMiners = await Miner.getAllBound();
-    const connectedMiners = boundMiners.filter(m => m.connectionId && m.status === 'online');
+    const connectedMiners = boundMiners.filter(m => m.connectionId && (m.status === 'online' || m.status === 'mining'));
     
     if (connectedMiners.length === 0) {
       return res.json({ 
@@ -68,16 +69,50 @@ router.post('/:type/apply', async (req, res) => {
       action: 'config-update'
     });
     
-    // Then send restart command
-    const restarted = await websocketServer.sendCommand('all', {
-      action: 'restart'
-    });
+    // Determine which device type to restart based on config type
+    const deviceType = configType === 'xmrig' ? 'CPU' : 'GPU';
+    
+    // Send targeted restart command to only the relevant device type
+    let restartedCount = 0;
+    console.log(`[Configs API] Checking ${connectedMiners.length} miners for ${deviceType} restart`);
+    
+    for (const miner of connectedMiners) {
+      // Check if this miner has the relevant device running
+      let shouldRestart = false;
+      
+      if (deviceType === 'CPU' && miner.devices?.cpu?.running) {
+        shouldRestart = true;
+        console.log(`[Configs API] Miner ${miner.name} has CPU running, will restart`);
+      } else if (deviceType === 'GPU' && miner.devices?.gpus?.some(g => g.running)) {
+        shouldRestart = true;
+        console.log(`[Configs API] Miner ${miner.name} has GPU running, will restart`);
+      } else {
+        console.log(`[Configs API] Miner ${miner.name} - ${deviceType} not running, skipping`);
+      }
+      
+      if (shouldRestart) {
+        console.log(`[Configs API] Sending restart-device command to ${miner.name}`);
+        const sent = await websocketServer.sendCommand(miner.id, {
+          action: 'restart-device',
+          deviceType: deviceType
+        });
+        if (sent > 0) {
+          restartedCount++;
+          console.log(`[Configs API] Command sent successfully`);
+        } else {
+          console.log(`[Configs API] Failed to send command`);
+        }
+      }
+    }
+    
+    console.log(`[Configs API] Total devices restarted: ${restartedCount}`);
     
     res.json({ 
       success: true, 
-      message: `Config applied and restart command sent to ${restarted} miner(s)`,
-      restarted,
-      total: connectedMiners.length
+      message: `${configType} config applied and ${restartedCount} ${deviceType} device(s) restarted`,
+      restarted: restartedCount,
+      total: connectedMiners.length,
+      deviceType
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

@@ -614,6 +614,7 @@ async function sendCommand(minerIds, command) {
       });
       if (success) sent++;
     } else {
+      console.log(`[WebSocket] Sending command to ${miner.name}:`, command.action);
       const success = sendToConnection(miner.connectionId, {
         type: 'command',
         data: command

@@ -89,6 +89,7 @@ function App() {
   const statusUpdateInterval = useRef(null);
   const boundStateInitialized = useRef(false);
   const minersRef = useRef(miners); // Keep a ref to always have latest miners
+  const stoppingMinersRef = useRef(new Set()); // Track miners being intentionally stopped
   
   // Update ref whenever miners changes
   useEffect(() => {
@@ -319,12 +320,14 @@ function App() {
           
         case 'restart':
           if (command.minerId) {
+            stoppingMinersRef.current.add(command.minerId);
             await handleStopMiner(command.minerId);
             setTimeout(() => handleStartMiner(command.minerId), 2000);
           } else {
             // Stop all, then start all enabled
             for (const miner of currentMiners) {
               if (miner.running) {
+                stoppingMinersRef.current.add(miner.id);
                 await handleStopMiner(miner.id);
               }
             }
@@ -336,6 +339,39 @@ function App() {
                 }
               }
             }, 2000);
+          }
+          break;
+        
+        case 'restart-device':
+          {
+            // Restart only specific device type (CPU or GPU)
+            const deviceType = command.deviceType; // 'CPU' or 'GPU'
+            const targetMiner = currentMiners.find(m => m.deviceType === deviceType);
+            
+            if (targetMiner && targetMiner.running) {
+              console.log(`[App] Restarting ${deviceType} device only, minerId: ${targetMiner.id}`);
+              const minerId = targetMiner.id; // Capture ID for closure
+              stoppingMinersRef.current.add(minerId);
+              await handleStopMiner(minerId);
+              
+              // Restart after 2 seconds if still enabled
+              setTimeout(async () => {
+                const latestMiners = minersRef.current;
+                const currentMiner = latestMiners.find(m => m.id === minerId);
+                if (currentMiner && currentMiner.enabled !== false) {
+                  console.log(`[App] Starting ${deviceType} device after restart delay`);
+                  await handleStartMiner(minerId);
+                  addNotification(`${deviceType} mining restarted with new configuration`, 'success');
+                } else {
+                  console.log(`[App] Skipping ${deviceType} restart - device disabled`);
+                }
+              }, 2000);
+            } else if (targetMiner && !targetMiner.running) {
+              console.log(`[App] ${deviceType} device not running, skipping restart`);
+              addNotification(`${deviceType} configuration updated`, 'info');
+            } else {
+              console.log(`[App] No ${deviceType} device found`);
+            }
           }
           break;
         
