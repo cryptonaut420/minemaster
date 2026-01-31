@@ -114,7 +114,7 @@ function Dashboard() {
       
       setHashrateBreakdown(breakdown);
     } catch (error) {
-      console.error('Error fetching hashrate stats:', error);
+      // Silent fail - will retry on interval
     }
   }, []);
 

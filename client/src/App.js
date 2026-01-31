@@ -21,7 +21,7 @@ function App() {
         return parsed;
       }
     } catch (error) {
-      console.error('Failed to load saved config:', error);
+      // Silently fail - will use defaults
     }
     return null;
   };
@@ -123,7 +123,6 @@ function App() {
           
           // Reconnect to running miners
           if (status && status.running) {
-            console.log(`Reconnecting to running miner: ${miner.id} (PID: ${status.pid})`);
             updatedMiner = {
               ...updatedMiner,
               running: true,
@@ -137,13 +136,12 @@ function App() {
               ...updatedMiner,
               enabled: false
             };
-            console.log('GPU miner disabled: No GPU detected');
           }
           
           return updatedMiner;
         }));
       } catch (error) {
-        console.error('Failed to check running miners:', error);
+        // Silent fail on initial check - miner state will be updated via events
       }
     };
 
@@ -274,13 +272,11 @@ function App() {
     // Bound/unbound is handled via Dashboard -> MasterServerPanel -> onBoundChange callback
     
     const handleConfigUpdate = (configs) => {
-      console.log('[App] Received config update from server', configs);
       applyGlobalConfigs(configs, false); // Show notification for active updates
       addNotification('Configurations updated from Master Server', 'info');
     };
 
     const handleCommand = async (command) => {
-      console.log('[App] Received command from server', command);
       
       // Use ref to get latest miners state (avoid stale closure)
       const currentMiners = minersRef.current;
@@ -349,7 +345,6 @@ function App() {
             const targetMiner = currentMiners.find(m => m.deviceType === deviceType);
             
             if (targetMiner && targetMiner.running) {
-              console.log(`[App] Restarting ${deviceType} device only, minerId: ${targetMiner.id}`);
               const minerId = targetMiner.id; // Capture ID for closure
               stoppingMinersRef.current.add(minerId);
               await handleStopMiner(minerId);
@@ -359,18 +354,12 @@ function App() {
                 const latestMiners = minersRef.current;
                 const currentMiner = latestMiners.find(m => m.id === minerId);
                 if (currentMiner && currentMiner.enabled !== false) {
-                  console.log(`[App] Starting ${deviceType} device after restart delay`);
                   await handleStartMiner(minerId);
                   addNotification(`${deviceType} mining restarted with new configuration`, 'success');
-                } else {
-                  console.log(`[App] Skipping ${deviceType} restart - device disabled`);
                 }
               }, 2000);
             } else if (targetMiner && !targetMiner.running) {
-              console.log(`[App] ${deviceType} device not running, skipping restart`);
               addNotification(`${deviceType} configuration updated`, 'info');
-            } else {
-              console.log(`[App] No ${deviceType} device found`);
             }
           }
           break;
@@ -474,17 +463,8 @@ function App() {
           break;
           
         default:
-          console.warn('[App] Unknown command:', command.action);
+          // Unknown command - ignore silently
       }
-    };
-
-    // Handle device enable/disable updates from server
-    const handleDeviceUpdate = (data) => {
-      console.log('[App] Received device update from server', data);
-      
-      // This will be sent via WebSocket broadcast, we need to check if it's for us
-      // The server sends miner_device_update events, but we need to handle them
-      // For now, we'll rely on status updates to sync device states
     };
 
     masterServer.on('configUpdate', handleConfigUpdate);
@@ -498,12 +478,9 @@ function App() {
 
   // Handle bound state changes from Dashboard
   const handleBoundStateChange = (bound, data) => {
-    console.log('[App] handleBoundStateChange - bound:', bound, 'data:', data, 'initialized:', boundStateInitialized.current);
-    
     // If this is the initial restore from localStorage, don't do anything
     // The state is already set in useState initializer
     if (!boundStateInitialized.current && bound && data === null) {
-      console.log('[App] Initial bound state restore - skipping actions');
       boundStateInitialized.current = true;
       
       // If bound, ensure status updates are running
@@ -520,7 +497,6 @@ function App() {
     
     // Only update state if it actually changed
     if (isBoundToMaster === bound) {
-      console.log('[App] Bound state unchanged, skipping');
       return;
     }
     
@@ -532,10 +508,8 @@ function App() {
       
       // Request or apply global configs
       if (data?.configs) {
-        console.log('[App] Applying configs from bind data');
         applyGlobalConfigs(data.configs, false); // Show notification for new bind
       } else {
-        console.log('[App] Requesting configs from server');
         // Small delay to ensure connection is fully established
         setTimeout(() => {
           if (masterServer.isBound()) {
@@ -673,9 +647,8 @@ function App() {
         }
       });
       
-      console.log('[App] Status update sent');
     } catch (error) {
-      console.error('[App] Error sending status update:', error);
+      // Silent fail - status updates are periodic anyway
     }
   };
 
@@ -701,7 +674,6 @@ function App() {
   // Start status updates when server confirms we're registered/bound
   useEffect(() => {
     const handleServerReady = () => {
-      console.log('[App] Server confirmed registration - starting status updates');
       startStatusUpdates();
     };
 
@@ -710,7 +682,6 @@ function App() {
 
     // If already bound, start updates immediately
     if (masterServer.isBound()) {
-      console.log('[App] Already bound on mount - starting status updates');
       startStatusUpdates();
     }
 
@@ -746,14 +717,12 @@ function App() {
 
     // Prevent starting if disabled
     if (miner.enabled === false) {
-      console.log(`[handleStartMiner] Miner ${minerId} is disabled`);
       addNotification(`${miner.name} is disabled. Enable it first.`, 'warning');
       return;
     }
 
     // Prevent starting if already running or loading
     if (miner.running || miner.loading) {
-      console.log(`[handleStartMiner] Miner ${minerId} is already ${miner.running ? 'running' : 'starting'}`);
       return;
     }
 
@@ -847,14 +816,12 @@ function App() {
           m.id === minerId ? { ...m, loading: false, running: false } : m
         ));
         addNotification(`Failed to stop ${miner.name}: ${result.error || 'Unknown error'}`, 'error');
-        console.error('Stop miner error:', result.error);
       }
     } catch (error) {
       setMiners(prev => prev.map(m => 
         m.id === minerId ? { ...m, loading: false, running: false } : m
       ));
       addNotification(`Error stopping miner: ${error.message}`, 'error');
-      console.error('Stop miner exception:', error);
     }
   };
 
@@ -892,12 +859,7 @@ function App() {
 
   const handleToggleDevice = async (minerId) => {
     const miner = miners.find(m => m.id === minerId);
-    if (!miner) {
-      console.log('[handleToggleDevice] Miner not found:', minerId);
-      return;
-    }
-    
-    console.log('[handleToggleDevice] Toggling:', minerId, 'Type:', miner.deviceType);
+    if (!miner) return;
     
     // Calculate new enabled state
     const newEnabledState = !miner.enabled;
@@ -912,10 +874,7 @@ function App() {
     
     // Prevent enabling GPU if no GPU detected (validate async in background)
     if (miner.deviceType === 'GPU' && newEnabledState) {
-      console.log('[handleToggleDevice] GPU miner being enabled, validating GPU availability...');
-      
       if (!window.electronAPI) {
-        console.log('[handleToggleDevice] No electron API available');
         addNotification('Cannot enable GPU: System info unavailable', 'error');
         // Revert the optimistic update
         setMiners(prev => prev.map(m =>
@@ -941,17 +900,13 @@ function App() {
         
         if (!hasGpu) {
           // No GPU detected - revert the optimistic update
-          console.log('[handleToggleDevice] BLOCKING - no GPU detected, reverting');
           addNotification('Cannot enable GPU mining: No GPU detected', 'warning');
           setMiners(prev => prev.map(m =>
             m.id === minerId ? { ...m, enabled: false } : m
           ));
           return;
         }
-        
-        console.log('[handleToggleDevice] GPU validated successfully');
       } catch (error) {
-        console.error('[handleToggleDevice] Error checking GPU:', error);
         addNotification('Error validating GPU status', 'error');
         // Revert on error
         setMiners(prev => prev.map(m =>
@@ -960,8 +915,6 @@ function App() {
         return;
       }
     }
-    
-    console.log('[handleToggleDevice] Toggle complete:', newEnabledState ? 'enabled' : 'disabled');
   };
 
   const currentMiner = miners.find(m => m.id === selectedMiner);

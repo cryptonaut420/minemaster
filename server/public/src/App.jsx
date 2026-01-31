@@ -68,7 +68,6 @@ function App() {
         });
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
       setAuthState({
         loading: false,
         authenticated: false,
@@ -91,7 +90,7 @@ function App() {
     try {
       await authAPI.logout();
     } catch (error) {
-      console.error('Logout error:', error);
+      // Silent fail - will remove token anyway
     } finally {
       removeToken();
       setAuthState({

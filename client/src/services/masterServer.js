@@ -37,8 +37,7 @@ class MasterServerService {
       this.config = config;
       return config;
     } catch (error) {
-      console.error('Error loading master server config:', error);
-      throw error;
+      throw new Error('Failed to load master server config');
     }
   }
 
@@ -54,8 +53,7 @@ class MasterServerService {
       await window.electron.invoke('save-master-config', config);
       this.config = config;
     } catch (error) {
-      console.error('Error saving master server config:', error);
-      throw error;
+      throw new Error('Failed to save master server config');
     }
   }
 
@@ -72,14 +70,12 @@ class MasterServerService {
     }
 
     const url = `ws://${this.config.host}:${this.config.port}`;
-    console.log(`Connecting to master server: ${url}`);
 
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
-          console.log('Connected to master server');
           this.connected = true;
           this.emit('connected');
           this.startHeartbeat();
@@ -87,7 +83,6 @@ class MasterServerService {
         };
 
         this.ws.onclose = () => {
-          console.log('Disconnected from master server');
           const wasBound = this.bound;
           this.connected = false;
           this.bound = false;
@@ -101,7 +96,6 @@ class MasterServerService {
         };
 
         this.ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
           this.emit('error', error);
           reject(error);
         };
@@ -147,14 +141,12 @@ class MasterServerService {
 
     const interval = this.config?.reconnectInterval || 5000;
     this.reconnectTimer = setTimeout(async () => {
-      console.log('Attempting to reconnect and re-bind to master server...');
       try {
         await this.connect();
         // After reconnecting, we need to re-register
         // This will be handled by MasterServerPanel's auto-reconnect logic
         // which calls bind() with silent=true
       } catch (err) {
-        console.error('Reconnection failed:', err);
         // Schedule another attempt if still enabled
         if (this.config?.autoReconnect) {
           this.scheduleReconnect();
@@ -190,7 +182,6 @@ class MasterServerService {
    */
   send(message) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected');
       return false;
     }
 
@@ -204,12 +195,10 @@ class MasterServerService {
   handleMessage(data) {
     try {
       const message = JSON.parse(data);
-      console.log('Received message from server:', message);
 
       switch (message.type) {
         case 'connected':
           // Server sends connection confirmation with connectionId
-          console.log('Connection confirmed by server:', message.connectionId);
           break;
         case 'bound':
           this.bound = true;
@@ -217,9 +206,7 @@ class MasterServerService {
           break;
         case 'registered':
           // Silent registration acknowledgment (reconnect)
-          // Update internal state and emit registered event (not bound to avoid notification spam)
           this.bound = true;
-          console.log('Silently registered/reconnected to server');
           this.emit('registered', message.data);
           break;
         case 'unbound':
@@ -233,17 +220,18 @@ class MasterServerService {
           this.emit('command', message.data);
           break;
         case 'error':
-          console.error('Server error:', message.error);
           this.emit('error', new Error(message.error));
           break;
         case 'pong':
-          // Heartbeat response
+        case 'miner_status_update':
+          // Heartbeat response / status broadcast - ignore
           break;
         default:
-          console.warn('Unknown message type:', message.type);
+          // Unknown message types - ignore silently
+          break;
       }
     } catch (error) {
-      console.error('Error parsing message:', error);
+      // Silently ignore parse errors
     }
   }
 
@@ -382,7 +370,7 @@ class MasterServerService {
         try {
           callback(data);
         } catch (error) {
-          console.error(`Error in ${event} listener:`, error);
+          // Silent fail - listener errors should not break the service
         }
       });
     }

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const WS_URL = process.env.NODE_ENV === 'production' 
-  ? `ws://${window.location.host}`
-  : 'ws://localhost:3001';
+const WS_URL = window.location.hostname === 'localhost'
+  ? 'ws://localhost:3001'
+  : `ws://${window.location.host}`;
 
 export function useWebSocket(onMessage) {
   const [connected, setConnected] = useState(false);
@@ -28,7 +28,6 @@ export function useWebSocket(onMessage) {
         wsRef.current = ws;
 
         ws.onopen = () => {
-          console.log('[WebSocket] Connected to server');
           setConnected(true);
           reconnectAttempts = 0;
         };
@@ -40,16 +39,15 @@ export function useWebSocket(onMessage) {
               onMessageRef.current(data);
             }
           } catch (error) {
-            console.error('[WebSocket] Error parsing message:', error);
+            // Silent fail - malformed message
           }
         };
 
         ws.onerror = (error) => {
-          console.error('[WebSocket] Connection error');
+          // Connection error - will trigger onclose
         };
 
         ws.onclose = () => {
-          console.log('[WebSocket] Disconnected');
           setConnected(false);
           wsRef.current = null;
           
@@ -57,12 +55,11 @@ export function useWebSocket(onMessage) {
           if (!isUnmounting && reconnectAttempts < maxReconnectAttempts) {
             reconnectAttempts++;
             const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts - 1), 30000);
-            console.log(`[WebSocket] Reconnecting in ${Math.round(delay/1000)}s (attempt ${reconnectAttempts})`);
             reconnectTimeoutRef.current = setTimeout(connect, delay);
           }
         };
       } catch (error) {
-        console.error('[WebSocket] Failed to create connection:', error);
+        // Connection failed - will retry
       }
     }
 

@@ -15,11 +15,10 @@ function Miners() {
     try {
       const response = await minersAPI.getAll();
       setMiners(response.data.miners || []);
-      setLoading(false);
     } catch (error) {
-      console.error('Error fetching miners:', error);
-      setLoading(false);
+      // Silent fail - will retry on interval
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -39,7 +38,6 @@ function Miners() {
       success(`Restart command sent to ${name}`, 3000);
     } catch (err) {
       error(`Failed to restart ${name}: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error restarting miner:', err);
     }
   };
 
@@ -49,7 +47,6 @@ function Miners() {
       success(`Stop command sent to ${name}`, 3000);
     } catch (err) {
       error(`Failed to stop ${name}: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error stopping miner:', err);
     }
   };
 
@@ -59,7 +56,6 @@ function Miners() {
       success(`Start command sent to ${name}`, 3000);
     } catch (err) {
       error(`Failed to start ${name}: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error starting miner:', err);
     }
   };
 
@@ -70,7 +66,6 @@ function Miners() {
       fetchMiners();
     } catch (err) {
       error(`Failed to toggle CPU on ${name}: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error toggling CPU:', err);
     }
   };
 
@@ -82,7 +77,6 @@ function Miners() {
       fetchMiners();
     } catch (err) {
       error(`Failed to toggle GPU on ${name}: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error toggling GPU:', err);
     }
   };
 
@@ -94,7 +88,6 @@ function Miners() {
       fetchMiners();
     } catch (err) {
       error(`Failed to remove ${name}: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error deleting miner:', err);
     }
   };
 

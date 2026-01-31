@@ -47,12 +47,10 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     // Kill all running miners when window closes
-    console.log('Window closing - stopping all miners...');
     Object.entries(miners).forEach(([minerId, minerData]) => {
       const minerProcess = minerData.process;
       if (minerProcess && !minerProcess.killed) {
         const pid = minerProcess.pid;
-        console.log(`Stopping miner: ${minerId} (PID: ${pid})`);
         
         // Clean up log watchers
         if (minerProcess._logWatcher) {
@@ -64,9 +62,7 @@ function createWindow() {
         
         if (process.platform === 'win32') {
           // Windows: Use taskkill for reliable termination
-          exec(`taskkill /PID ${pid} /T /F`, (err) => {
-            if (err) console.error(`Failed to kill PID ${pid}:`, err.message);
-          });
+          exec(`taskkill /PID ${pid} /T /F`, () => {});
         } else {
           // Linux/macOS: Use signals
           try {
@@ -76,7 +72,6 @@ function createWindow() {
           // Force kill after 3 seconds if still running
           setTimeout(() => {
             if (!minerProcess.killed) {
-              console.log(`Force killing miner: ${minerId}`);
               try {
                 minerProcess.kill('SIGKILL');
               } catch (e) {}
@@ -112,13 +107,12 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   // Ensure all miners are stopped before app quits
-  console.log('App quitting - stopping all miners...');
   Object.values(miners).forEach(minerData => {
     if (minerData && minerData.process && !minerData.process.killed) {
       try {
         minerData.process.kill('SIGKILL');
       } catch (error) {
-        console.error('Error killing miner:', error);
+        // Silent fail - app is quitting anyway
       }
     }
   });
@@ -134,18 +128,14 @@ app.on('activate', () => {
 
 ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
   try {
-    console.log(`[start-miner] Called for ${minerId} (type: ${minerType})`);
-    
     // Check if miner is already tracked and running
     const existingMiner = miners[minerId];
     if (existingMiner && existingMiner.process && !existingMiner.process.killed) {
       const existingPid = existingMiner.process.pid;
       // Check if process is actually still alive
       if (isProcessRunning(existingPid)) {
-        console.log(`[start-miner] Miner ${minerId} already running (PID: ${existingPid}), returning existing`);
         return { success: true, pid: existingPid, message: 'Already running' };
       } else {
-        console.log(`[start-miner] Miner ${minerId} was tracked but process ${existingPid} is dead, cleaning up...`);
         delete miners[minerId];
       }
     }
@@ -219,10 +209,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       // Get nanominer directory
       const nanominerDir = path.dirname(nanominerPath);
       
-      console.log(`[nanominer] Starting from: ${nanominerDir}`);
-      console.log(`[nanominer] Executable: ${nanominerPath}`);
-      console.log(`[nanominer] Config: ${configPath}`);
-      
       // Nanominer needs to run from its own directory
       // Run directly without stdbuf wrapper to maintain proper process control
       minerProcess = spawn(nanominerPath, [configPath], {
@@ -240,7 +226,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       // Send stdout to renderer
       minerProcess.stdout.on('data', (data) => {
         const output = stripAnsi(data.toString());
-        console.log(`[nanominer stdout]: ${output}`);
         mainWindow.webContents.send('miner-output', {
           minerId,
           data: output
@@ -250,7 +235,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       // Send stderr to renderer
       minerProcess.stderr.on('data', (data) => {
         const output = stripAnsi(data.toString());
-        console.log(`[nanominer stderr]: ${output}`);
         mainWindow.webContents.send('miner-output', {
           minerId,
           data: output
@@ -267,7 +251,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         try {
           // Find the most recent log file
           if (!fs.existsSync(logDir)) {
-            console.log('[nanominer] Log directory not found yet');
             return;
           }
           
@@ -282,7 +265,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
           
           if (logFiles.length > 0) {
             const latestLog = logFiles[0].path;
-            console.log(`[nanominer] Watching log file: ${latestLog}`);
             
             // Cross-platform log file watching
             let lastSize = 0;
@@ -302,7 +284,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
                   
                   const output = stripAnsi(buffer.toString('utf8'));
                   if (output.trim()) {
-                    console.log(`[nanominer log]: ${output}`);
                     mainWindow.webContents.send('miner-output', {
                       minerId,
                       data: output
@@ -327,7 +308,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
                 }
               });
             } catch (e) {
-              console.log('[nanominer] fs.watch not available, using polling only');
+              // fs.watch not available, using polling only
             }
             
             // Store watcher and interval so we can clean up later
@@ -335,12 +316,11 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
             minerProcess._logPollInterval = logPollInterval;
           }
         } catch (e) {
-          console.error('[nanominer] Failed to watch log file:', e);
+          // Silent fail - log watching is optional
         }
       }, 2000); // Wait 2 seconds for log file to be created
 
       minerProcess.on('error', (error) => {
-        console.error(`[nanominer error]:`, error);
         mainWindow.webContents.send('miner-error', {
           minerId,
           error: error.message
@@ -348,15 +328,11 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       });
 
       minerProcess.on('close', (code) => {
-        console.log(`[nanominer] Process closed with code: ${code}`);
-        
         // Clean up log watcher and poll interval
         if (minerProcess._logWatcher) {
           try {
             minerProcess._logWatcher.close();
-          } catch (e) {
-            console.error('[nanominer] Failed to close log watcher:', e);
-          }
+          } catch (e) {}
         }
         if (minerProcess._logPollInterval) {
           clearInterval(minerProcess._logPollInterval);
@@ -420,7 +396,6 @@ async function findProcessPIDs(processName, configPath) {
       }
     }
   } catch (error) {
-    console.error('Error finding process PIDs:', error.message);
     return [];
   }
 }
@@ -452,7 +427,6 @@ async function killMinerProcess(pid, signal = 'SIGTERM') {
     }
     return true;
   } catch (error) {
-    console.error(`Failed to kill PID ${pid}:`, error.message);
     return false;
   }
 }
@@ -476,31 +450,22 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
     }
     
     const mainPID = minerProcess.pid;
-    console.log(`[stop-miner] Stopping ${minerType} ${minerId} (Main PID: ${mainPID})`);
-    console.log(`[stop-miner] Config: ${configPath}`);
     
     // Clean up log watcher and poll interval (for nanominer)
     if (minerProcess._logWatcher) {
       try {
         minerProcess._logWatcher.close();
-        console.log(`[stop-miner] Closed log watcher`);
-      } catch (e) {
-        console.error('[stop-miner] Failed to close log watcher:', e);
-      }
+      } catch (e) {}
     }
     if (minerProcess._logPollInterval) {
       clearInterval(minerProcess._logPollInterval);
-      console.log(`[stop-miner] Cleared log poll interval`);
     }
     
     // Find ALL related PIDs (in case of orphaned processes)
     const relatedPIDs = configPath ? await findProcessPIDs(minerType, configPath) : [];
     const allPIDs = [mainPID, ...relatedPIDs].filter((pid, index, self) => self.indexOf(pid) === index);
     
-    console.log(`[stop-miner] Found PIDs to kill: ${allPIDs.join(', ')}`);
-    
     // Step 1: Try graceful shutdown with SIGTERM
-    console.log(`[stop-miner] Sending SIGTERM...`);
     for (const pid of allPIDs) {
       if (isProcessRunning(pid)) {
         await killMinerProcess(pid, 'SIGTERM');
@@ -518,14 +483,12 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
       
       const stillRunning = allPIDs.filter(pid => isProcessRunning(pid));
       if (stillRunning.length === 0) {
-        console.log(`[stop-miner] All processes stopped gracefully`);
         delete miners[minerId];
         return { success: true, message: 'Miner stopped successfully' };
       }
     }
     
     // Step 2: Force kill with SIGKILL
-    console.log(`[stop-miner] Graceful shutdown failed, sending SIGKILL...`);
     const stillAlive = allPIDs.filter(pid => isProcessRunning(pid));
     
     for (const pid of stillAlive) {
@@ -542,14 +505,12 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
       
       const stillRunning = allPIDs.filter(pid => isProcessRunning(pid));
       if (stillRunning.length === 0) {
-        console.log(`[stop-miner] All processes force killed successfully`);
         delete miners[minerId];
         return { success: true, message: 'Miner stopped (force killed)' };
       }
     }
     
     // Step 3: Last resort - platform-specific process kill by name
-    console.log(`[stop-miner] Direct kill failed, trying system kill...`);
     try {
       if (process.platform === 'win32') {
         // Windows: Use taskkill by image name
@@ -571,21 +532,21 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
     const finalCheck = allPIDs.filter(pid => isProcessRunning(pid));
     
     if (finalCheck.length === 0) {
-      console.log(`[stop-miner] Successfully killed with pkill`);
       delete miners[minerId];
       return { success: true, message: 'Miner stopped (pkill)' };
     }
     
-    // If STILL running, give up but clean up tracking
-    console.error(`[stop-miner] Failed to kill all processes. Still running: ${finalCheck.join(', ')}`);
+    // If STILL running, give up but clean up tracking - platform-specific message
     delete miners[minerId];
+    const killCmd = process.platform === 'win32' 
+      ? `taskkill /F /PID ${finalCheck.join(' /PID ')}`
+      : `kill -9 ${finalCheck.join(' ')}`;
     return { 
       success: false, 
-      error: `Some processes still running (PIDs: ${finalCheck.join(', ')}). Try: sudo kill -9 ${finalCheck.join(' ')}` 
+      error: `Some processes still running (PIDs: ${finalCheck.join(', ')}). Try: ${killCmd}` 
     };
     
   } catch (error) {
-    console.error('[stop-miner] Error:', error);
     delete miners[minerId]; // Clean up even on error
     return { success: false, error: error.message };
   }
@@ -657,13 +618,10 @@ ipcMain.handle('get-system-info', async () => {
       systemInfoFetched = true;
       setTimeout(async () => {
         try {
-          console.log('[System Info] Fetching detailed GPU info...');
           const [osInfo, graphics] = await Promise.all([
             si.osInfo(),
             si.graphics()
           ]);
-          
-          console.log('[System Info] GPU controllers:', graphics.controllers.length);
           
           // Map all GPUs (filter out integrated graphics)
           const gpus = graphics.controllers
@@ -686,16 +644,13 @@ ipcMain.handle('get-system-info', async () => {
               
               return true;
             })
-            .map((gpu, idx) => {
-              console.log(`[System Info] GPU ${idx}:`, gpu.model, `(${gpu.vram} MB)`);
-              return {
-                id: idx,
-                vendor: gpu.vendor,
-                model: gpu.model,
-                vram: gpu.vram,
-                bus: gpu.bus
-              };
-            });
+            .map((gpu, idx) => ({
+              id: idx,
+              vendor: gpu.vendor,
+              model: gpu.model,
+              vram: gpu.vram,
+              bus: gpu.bus
+            }));
           
           systemInfoCache = {
             ...basicInfo,
@@ -707,17 +662,14 @@ ipcMain.handle('get-system-info', async () => {
             },
             gpus: gpus.length > 0 ? gpus : null
           };
-          
-          console.log('[System Info] Cache updated with GPUs:', systemInfoCache.gpus);
         } catch (e) {
-          console.error('Failed to fetch detailed system info:', e);
+          // Silent fail - will use basic info
         }
       }, 2000);
     }
 
     return basicInfo;
   } catch (error) {
-    console.error('Failed to get system info:', error);
     return null;
   }
 });
@@ -783,7 +735,7 @@ function updateCpuTempAsync() {
         } catch (e) {}
       }
     } catch (e) {
-      console.error('Failed to read CPU temp:', e);
+      // Silent fail - CPU temp not available
     } finally {
       tempUpdateInProgress = false;
     }
@@ -884,7 +836,7 @@ function updateGpuInfoAsync() {
             });
           }
         } catch (e) {
-          console.error('[GPU Detection] Windows AMD detection failed:', e);
+          // Silent fail - will try NVIDIA detection
         }
       }
       
@@ -920,7 +872,6 @@ function updateGpuInfoAsync() {
       });
       
     } catch (e) {
-      console.error('[GPU Detection] Error:', e);
       gpuUpdateInProgress = false;
     }
   }, 0);
@@ -938,46 +889,30 @@ setTimeout(() => {
   updateGpuInfoAsync();
 }, 2000);
 
-// Split into separate handlers to identify which is slow
+// System stats handlers (all fast - use cached values)
 ipcMain.handle('get-cpu-stats', () => {
-  const t0 = performance.now();
-  
   const numCpus = os.cpus().length;
   const loadAvg = os.loadavg();
   const cpuUsage = loadAvg[0] / numCpus * 100;
   
-  const result = {
+  return {
     usage: Math.min(cpuUsage, 100),
     temperature: cachedCpuTemp
   };
-  
-  const elapsed = (performance.now() - t0).toFixed(3);
-  console.log(`[CPU] ${elapsed}ms (temp: ${cachedCpuTemp ? cachedCpuTemp.toFixed(1) : 'N/A'})`);
-  return result;
 });
 
 ipcMain.handle('get-memory-stats', () => {
-  const t0 = performance.now();
-  
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
   
-  const result = {
+  return {
     total: totalMem,
     used: totalMem - freeMem,
     usagePercent: ((totalMem - freeMem) / totalMem) * 100
   };
-  
-  const elapsed = (performance.now() - t0).toFixed(3);
-  console.log(`[MEMORY] ${elapsed}ms`);
-  return result;
 });
 
 ipcMain.handle('get-gpu-stats', () => {
-  const t0 = performance.now();
-  
-  const elapsed = (performance.now() - t0).toFixed(3);
-  console.log(`[GPU] ${elapsed}ms (${cachedGpuStats.length} GPU(s))`);
   return cachedGpuStats.length > 0 ? cachedGpuStats : null;
 });
 
@@ -1085,8 +1020,6 @@ function createNanominerConfig(minerId, config) {
   
   // Write config file
   fs.writeFileSync(configPath, configContent, 'utf8');
-  console.log(`[nanominer] Config created: ${configPath}`);
-  console.log(`[nanominer] Config content:\n${configContent}`);
   
   return configPath;
 }
@@ -1116,11 +1049,8 @@ function buildXmrigArgs(config) {
     const totalCpus = os.cpus().length;
     const threadsToUse = Math.max(1, Math.round(totalCpus * (config.threadPercentage / 100)));
     args.push('-t', threadsToUse.toString());
-    console.log(`[XMRig] Using ${threadsToUse}/${totalCpus} threads (${config.threadPercentage}%)`);
-  } else {
-    // 100% or undefined = use all threads (don't specify -t, let XMRig decide)
-    console.log('[XMRig] Using all available threads (auto)');
   }
+  // 100% or undefined = use all threads (don't specify -t, let XMRig decide)
 
   if (config.donateLevel !== undefined) {
     args.push('--donate-level', config.donateLevel.toString());
@@ -1163,7 +1093,6 @@ ipcMain.handle('get-mac-address', async () => {
     
     return anyInterface ? anyInterface.mac : 'unknown-mac';
   } catch (error) {
-    console.error('Error getting MAC address:', error);
     return 'unknown-mac';
   }
 });
@@ -1191,7 +1120,6 @@ ipcMain.handle('load-master-config', async () => {
       return defaultConfig;
     }
   } catch (error) {
-    console.error('Error loading master server config:', error);
     throw error;
   }
 });
@@ -1204,10 +1132,8 @@ ipcMain.handle('save-master-config', async (event, config) => {
   
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    console.log('Master server config saved:', config);
     return { success: true };
   } catch (error) {
-    console.error('Error saving master server config:', error);
     throw error;
   }
 });

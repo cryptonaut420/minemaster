@@ -78,7 +78,6 @@ router.post('/:type/apply', async (req, res) => {
     
     // Send targeted restart command to only the relevant device type
     let restartedCount = 0;
-    console.log(`[Configs API] Checking ${connectedMiners.length} miners for ${deviceType} restart`);
     
     for (const miner of connectedMiners) {
       // Check if this miner has the relevant device running
@@ -86,30 +85,20 @@ router.post('/:type/apply', async (req, res) => {
       
       if (deviceType === 'CPU' && miner.devices?.cpu?.running) {
         shouldRestart = true;
-        console.log(`[Configs API] Miner ${miner.name} has CPU running, will restart`);
       } else if (deviceType === 'GPU' && miner.devices?.gpus?.some(g => g.running)) {
         shouldRestart = true;
-        console.log(`[Configs API] Miner ${miner.name} has GPU running, will restart`);
-      } else {
-        console.log(`[Configs API] Miner ${miner.name} - ${deviceType} not running, skipping`);
       }
       
       if (shouldRestart) {
-        console.log(`[Configs API] Sending restart-device command to ${miner.name}`);
         const sent = await websocketServer.sendCommand(miner.id, {
           action: 'restart-device',
           deviceType: deviceType
         });
         if (sent > 0) {
           restartedCount++;
-          console.log(`[Configs API] Command sent successfully`);
-        } else {
-          console.log(`[Configs API] Failed to send command`);
         }
       }
     }
-    
-    console.log(`[Configs API] Total devices restarted: ${restartedCount}`);
     
     res.json({ 
       success: true, 

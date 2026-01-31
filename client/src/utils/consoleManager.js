@@ -17,7 +17,6 @@ export function addConsoleOutput(currentOutput, newLine) {
   
   // Trim if exceeded max
   if (updated.length > MAX_CONSOLE_LINES) {
-    console.log(`Console exceeded ${MAX_CONSOLE_LINES} lines, trimming to ${TRIM_TO_LINES}`);
     return updated.slice(-TRIM_TO_LINES);
   }
   
@@ -34,7 +33,6 @@ export function addConsoleOutputBatch(currentOutput, newLines) {
   const updated = [...currentOutput, ...newLines];
   
   if (updated.length > MAX_CONSOLE_LINES) {
-    console.log(`Console exceeded ${MAX_CONSOLE_LINES} lines, trimming to ${TRIM_TO_LINES}`);
     return updated.slice(-TRIM_TO_LINES);
   }
   

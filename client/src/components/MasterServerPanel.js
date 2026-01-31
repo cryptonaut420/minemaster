@@ -41,7 +41,6 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
   const handleAutoReconnect = async () => {
     const wasBound = localStorage.getItem('master-server-bound') === 'true';
     if (wasBound) {
-      console.log('[MasterServerPanel] Auto-reconnected, re-registering...');
       // Get system info and send silent register
       let sysInfo = systemInfo;
       if (!sysInfo && window.electronAPI) {
@@ -52,7 +51,7 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
           const devices = getDeviceStatesFromMiners();
           await masterServer.bind(sysInfo, true, devices); // silent = true for reconnect
         } catch (err) {
-          console.error('[MasterServerPanel] Auto-re-registration failed:', err);
+          // Silent fail - will retry on next connection
         }
       }
     }
@@ -71,7 +70,6 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
       // Restore UI state from localStorage
       const wasBound = localStorage.getItem('master-server-bound') === 'true';
       if (wasBound && cfg?.enabled) {
-        console.log('[MasterServerPanel] Restoring bound state from localStorage');
         setIsBound(true);
         // Auto-reconnect and re-register if was bound
         try {
@@ -86,7 +84,7 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
             await masterServer.bind(sysInfo, true, devices); // silent = true for reconnect
           }
         } catch (err) {
-          console.error('[MasterServerPanel] Auto-reconnect failed:', err);
+          // Silent fail - user can manually rebind
         }
       }
     };
@@ -107,15 +105,12 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
       setConfig(cfg);
       return cfg;
     } catch (error) {
-      console.error('Error loading config:', error);
       setError('Failed to load configuration');
       return null;
     }
   };
 
   const handleBound = (data) => {
-    console.log('[MasterServerPanel] handleBound called with data:', data);
-    
     // Clear bind timeout if it exists
     if (bindTimeoutRef.current) {
       clearTimeout(bindTimeoutRef.current);
@@ -127,10 +122,7 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
     setError(null);
     localStorage.setItem('master-server-bound', 'true');
     if (onBoundChange) {
-      console.log('[MasterServerPanel] Calling onBoundChange(true, data)');
       onBoundChange(true, data);
-    } else {
-      console.warn('[MasterServerPanel] onBoundChange callback not provided!');
     }
   };
 

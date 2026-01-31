@@ -58,7 +58,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
           setSystemStats({ cpu, memory, gpu });
         }
       } catch (e) {
-        console.error('Stats update error:', e);
+        // Silent fail - stats will update on next interval
       }
     };
 
@@ -87,20 +87,8 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
                    systemInfo.gpus.length > 0 &&
                    systemInfo.gpus.some(gpu => gpu && (gpu.model || gpu.name || gpu.id !== undefined));
     
-    if (!hasGpu) {
-      // Find GPU miner and disable it
-      const gpuMiner = miners.find(m => m.deviceType === 'GPU');
-      if (gpuMiner && gpuMiner.enabled !== false) {
-        console.log('[Dashboard] Force disabling GPU miner - no GPU detected');
-        // Call parent's toggle handler to disable
-        const gpuMinerId = miners.find(m => m.deviceType === 'GPU')?.id;
-        if (gpuMinerId) {
-          // We can't directly set state here, but we can call the handler
-          // Actually, we need to notify parent to disable it
-          // For now, just log - the disabled UI should prevent interaction
-        }
-      }
-    }
+    // GPU detection and disable is handled in App.js on mount
+    // UI shows disabled state via shouldDisable check
   }, [systemInfo, miners]);
 
   // Memoize expensive calculations to prevent lag
@@ -110,27 +98,18 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
   
   // Check if GPUs are detected - memoized to only recalculate when systemInfo changes
   const hasGpu = useMemo(() => {
-    const result = systemInfo?.gpus && 
-                   Array.isArray(systemInfo.gpus) && 
-                   systemInfo.gpus.length > 0 &&
-                   systemInfo.gpus.some(gpu => {
-                     if (!gpu) return false;
-                     const model = (gpu.model || gpu.name || '').toLowerCase();
-                     // Exclude "no gpu detected" or empty models
-                     return model && 
-                            !model.includes('no gpu') && 
-                            !model.includes('detected') &&
-                            model.trim().length > 0;
-                   });
-    
-    console.log('[Dashboard] GPU detection check:', { 
-      hasGpu: result, 
-      gpus: systemInfo?.gpus, 
-      gpuLength: systemInfo?.gpus?.length,
-      gpuModels: systemInfo?.gpus?.map(g => g?.model || g?.name)
-    });
-    
-    return result;
+    return systemInfo?.gpus && 
+           Array.isArray(systemInfo.gpus) && 
+           systemInfo.gpus.length > 0 &&
+           systemInfo.gpus.some(gpu => {
+             if (!gpu) return false;
+             const model = (gpu.model || gpu.name || '').toLowerCase();
+             // Exclude "no gpu detected" or empty models
+             return model && 
+                    !model.includes('no gpu') && 
+                    !model.includes('detected') &&
+                    model.trim().length > 0;
+           });
   }, [systemInfo]);
 
   return (

@@ -119,7 +119,9 @@ sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
 - On Linux: `chmod +x miners/xmrig/xmrig`
 - On Windows: Run as Administrator for best performance
 
-### Windows-Specific Notes
+### Platform-Specific Notes
+
+#### Windows
 
 **System Monitoring**:
 - CPU temperature requires compatible hardware/drivers
@@ -134,6 +136,31 @@ sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
 **Miner Downloads**:
 - Downloads use PowerShell's `Expand-Archive` for extraction
 - If download fails, manually download from releases pages
+
+**Stopping Miners**:
+- Uses `taskkill` for process termination
+- May require administrator privileges for some operations
+
+#### Linux
+
+**System Monitoring**:
+- CPU temperature read from `/sys/class/thermal/` or `/sys/class/hwmon/`
+- AMD GPU stats read from `/sys/class/drm/cardX/device/`
+- NVIDIA GPU stats require `nvidia-smi` command
+
+**Running Miners**:
+- May need to add miner binaries to exceptions for antivirus
+- Use `chmod +x` to make downloaded binaries executable
+
+**Stopping Miners**:
+- Uses `SIGTERM` for graceful shutdown, `SIGKILL` as fallback
+- Uses `pgrep`/`pkill` to find related processes
+
+#### macOS
+
+- NVIDIA support limited (no recent NVIDIA drivers for macOS)
+- AMD GPU detection uses `systeminformation` library
+- CPU temperature via SMC requires additional permissions
 
 ### TypeScript Errors
 Already fixed - package.json uses TypeScript 4.9.5 compatible with react-scripts.

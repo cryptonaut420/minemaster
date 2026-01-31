@@ -33,10 +33,8 @@ function Register({ onSuccess }) {
 
     try {
       const response = await authAPI.register(email, password);
-      console.log('Registration successful:', response);
       onSuccess(response.admin);
     } catch (err) {
-      console.error('Registration error:', err);
       setError(err.response?.data?.error || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);

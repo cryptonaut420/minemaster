@@ -16,12 +16,11 @@ export function useSystemInfo() {
         const parsed = JSON.parse(cached);
         // Check if cache is less than 24 hours old
         if (parsed.timestamp && Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
-          console.log('[SystemInfo] Loaded from cache (localStorage)');
           return parsed.data;
         }
       }
     } catch (e) {
-      console.error('[SystemInfo] Failed to load from cache:', e);
+      // Silent fail - will fetch fresh data
     }
     return null;
   });
@@ -44,13 +43,12 @@ export function useSystemInfo() {
               data: info,
               timestamp: Date.now()
             }));
-            console.log('[SystemInfo] Saved to cache');
           } catch (e) {
-            console.error('[SystemInfo] Failed to save to cache:', e);
+            // Silent fail on cache save
           }
         }
       } catch (e) {
-        console.error('[SystemInfo] Failed to fetch:', e);
+        // Silent fail - will retry
       }
     };
 
@@ -80,12 +78,11 @@ export function useSystemStats() {
         const parsed = JSON.parse(cached);
         // Use cached data if less than 30 seconds old
         if (parsed.timestamp && Date.now() - parsed.timestamp < 30000) {
-          console.log('[SystemStats] Loaded from cache');
           return parsed.data;
         }
       }
     } catch (e) {
-      console.error('[SystemStats] Failed to load from cache:', e);
+      // Silent fail - will fetch fresh data
     }
     return null;
   });
@@ -114,11 +111,11 @@ export function useSystemStats() {
               timestamp: Date.now()
             }));
           } catch (e) {
-            console.error('[SystemStats] Failed to save to cache:', e);
+            // Silent fail on cache save
           }
         }
       } catch (e) {
-        console.error('[SystemStats] Failed to fetch:', e);
+        // Silent fail - will retry on interval
       }
     };
 
@@ -144,11 +141,10 @@ export function useGpuList() {
     try {
       const cached = localStorage.getItem(CACHE_KEYS.GPU_LIST);
       if (cached) {
-        console.log('[GPUList] Loaded from cache');
         return JSON.parse(cached);
       }
     } catch (e) {
-      console.error('[GPUList] Failed to load from cache:', e);
+      // Silent fail - will build from live data
     }
     return [];
   });
@@ -168,7 +164,7 @@ export function useGpuList() {
       try {
         localStorage.setItem(CACHE_KEYS.GPU_LIST, JSON.stringify(enrichedList));
       } catch (e) {
-        console.error('[GPUList] Failed to save to cache:', e);
+        // Silent fail on cache save
       }
     }
   }, [systemStats, systemInfo]);

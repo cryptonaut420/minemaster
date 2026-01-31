@@ -15,8 +15,6 @@ function initialize(webSocketServer) {
                req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
                req.connection?.remoteAddress || 
                'unknown';
-    console.log(`[WebSocket] New connection: ${connectionId} from ${ip}`);
-    
     connections.set(connectionId, { ws, minerId: null, ip });
     
     // Send connection ID to client
@@ -31,7 +29,6 @@ function initialize(webSocketServer) {
         const data = JSON.parse(message);
         await handleMessage(connectionId, data);
       } catch (error) {
-        console.error('[WebSocket] Error handling message:', error);
         sendToConnection(connectionId, {
           type: 'error',
           error: error.message
@@ -41,13 +38,11 @@ function initialize(webSocketServer) {
     
     // Handle disconnect
     ws.on('close', async () => {
-      console.log(`[WebSocket] Connection closed: ${connectionId}`);
       await handleDisconnect(connectionId);
     });
     
     // Handle errors
     ws.on('error', async (error) => {
-      console.error(`[WebSocket] Error on connection ${connectionId}:`, error);
       await handleDisconnect(connectionId);
     });
   });
@@ -56,7 +51,6 @@ function initialize(webSocketServer) {
 async function handleMessage(connectionId, data) {
   const connection = connections.get(connectionId);
   if (!connection) {
-    console.error(`[WebSocket] Connection not found: ${connectionId}`);
     return;
   }
   
@@ -88,7 +82,7 @@ async function handleMessage(connectionId, data) {
       break;
     
     default:
-      console.warn(`[WebSocket] Unknown message type: ${data.type}`);
+      // Unknown message type - send pong to acknowledge
       sendToConnection(connectionId, {
         type: 'pong'
       });
@@ -102,8 +96,6 @@ async function handleRegister(connectionId, data) {
   // Get IP from connection
   const connection = connections.get(connectionId);
   const ip = connection?.ip || 'unknown';
-  
-  console.log('[WebSocket] Registration data:', { systemId, silent, ip });
   
   // Find or create miner by systemId (MAC address)
   let miner = await Miner.getBySystemId(systemId);
@@ -192,10 +184,8 @@ async function handleRegister(connectionId, data) {
       bound: true // Automatically bind when registering
     });
     
-    console.log(`[WebSocket] New miner registered: ${miner.name} (${systemId})`);
   } else {
     // Update existing miner
-    console.log(`[WebSocket] Found existing miner:`, miner.id, miner.name);
     
     const updateData = {
       connectionId,
@@ -227,12 +217,9 @@ async function handleRegister(connectionId, data) {
     // Update device states (preserve enabled settings, update running states)
     updateData.devices = buildDeviceStates(miner.devices);
     
-    console.log(`[WebSocket] Updating miner ${miner.id} with connectionId:`, connectionId);
     const updatedMiner = await Miner.update(miner.id, updateData);
     
     if (!updatedMiner) {
-      console.error(`[WebSocket] Failed to update miner ${systemId} (id: ${miner.id})`);
-      console.error(`[WebSocket] Update returned null/undefined`);
       sendToConnection(connectionId, {
         type: 'error',
         error: 'Failed to update miner'
@@ -241,7 +228,6 @@ async function handleRegister(connectionId, data) {
     }
     
     miner = updatedMiner;
-    console.log(`[WebSocket] Miner reconnected: ${miner.name} (${systemId})`);
   }
   
   // Update connection mapping
@@ -264,7 +250,6 @@ async function handleRegister(connectionId, data) {
         configs
       }
     });
-    console.log(`[WebSocket] Silent registration complete for ${miner.name}`);
   } else {
     // For explicit binds (user clicked Bind button), always send 'bound'
     sendToConnection(connectionId, {
@@ -274,7 +259,6 @@ async function handleRegister(connectionId, data) {
         configs
       }
     });
-    console.log(`[WebSocket] Bind complete for ${miner.name} (${isReconnect ? 'reconnect' : 'new'})`);
   }
   
   // Broadcast to all dashboard clients
@@ -491,7 +475,6 @@ async function handleMiningUpdate(connectionId, data) {
       
       await Miner.update(connection.minerId, updateData);
     } catch (error) {
-      console.error('Error recording hash rate:', error);
     }
   }
 }
@@ -513,7 +496,6 @@ async function handleHeartbeat(connectionId, data) {
 async function handleRequestConfigs(connectionId, data) {
   const connection = connections.get(connectionId);
   if (!connection || !connection.minerId) {
-    console.warn('[WebSocket] Config request from unregistered connection');
     return;
   }
   
@@ -524,8 +506,6 @@ async function handleRequestConfigs(connectionId, data) {
     type: 'config-update',
     data: configs
   });
-  
-  console.log(`[WebSocket] Sent configs to miner ${connection.minerId}`);
 }
 
 async function handleUnbind(connectionId, data) {
@@ -545,8 +525,6 @@ async function handleUnbind(connectionId, data) {
       type: 'miner_unbound',
       miner: miner.toJSON()
     });
-    
-    console.log(`[WebSocket] Miner unbound: ${miner.name}`);
   }
 }
 
@@ -591,7 +569,6 @@ async function sendCommand(minerIds, command) {
   for (const minerId of minerIds) {
     const miner = await Miner.getById(minerId);
     if (!miner || !miner.connectionId) {
-      console.warn(`[WebSocket] Cannot send command: miner ${minerId} not connected`);
       continue;
     }
     
@@ -614,7 +591,6 @@ async function sendCommand(minerIds, command) {
       });
       if (success) sent++;
     } else {
-      console.log(`[WebSocket] Sending command to ${miner.name}:`, command.action);
       const success = sendToConnection(miner.connectionId, {
         type: 'command',
         data: command
@@ -633,7 +609,6 @@ function sendToConnection(connectionId, message) {
       connection.ws.send(JSON.stringify(message));
       return true;
     } catch (error) {
-      console.error(`[WebSocket] Error sending to ${connectionId}:`, error);
       return false;
     }
   }
@@ -656,7 +631,7 @@ function broadcast(message) {
         client.send(data);
         sent++;
       } catch (error) {
-        console.error('[WebSocket] Error broadcasting:', error);
+        // Silent fail - client may have disconnected
       }
     }
   });

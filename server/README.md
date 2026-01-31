@@ -114,15 +114,42 @@ Server runs on http://localhost:3001 (serves both API and built dashboard)
 - `mining_update` - Update mining statistics
 - `heartbeat` - Keep-alive ping
 
-## Data Storage
+## Authentication
 
-Data stored in `data/` directory:
-- `miners.json` - Registered miners
-- `configs.json` - Global configurations
+The server includes a built-in authentication system:
 
-## Environment Variables
+### First-Time Setup
+1. Navigate to the dashboard
+2. Create your admin account on the registration screen
+3. Only one admin account can exist
+
+### Features
+- JWT-based authentication (7-day token expiration)
+- Rate limiting: 5 login attempts per 15 minutes
+- API rate limiting: 100 requests per minute
+- bcrypt password hashing
+
+### Password Reset
+```bash
+cd server
+node scripts/reset-password.js admin@example.com NewPassword123
+```
+
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | 3001 | Server port |
 | `NODE_ENV` | development | Environment mode |
+| `JWT_SECRET` | (auto-generated) | JWT signing key - set for production |
+| `MONGO_HOST` | localhost | MongoDB host |
+| `MONGO_PORT` | 27017 | MongoDB port |
+| `MONGO_DB_NAME` | minemaster | Database name |
+
+## Data Storage
+
+Uses MongoDB for persistent storage:
+- `miners` collection - Registered miners
+- `configs` collection - Global configurations  
+- `admins` collection - Admin users
+- `hashrates` collection - Historical hashrate data

@@ -21,10 +21,8 @@ function Login({ onSuccess }) {
 
     try {
       const response = await authAPI.login(email, password);
-      console.log('Login successful:', response);
       onSuccess(response.admin);
     } catch (err) {
-      console.error('Login error:', err);
       
       // Show specific error messages
       const errorMessage = err.response?.data?.error || 'Login failed. Please try again.';

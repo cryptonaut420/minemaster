@@ -51,7 +51,6 @@ function Configs() {
       success(`${deviceName} configuration saved successfully!`, 4000);
     } catch (err) {
       error(`Failed to save configuration: ${err.response?.data?.error || err.message}`, 5000);
-      console.error('Error saving config:', err);
     } finally {
       setSaving(false);
     }
