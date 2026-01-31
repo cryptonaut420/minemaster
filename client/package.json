@@ -2,7 +2,9 @@
   "name": "minemaster-client",
   "version": "1.0.0",
   "description": "Cross-platform GUI wrapper for crypto mining software",
+  "author": "MineMaster",
   "main": "electron/main.js",
+  "homepage": "./",
   "scripts": {
     "postinstall": "node scripts/download-miners.js",
     "setup": "node scripts/download-miners.js",
@@ -12,27 +14,40 @@
     "start:electron": "electron .",
     "build": "react-scripts build",
     "build:electron": "npm run build && electron-builder",
-    "build:all": "npm run build && electron-builder -mwl"
+    "build:linux": "npm run build && electron-builder --linux AppImage",
+    "build:windows": "npm run build && electron-builder --windows portable",
+    "build:windows-installer": "npm run build && electron-builder --windows nsis",
+    "build:mac": "npm run build && electron-builder --mac dmg",
+    "build:all": "npm run build && electron-builder --linux AppImage --windows portable",
+    "dist": "node scripts/build-release.js",
+    "dist:docker": "bash scripts/build-docker.sh",
+    "dist:docker:linux": "bash scripts/build-docker.sh linux",
+    "dist:docker:windows": "bash scripts/build-docker.sh windows"
   },
   "build": {
     "appId": "com.minemaster.client",
     "productName": "MineMaster",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "extends": null,
     "directories": {
-      "buildResources": "assets"
+      "buildResources": "assets",
+      "output": "dist"
     },
     "files": [
       "build/**/*",
       "electron/**/*",
-      "miners/**/*",
       "assets/**/*",
-      "node_modules/**/*",
       "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/systeminformation/**/*"
     ],
     "extraResources": [
       {
         "from": "miners",
         "to": "miners",
-        "filter": ["**/*"]
+        "filter": ["**/*", "!**/.gitkeep"]
       },
       {
         "from": "assets",
@@ -41,16 +56,53 @@
       }
     ],
     "win": {
-      "target": ["nsis"],
-      "icon": "assets/icon.ico"
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Windows-Portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-Windows-Setup.${ext}",
+      "shortcutName": "MineMaster",
+      "uninstallDisplayName": "MineMaster"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "assets/icon.png",
-      "category": "Utility"
+      "category": "Utility",
+      "maintainer": "MineMaster",
+      "desktop": {
+        "StartupWMClass": "MineMaster"
+      }
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-Linux.${ext}"
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
       "icon": "assets/icon.png",
       "category": "public.app-category.utilities"
     }

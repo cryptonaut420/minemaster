@@ -48,10 +48,45 @@ Starts the React dev server and launches the Electron app.
 
 ### Build for Production
 
+**Quick Build (current platform):**
 ```bash
-npm run build:electron    # Current platform
-npm run build:all          # All platforms (Linux/Windows)
+npm run build:electron    # Build for current platform
 ```
+
+**Platform-Specific Builds:**
+```bash
+npm run build:linux       # Linux AppImage (single portable file)
+npm run build:windows     # Windows portable .exe (single file)
+npm run build:mac         # macOS DMG
+```
+
+**Full Release Build:**
+```bash
+npm run dist              # Build Linux + Windows with all outputs
+npm run dist -- --linux   # Linux only
+npm run dist -- --windows # Windows only
+npm run dist -- --clean   # Clean dist folder first
+```
+
+**Output files** are placed in `dist/`:
+- `MineMaster-1.0.0-Linux.AppImage` - Linux portable (run directly, no install)
+- `MineMaster-1.0.0-Windows-Portable.exe` - Windows portable (single file)
+- `MineMaster-1.0.0-Windows-Setup.exe` - Windows installer (optional)
+
+**Docker Build (recommended for cross-compilation):**
+```bash
+npm run dist:docker          # Linux + Windows (requires Docker)
+npm run dist:docker:linux    # Linux AppImage only
+npm run dist:docker:windows  # Windows only
+```
+
+Docker uses the `electronuserland/builder:wine` image which has all dependencies pre-configured - no need to install wine32 on your system.
+
+**Cross-Compilation Notes:**
+- **Recommended**: Use Docker for cross-compilation (no system deps needed)
+- Building Windows from Linux natively requires wine32 (often has dependency issues)
+- Building Linux from Windows requires WSL2 or a Linux VM
+- Native builds on each platform produce the most reliable results
 
 ## Usage
 
