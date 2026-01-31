@@ -23,12 +23,29 @@ function Dashboard() {
       const minersData = response.data.miners || [];
       setMiners(minersData);
       
+      // Calculate total hashrate from all devices across all miners
+      let totalHashrate = 0;
+      minersData.forEach(miner => {
+        // Add CPU hashrate if mining
+        if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
+          totalHashrate += miner.devices.cpu.hashrate;
+        }
+        // Add all GPU hashrates if mining
+        if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
+          miner.devices.gpus.forEach(gpu => {
+            if (gpu.running && gpu.hashrate) {
+              totalHashrate += gpu.hashrate;
+            }
+          });
+        }
+      });
+      
       const newStats = {
         total: minersData.length,
         online: minersData.filter(m => m.status === 'online' || m.status === 'mining').length,
         mining: minersData.filter(m => m.status === 'mining').length,
         offline: minersData.filter(m => m.status === 'offline').length,
-        totalHashrate: minersData.reduce((sum, m) => sum + (m.hashrate || 0), 0)
+        totalHashrate
       };
       setStats(newStats);
       setLoading(false);
@@ -40,11 +57,62 @@ function Dashboard() {
 
   const fetchHashrateStats = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/stats/hashrates?timeframe=1h`);
-      const data = await response.json();
-      if (data.success) {
-        setHashrateBreakdown(data.current || {});
-      }
+      // Calculate hashrate breakdown from current miners by coin + algorithm
+      const response = await minersAPI.getAll();
+      const minersData = response.data.miners || [];
+      const breakdown = {};
+      
+      minersData.forEach(miner => {
+        if (miner.status !== 'mining') return;
+        
+        // Process CPU mining
+        if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
+          const algo = miner.devices.cpu.algorithm || 'Unknown';
+          const coin = miner.devices.cpu.coin || 'Unknown';
+          const key = `${coin}_${algo}_CPU`;
+          
+          if (!breakdown[key]) {
+            breakdown[key] = {
+              coin,
+              algorithm: algo,
+              deviceType: 'CPU',
+              hashrate: 0,
+              devices: 0
+            };
+          }
+          breakdown[key].hashrate += miner.devices.cpu.hashrate;
+          breakdown[key].devices += 1;
+        }
+        
+        // Process GPU mining
+        if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
+          const runningGpus = miner.devices.gpus.filter(g => g.running && g.hashrate);
+          if (runningGpus.length > 0) {
+            const firstGpu = runningGpus[0];
+            const algo = firstGpu.algorithm || 'Unknown';
+            const coin = firstGpu.coin || 'Unknown';
+            const key = `${coin}_${algo}_GPU`;
+            
+            if (!breakdown[key]) {
+              breakdown[key] = {
+                coin,
+                algorithm: algo,
+                deviceType: 'GPU',
+                hashrate: 0,
+                devices: 0
+              };
+            }
+            
+            // Sum hashrate from all running GPUs on this miner
+            runningGpus.forEach(gpu => {
+              breakdown[key].hashrate += gpu.hashrate;
+            });
+            breakdown[key].devices += runningGpus.length;
+          }
+        }
+      });
+      
+      setHashrateBreakdown(breakdown);
     } catch (error) {
       console.error('Error fetching hashrate stats:', error);
     }
@@ -137,28 +205,21 @@ function Dashboard() {
             <div className="stat-label">Offline</div>
           </div>
         </div>
-        
-        <div className="stat-card hashrate">
-          <div className="stat-icon">📈</div>
-          <div className="stat-content">
-            <div className="stat-value mono">{formatHashrate(stats.totalHashrate)}</div>
-            <div className="stat-label">Total Hashrate</div>
-          </div>
-        </div>
       </div>
 
       {breakdownEntries.length > 0 && (
         <div className="hashrate-breakdown">
-          <h3>Hashrate by Device Type & Algorithm</h3>
+          <h3>Hashrate by Coin & Algorithm</h3>
           <div className="breakdown-grid">
             {breakdownEntries.map((entry, idx) => (
               <div key={idx} className="breakdown-card">
                 <div className="breakdown-header">
-                  <span className="device-type">{entry.deviceType || 'Unknown'}</span>
-                  <span className="algorithm mono">{entry.algorithm || 'Unknown'}</span>
+                  <span className="coin-name">{entry.coin || 'Unknown'}</span>
+                  <span className="device-type-badge">{entry.deviceType || 'Unknown'}</span>
                 </div>
+                <div className="algorithm-row mono">{entry.algorithm || 'Unknown'}</div>
                 <div className="breakdown-hashrate mono">{formatHashrate(entry.hashrate)}</div>
-                <div className="breakdown-count">{entry.count} miner{entry.count !== 1 ? 's' : ''}</div>
+                <div className="breakdown-count">{entry.devices} device{entry.devices !== 1 ? 's' : ''}</div>
               </div>
             ))}
           </div>
@@ -183,48 +244,67 @@ function Dashboard() {
             <div className="table-header">
               <div className="col-name">Name</div>
               <div className="col-status">Status</div>
-              <div className="col-device">Device</div>
-              <div className="col-algo">Algorithm</div>
-              <div className="col-hashrate">Hashrate</div>
+              <div className="col-devices">Active Devices</div>
               <div className="col-seen">Last Seen</div>
             </div>
             <div className="table-body">
-              {miners.map(miner => (
-                <div key={miner.id} className={`table-row ${miner.status}`}>
-                  <div className="col-name">
-                    <span className="miner-name">{miner.name}</span>
-                    <span className="miner-host">{miner.hostname}</span>
+              {miners.map(miner => {
+                // Build active devices list
+                const activeDevices = [];
+                if (miner.devices?.cpu?.running) {
+                  activeDevices.push({
+                    type: 'CPU',
+                    algo: miner.devices.cpu.algorithm,
+                    hashrate: miner.devices.cpu.hashrate
+                  });
+                }
+                if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
+                  const runningGpus = miner.devices.gpus.filter(g => g.running);
+                  if (runningGpus.length > 0) {
+                    const totalGpuHashrate = runningGpus.reduce((sum, g) => sum + (g.hashrate || 0), 0);
+                    activeDevices.push({
+                      type: `GPU (${runningGpus.length})`,
+                      algo: runningGpus[0].algorithm,
+                      hashrate: totalGpuHashrate
+                    });
+                  }
+                }
+                
+                return (
+                  <div key={miner.id} className={`table-row ${miner.status}`}>
+                    <div className="col-name">
+                      <span className="miner-name">{miner.name}</span>
+                      <span className="miner-host">{miner.hostname}</span>
+                    </div>
+                    <div className="col-status">
+                      <span className={`status-badge ${miner.status}`}>
+                        {miner.status === 'mining' && '⚡'}
+                        {miner.status === 'online' && '🟢'}
+                        {miner.status === 'offline' && '⭕'}
+                        {miner.status}
+                      </span>
+                    </div>
+                    <div className="col-devices">
+                      {activeDevices.length > 0 ? (
+                        <div className="devices-list">
+                          {activeDevices.map((device, idx) => (
+                            <div key={idx} className="device-item">
+                              <span className="device-type-tag">{device.type}</span>
+                              <span className="device-algo mono">{device.algo || '—'}</span>
+                              <span className="device-hashrate mono">{formatHashrate(device.hashrate)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="miner-idle">No active devices</span>
+                      )}
+                    </div>
+                    <div className="col-seen">
+                      {getTimeAgo(miner.lastSeen)}
+                    </div>
                   </div>
-                  <div className="col-status">
-                    <span className={`status-badge ${miner.status}`}>
-                      {miner.status === 'mining' && '⚡'}
-                      {miner.status === 'online' && '🟢'}
-                      {miner.status === 'offline' && '⭕'}
-                      {miner.status}
-                    </span>
-                  </div>
-                  <div className="col-device">
-                    {miner.deviceType ? (
-                      <span className="device-type">{miner.deviceType}</span>
-                    ) : (
-                      <span className="miner-idle">—</span>
-                    )}
-                  </div>
-                  <div className="col-algo">
-                    {miner.algorithm ? (
-                      <span className="algorithm mono">{miner.algorithm}</span>
-                    ) : (
-                      <span className="miner-idle">—</span>
-                    )}
-                  </div>
-                  <div className="col-hashrate mono">
-                    {miner.hashrate ? formatHashrate(miner.hashrate) : '—'}
-                  </div>
-                  <div className="col-seen">
-                    {getTimeAgo(miner.lastSeen)}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
