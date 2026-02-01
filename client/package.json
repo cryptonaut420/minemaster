@@ -22,7 +22,8 @@
     "dist": "node scripts/build-release.js",
     "dist:docker": "bash scripts/build-docker.sh",
     "dist:docker:linux": "bash scripts/build-docker.sh linux",
-    "dist:docker:windows": "bash scripts/build-docker.sh windows"
+    "dist:docker:windows": "bash scripts/build-docker.sh windows",
+    "release": "bash build-all.sh"
   },
   "build": {
     "appId": "com.minemaster.client",
