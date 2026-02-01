@@ -1,0 +1,38 @@
+#!/bin/sh
+
+# Define the Docker network name
+NETWORK_NAME=custom_network
+
+# Check if the custom Docker network exists; if not, create it
+if ! sudo docker network ls | grep -q "$NETWORK_NAME"; then
+    echo "Creating custom Docker network: $NETWORK_NAME"
+    sudo docker network create "$NETWORK_NAME"
+else
+    echo "Custom Docker network already exists: $NETWORK_NAME"
+fi
+
+# Build the new Docker image first. This ensures that the new image is ready
+# before taking down the existing container, minimizing downtime.
+echo "Building new Docker image..."
+sudo DOCKER_BUILDKIT=1 docker build -t minemaster:latest .
+
+# Check if a previous container exists using the container.id file
+if [ -f "container.id" ]; then
+    CONTAINER_ID=$(cat container.id)
+    if [ -n "$CONTAINER_ID" ]; then
+        # Stop and remove the old container based on the saved container ID
+        echo "Stopping and removing old container: $CONTAINER_ID"
+        sudo docker stop "$CONTAINER_ID"
+        sudo docker rm "$CONTAINER_ID"
+        # Optionally, remove the container.id file if you want to clean up,
+        # but it will be overwritten later anyway.
+        # rm container.id
+    fi
+fi
+
+# Run the new container attached to the custom network and save its ID to the container.id file for future reference
+echo "Starting new container..."
+NEW_CONTAINER_ID=$(sudo docker run --network "$NETWORK_NAME" --env-file=.env -dp 8847:3001 minemaster:latest)
+echo $NEW_CONTAINER_ID > container.id
+
+echo "Deployment complete."

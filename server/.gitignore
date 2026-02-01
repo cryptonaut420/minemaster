@@ -6,3 +6,4 @@ data/*.json
 .DS_Store
 public/build/
 public/node_modules/
+container.id

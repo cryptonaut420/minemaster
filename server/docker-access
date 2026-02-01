@@ -1,0 +1,3 @@
+#!/bin/sh
+CONTAINER_ID=`cat container.id`
+sudo docker exec -it "$CONTAINER_ID" /bin/sh

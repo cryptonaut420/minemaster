@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  minemaster:
+    build: .
+    image: minemaster:latest
+    container_name: minemaster
+    ports:
+      - "8847:3001"
+    env_file:
+      - .env
+    networks:
+      - custom_network
+    restart: unless-stopped
+
+networks:
+  custom_network:
+    external: true
