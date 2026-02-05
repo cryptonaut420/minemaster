@@ -1,38 +1,66 @@
 #!/bin/sh
 
-# Define the Docker network name
-NETWORK_NAME=custom_network
+# MineMaster Docker Deploy Script
+# Deploys the MineMaster server (API + admin dashboard) as a single container
+# Works with nginx-proxy for subdomain routing via VIRTUAL_HOST env var
 
-# Check if the custom Docker network exists; if not, create it
-if ! sudo docker network ls | grep -q "$NETWORK_NAME"; then
-    echo "Creating custom Docker network: $NETWORK_NAME"
-    sudo docker network create "$NETWORK_NAME"
-else
-    echo "Custom Docker network already exists: $NETWORK_NAME"
+set -e
+
+# Network that nginx-proxy and all app containers share
+NETWORK_NAME="nginx-proxy"
+
+# Read VIRTUAL_HOST from .env for logging (nginx-proxy reads it from the container env)
+if [ -f ".env" ]; then
+    VIRTUAL_HOST=$(grep -E '^VIRTUAL_HOST=' .env | cut -d'=' -f2-)
 fi
 
-# Build the new Docker image first. This ensures that the new image is ready
-# before taking down the existing container, minimizing downtime.
-echo "Building new Docker image..."
+# Ensure the shared Docker network exists
+if ! sudo docker network ls --format '{{.Name}}' | grep -q "^${NETWORK_NAME}$"; then
+    echo "Creating Docker network: $NETWORK_NAME"
+    sudo docker network create "$NETWORK_NAME"
+else
+    echo "Docker network already exists: $NETWORK_NAME"
+fi
+
+# Build the new image first (minimizes downtime)
+echo "Building MineMaster image..."
 sudo DOCKER_BUILDKIT=1 docker build -t minemaster:latest .
 
-# Check if a previous container exists using the container.id file
+# Stop and remove old container if it exists (by ID and by name for safety)
 if [ -f "container.id" ]; then
     CONTAINER_ID=$(cat container.id)
     if [ -n "$CONTAINER_ID" ]; then
-        # Stop and remove the old container based on the saved container ID
-        echo "Stopping and removing old container: $CONTAINER_ID"
-        sudo docker stop "$CONTAINER_ID"
-        sudo docker rm "$CONTAINER_ID"
-        # Optionally, remove the container.id file if you want to clean up,
-        # but it will be overwritten later anyway.
-        # rm container.id
+        echo "Stopping old container: $CONTAINER_ID"
+        sudo docker stop "$CONTAINER_ID" 2>/dev/null || true
+        sudo docker rm "$CONTAINER_ID" 2>/dev/null || true
     fi
 fi
+# Also remove by name in case container.id was stale
+sudo docker stop minemaster 2>/dev/null || true
+sudo docker rm minemaster 2>/dev/null || true
 
-# Run the new container attached to the custom network and save its ID to the container.id file for future reference
-echo "Starting new container..."
-NEW_CONTAINER_ID=$(sudo docker run --network "$NETWORK_NAME" --env-file=.env -dp 8847:3001 minemaster:latest)
-echo $NEW_CONTAINER_ID > container.id
+# Run the new container
+# - Attached to nginx-proxy network (nginx-proxy routes by VIRTUAL_HOST)
+# - No host port mapping needed (nginx-proxy connects internally)
+# - env-file provides VIRTUAL_HOST, VIRTUAL_PORT, MONGO_*, JWT_SECRET, etc.
+echo "Starting MineMaster container..."
+NEW_CONTAINER_ID=$(sudo docker run \
+    --network "$NETWORK_NAME" \
+    --env-file=.env \
+    -e NODE_ENV=production \
+    --restart unless-stopped \
+    --name minemaster \
+    -d minemaster:latest)
 
+echo "$NEW_CONTAINER_ID" > container.id
+
+echo ""
 echo "Deployment complete."
+echo "Container: $NEW_CONTAINER_ID"
+if [ -n "$VIRTUAL_HOST" ]; then
+    echo "Dashboard: https://$VIRTUAL_HOST"
+    echo "API:       https://$VIRTUAL_HOST/api"
+    echo "WebSocket: wss://$VIRTUAL_HOST"
+fi
+echo ""
+echo "Logs: sudo docker logs -f minemaster"

@@ -3,8 +3,6 @@ import { minersAPI } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import './Dashboard.css';
 
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001/api' : '/api';
-
 function Dashboard() {
   const [stats, setStats] = useState({
     total: 0,

@@ -1,9 +1,15 @@
 node_modules
+public/node_modules
+public/build
 npm-debug.log
 .env
+.env.*
+!.env.example
 .git
 .gitignore
-README.md
 container.id
 data
 *.md
+docker-compose.yml
+docker-deploy
+docker-access

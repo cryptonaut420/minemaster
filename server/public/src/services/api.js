@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { getToken } from './auth';
 
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001/api' : '/api';
+// In production, use relative /api path (same origin, served by Express)
+// In development, Vite proxy handles /api -> localhost:3001
+const API_BASE = '/api';
 
 const api = axios.create({
   baseURL: API_BASE,

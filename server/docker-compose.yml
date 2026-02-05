@@ -5,14 +5,18 @@ services:
     build: .
     image: minemaster:latest
     container_name: minemaster
-    ports:
-      - "8847:3001"
     env_file:
       - .env
+    environment:
+      - NODE_ENV=production
+      # nginx-proxy picks up VIRTUAL_HOST and VIRTUAL_PORT from env_file (.env)
+      # LETSENCRYPT_HOST and LETSENCRYPT_EMAIL are also read from .env if using acme-companion
+    expose:
+      - "3001"
     networks:
-      - custom_network
+      - nginx-proxy
     restart: unless-stopped
 
 networks:
-  custom_network:
+  nginx-proxy:
     external: true

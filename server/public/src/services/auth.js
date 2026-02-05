@@ -1,9 +1,8 @@
 import axios from 'axios';
 
-// Use same URL detection pattern as api.js
-const API_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3001/api' 
-  : '/api';
+// In production, use relative /api path (same origin, served by Express)
+// In development, Vite proxy handles /api -> localhost:3001
+const API_URL = '/api';
 
 // Auth token management
 const TOKEN_KEY = 'minemaster_auth_token';

@@ -16,6 +16,10 @@ const websocketServer = require('./websocket/server');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust first proxy (nginx-proxy) so rate limiting uses real client IPs
+// and req.protocol/req.hostname reflect the original request
+app.set('trust proxy', 1);
+
 // Rate limiting for login attempts
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -61,7 +65,13 @@ app.get('/api/health', (req, res) => {
 // Serve static files from React app in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../public/build')));
+  
+  // Client-side routing: serve index.html for all non-API routes
   app.get('*', (req, res) => {
+    // Don't serve index.html for unmatched API routes
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'Not found' });
+    }
     res.sendFile(path.join(__dirname, '../public/build/index.html'));
   });
 }
@@ -79,11 +89,14 @@ async function startServer() {
     // Connect to MongoDB
     await connectDB();
     
-    // Start HTTP server
-    server.listen(PORT, () => {
-      console.log(`🚀 MineMaster Server running on http://localhost:${PORT}`);
-      console.log(`📊 Dashboard: http://localhost:${PORT}`);
-      console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+    // Start HTTP server (bind 0.0.0.0 for Docker container access)
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 MineMaster Server running on port ${PORT}`);
+      console.log(`📊 Dashboard: http://0.0.0.0:${PORT}`);
+      console.log(`🔌 WebSocket: ws://0.0.0.0:${PORT}`);
+      if (process.env.VIRTUAL_HOST) {
+        console.log(`🌐 Subdomain: https://${process.env.VIRTUAL_HOST}`);
+      }
     });
   } catch (error) {
     console.error('Failed to start server:', error);

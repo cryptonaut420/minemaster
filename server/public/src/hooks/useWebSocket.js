@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const WS_URL = window.location.hostname === 'localhost'
-  ? 'ws://localhost:3001'
-  : `ws://${window.location.host}`;
+// Derive WebSocket URL from current page location
+// Uses wss:// when page is served over HTTPS (e.g. behind nginx-proxy with TLS)
+// Uses ws:// when page is served over HTTP (e.g. localhost dev)
+// In development, Vite proxy handles /ws -> ws://localhost:3001
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 
 export function useWebSocket(onMessage) {
   const [connected, setConnected] = useState(false);
