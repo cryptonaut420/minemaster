@@ -6,20 +6,24 @@
 
 set -e
 
-# Network that nginx-proxy and all app containers share
-NETWORK_NAME="nginx-proxy"
+# Auto-detect which Docker network the nginx-proxy container is on
+NGINX_PROXY_CONTAINER="nginx-proxy"
+NETWORK_NAME=""
 
-# Read VIRTUAL_HOST from .env for logging (nginx-proxy reads it from the container env)
-if [ -f ".env" ]; then
-    VIRTUAL_HOST=$(grep -E '^VIRTUAL_HOST=' .env | cut -d'=' -f2-)
+if sudo docker inspect "$NGINX_PROXY_CONTAINER" >/dev/null 2>&1; then
+    # Get the first network nginx-proxy is connected to
+    NETWORK_NAME=$(sudo docker inspect "$NGINX_PROXY_CONTAINER" \
+        --format '{{range $key, $val := .NetworkSettings.Networks}}{{$key}}{{end}}' \
+        | head -1)
+    echo "Detected nginx-proxy on network: $NETWORK_NAME"
+else
+    echo "WARNING: nginx-proxy container not found. Using default bridge network."
+    NETWORK_NAME="bridge"
 fi
 
-# Ensure the shared Docker network exists
-if ! sudo docker network ls --format '{{.Name}}' | grep -q "^${NETWORK_NAME}$"; then
-    echo "Creating Docker network: $NETWORK_NAME"
-    sudo docker network create "$NETWORK_NAME"
-else
-    echo "Docker network already exists: $NETWORK_NAME"
+# Read VIRTUAL_HOST from .env for logging
+if [ -f ".env" ]; then
+    VIRTUAL_HOST=$(grep -E '^VIRTUAL_HOST=' .env | cut -d'=' -f2-)
 fi
 
 # Build the new image first (minimizes downtime)
@@ -40,10 +44,10 @@ sudo docker stop minemaster 2>/dev/null || true
 sudo docker rm minemaster 2>/dev/null || true
 
 # Run the new container
-# - Attached to nginx-proxy network (nginx-proxy routes by VIRTUAL_HOST)
+# - Attached to same network as nginx-proxy (for internal routing by VIRTUAL_HOST)
 # - No host port mapping needed (nginx-proxy connects internally)
 # - env-file provides VIRTUAL_HOST, VIRTUAL_PORT, MONGO_*, JWT_SECRET, etc.
-echo "Starting MineMaster container..."
+echo "Starting MineMaster container on network: $NETWORK_NAME"
 NEW_CONTAINER_ID=$(sudo docker run \
     --network "$NETWORK_NAME" \
     --env-file=.env \
@@ -57,6 +61,7 @@ echo "$NEW_CONTAINER_ID" > container.id
 echo ""
 echo "Deployment complete."
 echo "Container: $NEW_CONTAINER_ID"
+echo "Network:   $NETWORK_NAME"
 if [ -n "$VIRTUAL_HOST" ]; then
     echo "Dashboard: https://$VIRTUAL_HOST"
     echo "API:       https://$VIRTUAL_HOST/api"

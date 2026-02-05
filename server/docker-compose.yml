@@ -13,10 +13,8 @@ services:
       # LETSENCRYPT_HOST and LETSENCRYPT_EMAIL are also read from .env if using acme-companion
     expose:
       - "3001"
-    networks:
-      - nginx-proxy
+    # Use network_mode or override network in production to match your nginx-proxy network.
+    # Default: same network as nginx-proxy. Override with:
+    #   docker-compose run --network <your-nginx-proxy-network> minemaster
+    # Or just use the docker-deploy script which auto-detects the network.
     restart: unless-stopped
-
-networks:
-  nginx-proxy:
-    external: true
