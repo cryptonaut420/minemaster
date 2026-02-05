@@ -87,7 +87,6 @@ function App() {
     return localStorage.getItem('master-server-bound') === 'true';
   });
   const statusUpdateInterval = useRef(null);
-  const boundStateInitialized = useRef(false);
   const minersRef = useRef(miners); // Keep a ref to always have latest miners
   const stoppingMinersRef = useRef(new Set()); // Track miners being intentionally stopped
   
@@ -476,53 +475,13 @@ function App() {
     };
   }, [miners]); // Include miners for command handlers
 
-  // Handle bound state changes from Dashboard
-  const handleBoundStateChange = (bound, data) => {
-    // If this is the initial restore from localStorage, don't do anything
-    // The state is already set in useState initializer
-    if (!boundStateInitialized.current && bound && data === null) {
-      boundStateInitialized.current = true;
-      
-      // If bound, ensure status updates are running
-      if (bound && masterServer.isBound()) {
-        startStatusUpdates();
-      }
-      return;
-    }
-    
-    // Mark as initialized after first call
-    if (!boundStateInitialized.current) {
-      boundStateInitialized.current = true;
-    }
-    
-    // Only update state if it actually changed
-    if (isBoundToMaster === bound) {
-      return;
-    }
-    
-    setIsBoundToMaster(bound);
-    localStorage.setItem('master-server-bound', bound ? 'true' : 'false');
-    
-    if (bound) {
-      addNotification('Bound to Master Server', 'success');
-      
-      // Request or apply global configs
-      if (data?.configs) {
-        applyGlobalConfigs(data.configs, false); // Show notification for new bind
-      } else {
-        // Small delay to ensure connection is fully established
-        setTimeout(() => {
-          if (masterServer.isBound()) {
-            masterServer.requestConfigs();
-          }
-        }, 500);
-      }
-      
-      // Start periodic status updates
-      startStatusUpdates();
-    } else {
-      addNotification('Unbound from Master Server', 'info');
-      stopStatusUpdates();
+  // Handle explicit unbind from MasterServerPanel UI
+  const handleUnbindFromUI = async () => {
+    try {
+      await masterServer.unbind();
+      // 'unbound' event will be caught by the connection management effect below
+    } catch (err) {
+      addNotification(`Failed to unbind: ${err.message}`, 'error');
     }
   };
 
@@ -671,26 +630,131 @@ function App() {
     }
   };
 
-  // Start status updates when server confirms we're registered/bound
+  // ============================================================
+  // Master Server Connection Management (global, persists across all views)
+  // This runs at the App level so it never unmounts when navigating between views
+  // ============================================================
   useEffect(() => {
-    const handleServerReady = () => {
+    // Build device states from current miners for server registration
+    const getDeviceStatesForServer = async () => {
+      const currentMiners = minersRef.current;
+      const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
+      const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
+      
+      let sysInfo = null;
+      if (window.electronAPI) {
+        sysInfo = await window.electronAPI.getSystemInfo();
+      }
+      
+      const devices = {
+        cpu: {
+          enabled: cpuMiner?.enabled !== false,
+          running: cpuMiner?.running || false,
+          hashrate: cpuMiner?.hashrate || null,
+          algorithm: cpuMiner?.config?.algorithm || null
+        },
+        gpus: sysInfo?.gpus && Array.isArray(sysInfo.gpus)
+          ? sysInfo.gpus.map((gpu, idx) => ({
+              id: idx,
+              model: gpu.model || `GPU ${idx}`,
+              enabled: gpuMiner?.enabled !== false,
+              running: gpuMiner?.running || false,
+              hashrate: gpuMiner?.hashrate || null,
+              algorithm: gpuMiner?.config?.algorithm || null
+            }))
+          : []
+      };
+      
+      return { devices, systemInfo: sysInfo };
+    };
+
+    // Handle WebSocket reconnection - re-register if was previously bound
+    const handleConnected = async () => {
+      const wasBound = localStorage.getItem('master-server-bound') === 'true';
+      if (wasBound) {
+        try {
+          const { devices, systemInfo } = await getDeviceStatesForServer();
+          if (systemInfo) {
+            await masterServer.bind(systemInfo, true, devices); // silent = true for reconnect
+          }
+        } catch (err) {
+          // Silent fail - will retry on next reconnect
+        }
+      }
+    };
+
+    // Handle successful bind (explicit user action from MasterServerPanel)
+    const handleBound = (data) => {
+      setIsBoundToMaster(true);
+      localStorage.setItem('master-server-bound', 'true');
+      addNotification('Bound to Master Server', 'success');
+      
+      // Apply global configs if provided
+      if (data?.configs) {
+        applyGlobalConfigs(data.configs, false);
+      } else {
+        setTimeout(() => {
+          if (masterServer.isBound()) {
+            masterServer.requestConfigs();
+          }
+        }, 500);
+      }
+      
       startStatusUpdates();
     };
 
-    masterServer.on('bound', handleServerReady);
-    masterServer.on('registered', handleServerReady);
-
-    // If already bound, start updates immediately
-    if (masterServer.isBound()) {
+    // Handle silent re-registration (auto-reconnect)
+    const handleRegistered = (data) => {
+      setIsBoundToMaster(true);
+      localStorage.setItem('master-server-bound', 'true');
+      
+      // Apply configs if provided with registration
+      if (data?.configs) {
+        applyGlobalConfigs(data.configs, true); // silent
+      }
+      
       startStatusUpdates();
-    }
+    };
 
-    return () => {
-      masterServer.off('bound', handleServerReady);
-      masterServer.off('registered', handleServerReady);
+    // Handle unbound (from user action or server)
+    const handleUnbound = () => {
+      setIsBoundToMaster(false);
+      localStorage.removeItem('master-server-bound');
+      addNotification('Unbound from Master Server', 'info');
       stopStatusUpdates();
     };
-  }, []); // Run once on mount
+
+    masterServer.on('connected', handleConnected);
+    masterServer.on('bound', handleBound);
+    masterServer.on('registered', handleRegistered);
+    masterServer.on('unbound', handleUnbound);
+
+    // Initial connection on app start if was previously bound
+    const initConnection = async () => {
+      const wasBound = localStorage.getItem('master-server-bound') === 'true';
+      if (wasBound) {
+        try {
+          const config = await masterServer.loadConfig();
+          if (config?.enabled) {
+            await masterServer.connect();
+            // 'connected' handler will fire and handle registration
+          }
+        } catch (err) {
+          // Silent fail - user can manually rebind from MasterServerPanel
+        }
+      }
+    };
+
+    initConnection();
+
+    return () => {
+      masterServer.off('connected', handleConnected);
+      masterServer.off('bound', handleBound);
+      masterServer.off('registered', handleRegistered);
+      masterServer.off('unbound', handleUnbound);
+      stopStatusUpdates();
+    };
+  }, []); // Run once on mount - persists for entire app lifecycle
 
   // Notification helper
   const addNotification = (message, type = 'info') => {
@@ -987,7 +1051,7 @@ function App() {
               onStopAll={handleStopAll}
               onToggleDevice={handleToggleDevice}
               isBoundToMaster={isBoundToMaster}
-              onBoundChange={handleBoundStateChange}
+              onUnbind={handleUnbindFromUI}
             />
           ) : (
             currentMiner && (

@@ -165,6 +165,9 @@ async function handleRegister(connectionId, data) {
     // Create new miner
     const devices = buildDeviceStates(null);
     
+    // Derive status from device running states
+    const isAnyRunning = devices.cpu?.running || devices.gpus?.some(g => g.running);
+    
     miner = await Miner.create({
       systemId,
       name: hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`,
@@ -180,16 +183,24 @@ async function handleRegister(connectionId, data) {
       devices,
       systemInfo,
       connectionId,
-      status: 'online',
+      status: isAnyRunning ? 'mining' : 'online',
+      mining: isAnyRunning,
       bound: true // Automatically bind when registering
     });
     
   } else {
     // Update existing miner
     
+    // Update device states (preserve enabled settings, update running states)
+    const updatedDevices = buildDeviceStates(miner.devices);
+    
+    // Derive status from device running states instead of always resetting to 'online'
+    const isAnyRunning = updatedDevices.cpu?.running || updatedDevices.gpus?.some(g => g.running);
+    
     const updateData = {
       connectionId,
-      status: 'online',
+      status: isAnyRunning ? 'mining' : 'online',
+      mining: isAnyRunning,
       bound: true,
       systemInfo,
       lastSeen: new Date().toISOString(),
@@ -214,8 +225,7 @@ async function handleRegister(connectionId, data) {
       ram: memoryInfo || miner.hardware?.ram
     };
     
-    // Update device states (preserve enabled settings, update running states)
-    updateData.devices = buildDeviceStates(miner.devices);
+    updateData.devices = updatedDevices;
     
     const updatedMiner = await Miner.update(miner.id, updateData);
     
@@ -446,7 +456,14 @@ async function handleMiningUpdate(connectionId, data) {
   const connection = connections.get(connectionId);
   if (!connection || !connection.minerId) return;
   
-  const hashData = data.data || data;
+  const rawData = data.data || data;
+  
+  // The client wraps hashrate data inside a 'hashrate' property:
+  // { systemId, hashrate: { minerId, deviceType, algorithm, hashrate }, timestamp }
+  // Unwrap the nested structure if present
+  const hashData = (rawData.hashrate && typeof rawData.hashrate === 'object' && rawData.hashrate.deviceType)
+    ? rawData.hashrate
+    : rawData;
   
   // Record hash rate if available
   if (hashData.hashrate && hashData.deviceType && hashData.algorithm) {
@@ -473,8 +490,17 @@ async function handleMiningUpdate(connectionId, data) {
         updateData.miningStartTime = new Date().toISOString();
       }
       
-      await Miner.update(connection.minerId, updateData);
+      const miner = await Miner.update(connection.minerId, updateData);
+      
+      // Broadcast update to dashboard clients
+      if (miner) {
+        broadcast({
+          type: 'miner_status_update',
+          miner: miner.toJSON()
+        });
+      }
     } catch (error) {
+      // Silent fail - status updates will correct this
     }
   }
 }
@@ -645,7 +671,7 @@ function getConnectionCount() {
 
 async function getConnectedMiners() {
   const miners = await Miner.getAll();
-  return miners.filter(m => m.connectionId && m.status === 'online');
+  return miners.filter(m => m.connectionId && (m.status === 'online' || m.status === 'mining'));
 }
 
 module.exports = {

@@ -26,7 +26,7 @@ function Miners() {
   }, [fetchMiners]);
 
   useWebSocket(useCallback((message) => {
-    if (['miner_connected', 'miner_disconnected', 'miner_status_update', 'mining_update'].includes(message.type)) {
+    if (['miner_connected', 'miner_disconnected', 'miner_status_update', 'mining_update', 'miner_device_update'].includes(message.type)) {
       fetchMiners();
     }
   }, [fetchMiners]));

@@ -69,6 +69,11 @@ class MasterServerService {
       throw new Error('Master server connection is disabled');
     }
 
+    // Don't create a new connection if already connected or connecting
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     const url = `ws://${this.config.host}:${this.config.port}`;
 
     return new Promise((resolve, reject) => {

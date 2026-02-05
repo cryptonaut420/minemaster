@@ -2,20 +2,53 @@ import React, { useState, useEffect, useRef } from 'react';
 import { masterServer } from '../services/masterServer';
 import './MasterServerPanel.css';
 
-function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
+// MasterServerPanel is a UI-only component for bind/unbind actions and settings.
+// All connection lifecycle management (connect, auto-reconnect, re-register, status updates)
+// is handled in App.js so it persists across route/view changes.
+function MasterServerPanel({ isBound, onUnbind, systemInfo, miners }) {
   const [config, setConfig] = useState(null);
-  const [isBound, setIsBound] = useState(false);
   const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
   const bindTimeoutRef = useRef(null);
+  
+  // Use refs to get current data in async handlers
+  const minersRef = useRef(miners);
+  const systemInfoRef = useRef(systemInfo);
+  
+  useEffect(() => {
+    minersRef.current = miners;
+  }, [miners]);
+  
+  useEffect(() => {
+    systemInfoRef.current = systemInfo;
+  }, [systemInfo]);
+
+  // Load config on mount
+  useEffect(() => {
+    const init = async () => {
+      await loadConfig();
+    };
+    init();
+  }, []);
+
+  // Clear binding state when bound status changes from App.js
+  useEffect(() => {
+    if (isBound) {
+      setIsBinding(false);
+      setError(null);
+    }
+  }, [isBound]);
 
   // Helper function to build device states from miners
   const getDeviceStatesFromMiners = () => {
-    if (!miners || miners.length === 0) return null;
+    const currentMiners = minersRef.current;
+    const currentSystemInfo = systemInfoRef.current;
     
-    const cpuMiner = miners.find(m => m.deviceType === 'CPU');
-    const gpuMiner = miners.find(m => m.deviceType === 'GPU');
+    if (!currentMiners || currentMiners.length === 0) return null;
+    
+    const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
+    const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
     
     return {
       cpu: {
@@ -24,8 +57,8 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
         hashrate: cpuMiner?.hashrate || null,
         algorithm: cpuMiner?.config?.algorithm || null
       },
-      gpus: systemInfo?.gpus && Array.isArray(systemInfo.gpus)
-        ? systemInfo.gpus.map((gpu, idx) => ({
+      gpus: currentSystemInfo?.gpus && Array.isArray(currentSystemInfo.gpus)
+        ? currentSystemInfo.gpus.map((gpu, idx) => ({
             id: idx,
             model: gpu.model || `GPU ${idx}`,
             enabled: gpuMiner?.enabled !== false,
@@ -37,68 +70,6 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
     };
   };
 
-  // Handler for auto-reconnect (when connection is restored)
-  const handleAutoReconnect = async () => {
-    const wasBound = localStorage.getItem('master-server-bound') === 'true';
-    if (wasBound) {
-      // Get system info and send silent register
-      let sysInfo = systemInfo;
-      if (!sysInfo && window.electronAPI) {
-        sysInfo = await window.electronAPI.getSystemInfo();
-      }
-      if (sysInfo) {
-        try {
-          const devices = getDeviceStatesFromMiners();
-          await masterServer.bind(sysInfo, true, devices); // silent = true for reconnect
-        } catch (err) {
-          // Silent fail - will retry on next connection
-        }
-      }
-    }
-  };
-
-  useEffect(() => {
-    const init = async () => {
-      const cfg = await loadConfig();
-      
-      // Setup event listeners
-      masterServer.on('connected', handleAutoReconnect);
-      masterServer.on('bound', handleBound);
-      masterServer.on('unbound', handleUnbound);
-      masterServer.on('error', handleError);
-      
-      // Restore UI state from localStorage
-      const wasBound = localStorage.getItem('master-server-bound') === 'true';
-      if (wasBound && cfg?.enabled) {
-        setIsBound(true);
-        // Auto-reconnect and re-register if was bound
-        try {
-          await masterServer.connect();
-          // Get system info and send silent register
-          let sysInfo = systemInfo;
-          if (!sysInfo && window.electronAPI) {
-            sysInfo = await window.electronAPI.getSystemInfo();
-          }
-          if (sysInfo) {
-            const devices = getDeviceStatesFromMiners();
-            await masterServer.bind(sysInfo, true, devices); // silent = true for reconnect
-          }
-        } catch (err) {
-          // Silent fail - user can manually rebind
-        }
-      }
-    };
-    
-    init();
-
-    return () => {
-      masterServer.off('connected', handleAutoReconnect);
-      masterServer.off('bound', handleBound);
-      masterServer.off('unbound', handleUnbound);
-      masterServer.off('error', handleError);
-    };
-  }, []);
-
   const loadConfig = async () => {
     try {
       const cfg = await masterServer.loadConfig();
@@ -108,34 +79,6 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
       setError('Failed to load configuration');
       return null;
     }
-  };
-
-  const handleBound = (data) => {
-    // Clear bind timeout if it exists
-    if (bindTimeoutRef.current) {
-      clearTimeout(bindTimeoutRef.current);
-      bindTimeoutRef.current = null;
-    }
-    
-    setIsBound(true);
-    setIsBinding(false);
-    setError(null);
-    localStorage.setItem('master-server-bound', 'true');
-    if (onBoundChange) {
-      onBoundChange(true, data);
-    }
-  };
-
-  const handleUnbound = () => {
-    setIsBound(false);
-    setIsBinding(false);
-    localStorage.removeItem('master-server-bound');
-    if (onBoundChange) onBoundChange(false);
-  };
-
-  const handleError = (err) => {
-    setError(err.message || 'Connection error');
-    setIsBinding(false);
   };
 
   const handleBind = async () => {
@@ -166,7 +109,7 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
     
     try {
       // Get fresh system info if not available
-      let sysInfo = systemInfo;
+      let sysInfo = systemInfoRef.current;
       if (!sysInfo && window.electronAPI) {
         sysInfo = await window.electronAPI.getSystemInfo();
       }
@@ -174,13 +117,20 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
       // Get current device states from miners
       const devices = getDeviceStatesFromMiners();
       
-      // Bind will handle connection + registration
+      // Ensure config is enabled
+      if (!config.enabled) {
+        config.enabled = true;
+        await masterServer.saveConfig(config);
+      }
+      
+      // Connect and bind - App.js will catch the 'bound' event
       await masterServer.bind(sysInfo, false, devices);
-      // Note: handleBound will be called via event listener, which will clear isBinding
+      
       if (bindTimeoutRef.current) {
         clearTimeout(bindTimeoutRef.current);
         bindTimeoutRef.current = null;
       }
+      // Note: isBinding will be cleared when isBound prop changes (via useEffect above)
     } catch (err) {
       if (bindTimeoutRef.current) {
         clearTimeout(bindTimeoutRef.current);
@@ -196,9 +146,11 @@ function MasterServerPanel({ onBoundChange, systemInfo, miners }) {
     setError(null);
     
     try {
-      // Unbind will handle unregistration + disconnection
-      await masterServer.unbind();
-      // Note: handleUnbound will be called via event listener
+      // Call the unbind handler from App.js
+      if (onUnbind) {
+        await onUnbind();
+      }
+      setIsBinding(false);
     } catch (err) {
       setError(err.message || 'Failed to unbind');
       setIsBinding(false);
