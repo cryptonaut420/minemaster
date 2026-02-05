@@ -89,6 +89,9 @@ function App() {
   const statusUpdateInterval = useRef(null);
   const minersRef = useRef(miners); // Keep a ref to always have latest miners
   const stoppingMinersRef = useRef(new Set()); // Track miners being intentionally stopped
+  const sendImmediateStatusUpdateRef = useRef(null); // Ref for latest status update function
+  const startStatusUpdatesRef = useRef(null); // Ref for latest start function
+  const stopStatusUpdatesRef = useRef(null); // Ref for latest stop function
   
   // Update ref whenever miners changes
   useEffect(() => {
@@ -611,15 +614,20 @@ function App() {
     }
   };
 
+  // Keep refs updated to the latest function versions (avoids stale closures in intervals/effects)
+  sendImmediateStatusUpdateRef.current = sendImmediateStatusUpdate;
+
   // Start periodic status updates to server
   const startStatusUpdates = () => {
     stopStatusUpdates(); // Clear any existing interval
     
-    // Send immediately
-    sendImmediateStatusUpdate();
+    // Send immediately via ref (always latest)
+    sendImmediateStatusUpdateRef.current?.();
     
-    // Then every 5 seconds for responsive updates
-    statusUpdateInterval.current = setInterval(sendImmediateStatusUpdate, 5000);
+    // Use ref wrapper so the interval always calls the latest function version
+    statusUpdateInterval.current = setInterval(() => {
+      sendImmediateStatusUpdateRef.current?.();
+    }, 5000);
   };
 
   // Stop periodic status updates
@@ -629,6 +637,10 @@ function App() {
       statusUpdateInterval.current = null;
     }
   };
+
+  // Keep refs updated for use inside useEffects
+  startStatusUpdatesRef.current = startStatusUpdates;
+  stopStatusUpdatesRef.current = stopStatusUpdates;
 
   // ============================================================
   // Master Server Connection Management (global, persists across all views)
@@ -700,7 +712,7 @@ function App() {
         }, 500);
       }
       
-      startStatusUpdates();
+      startStatusUpdatesRef.current?.();
     };
 
     // Handle silent re-registration (auto-reconnect)
@@ -713,7 +725,7 @@ function App() {
         applyGlobalConfigs(data.configs, true); // silent
       }
       
-      startStatusUpdates();
+      startStatusUpdatesRef.current?.();
     };
 
     // Handle unbound (from user action or server)
@@ -721,7 +733,7 @@ function App() {
       setIsBoundToMaster(false);
       localStorage.removeItem('master-server-bound');
       addNotification('Unbound from Master Server', 'info');
-      stopStatusUpdates();
+      stopStatusUpdatesRef.current?.();
     };
 
     masterServer.on('connected', handleConnected);
@@ -752,9 +764,28 @@ function App() {
       masterServer.off('bound', handleBound);
       masterServer.off('registered', handleRegistered);
       masterServer.off('unbound', handleUnbound);
-      stopStatusUpdates();
+      stopStatusUpdatesRef.current?.();
     };
   }, []); // Run once on mount - persists for entire app lifecycle
+
+  // ============================================================
+  // Reactive status sync - push updates immediately when mining state changes
+  // This ensures server stays in sync even outside the 5-second interval
+  // ============================================================
+  const miningStateFingerprint = miners.map(m => 
+    `${m.id}:${m.running}:${m.enabled}:${m.hashrate ? 1 : 0}`
+  ).join('|');
+
+  useEffect(() => {
+    if (!masterServer.isBound()) return;
+    
+    // Debounce slightly to batch rapid state changes
+    const timer = setTimeout(() => {
+      sendImmediateStatusUpdateRef.current?.();
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [miningStateFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Notification helper
   const addNotification = (message, type = 'info') => {
@@ -825,7 +856,7 @@ function App() {
         addNotification(`${miner.name} started successfully`, 'success');
         
         // Send immediate status update to master server
-        setTimeout(sendImmediateStatusUpdate, 500);
+        setTimeout(() => sendImmediateStatusUpdateRef.current?.(), 500);
       } else {
         setMiners(prev => prev.map(m => 
           m.id === minerId ? { 
@@ -874,7 +905,7 @@ function App() {
         addNotification(message, type);
         
         // Send immediate status update to master server
-        setTimeout(sendImmediateStatusUpdate, 500);
+        setTimeout(() => sendImmediateStatusUpdateRef.current?.(), 500);
       } else {
         setMiners(prev => prev.map(m => 
           m.id === minerId ? { ...m, loading: false, running: false } : m
@@ -934,7 +965,7 @@ function App() {
     ));
     
     // Send immediate status update to master server after toggle
-    setTimeout(sendImmediateStatusUpdate, 100);
+    setTimeout(() => sendImmediateStatusUpdateRef.current?.(), 100);
     
     // Prevent enabling GPU if no GPU detected (validate async in background)
     if (miner.deviceType === 'GPU' && newEnabledState) {
