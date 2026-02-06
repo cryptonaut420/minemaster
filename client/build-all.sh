@@ -36,9 +36,9 @@ rm -rf dist
 mkdir -p dist
 echo ""
 
-# Ensure miners are downloaded
-echo "📥 Checking miners..."
-npm run setup --silent 2>/dev/null || node scripts/download-miners.js
+# Ensure miners are downloaded for ALL target platforms (Linux + Windows)
+echo "📥 Downloading miners for all platforms..."
+node scripts/download-miners.js --all
 echo ""
 
 # Build React app

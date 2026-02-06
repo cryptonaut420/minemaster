@@ -182,8 +182,8 @@ function setExecutable(filePath) {
   }
 }
 
-async function downloadMiner(minerName, minerConfig) {
-  const platform = process.platform;
+async function downloadMiner(minerName, minerConfig, targetPlatform) {
+  const platform = targetPlatform || process.platform;
   const config = minerConfig[platform];
   
   if (!config) {
@@ -202,7 +202,7 @@ async function downloadMiner(minerName, minerConfig) {
   
   // Check if binary already exists
   if (fs.existsSync(binaryPath)) {
-    console.log(`✓ ${minerName} already exists at ${binaryPath}`);
+    console.log(`✓ ${minerName} (${platform}) already exists at ${binaryPath}`);
     return;
   }
 
@@ -214,15 +214,33 @@ async function downloadMiner(minerName, minerConfig) {
     await download(config.url, archivePath);
     extract(config.archive, minerDir, config.extractedDir);
     setExecutable(binaryPath);
-    console.log(`✓ ${minerName} installed successfully!\n`);
+    console.log(`✓ ${minerName} (${platform}) installed successfully!\n`);
   } catch (error) {
-    console.error(`❌ Failed to download ${minerName}: ${error.message}\n`);
+    console.error(`❌ Failed to download ${minerName} for ${platform}: ${error.message}\n`);
     throw error;
   }
 }
 
 async function main() {
-  console.log('🔧 MineMaster Miner Setup\n');
+  // Parse CLI args: --platform <platform> or --all
+  const args = process.argv.slice(2);
+  const allPlatforms = args.includes('--all');
+  const platformIdx = args.indexOf('--platform');
+  const targetPlatform = platformIdx !== -1 ? args[platformIdx + 1] : null;
+
+  // Determine which platforms to download for
+  let platforms;
+  if (allPlatforms) {
+    platforms = ['linux', 'win32'];
+    console.log('🔧 MineMaster Miner Setup (all platforms)\n');
+  } else if (targetPlatform) {
+    platforms = [targetPlatform];
+    console.log(`🔧 MineMaster Miner Setup (${targetPlatform})\n`);
+  } else {
+    platforms = [process.platform];
+    console.log('🔧 MineMaster Miner Setup\n');
+  }
+
   console.log('═══════════════════════════════════════\n');
   
   // Create miners directory
@@ -230,18 +248,23 @@ async function main() {
     fs.mkdirSync(MINERS_DIR, { recursive: true });
   }
 
-  // Download all miners
-  for (const [minerName, minerConfig] of Object.entries(MINERS)) {
-    try {
-      await downloadMiner(minerName, minerConfig);
-    } catch (error) {
-      console.error(`Failed to setup ${minerName}, continuing...\n`);
+  // Download all miners for each target platform
+  for (const platform of platforms) {
+    for (const [minerName, minerConfig] of Object.entries(MINERS)) {
+      try {
+        await downloadMiner(minerName, minerConfig, platform);
+      } catch (error) {
+        console.error(`Failed to setup ${minerName} for ${platform}, continuing...\n`);
+      }
     }
   }
 
   console.log('═══════════════════════════════════════');
   console.log('✓ Setup complete!\n');
-  console.log('Run "npm start" to launch MineMaster');
+  if (!allPlatforms && !targetPlatform) {
+    console.log('Run "npm start" to launch MineMaster');
+  }
+  console.log('Tip: Use --all to download miners for all platforms (for cross-platform builds)');
 }
 
 // Run if called directly
