@@ -73,7 +73,7 @@ echo "  ✅ Build Complete!"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 echo "Output files:"
-for f in dist/*.AppImage dist/*.exe 2>/dev/null; do
+for f in dist/*.AppImage dist/*.exe; do
     if [ -f "$f" ]; then
         size=$(du -h "$f" | cut -f1)
         echo "  📦 $(basename "$f") ($size)"

@@ -13,7 +13,7 @@ export function validatePool(pool) {
   }
   
   // Basic format: host:port
-  const poolPattern = /^[\w\-\.]+:\d+$/;
+  const poolPattern = /^[\w\-.]+:\d+$/;
   if (!poolPattern.test(pool.trim())) {
     return { valid: false, error: 'Pool format should be host:port (e.g., pool.example.com:3333)' };
   }
@@ -76,6 +76,9 @@ export function validateWallet(wallet, coin = null) {
         if (!trimmed.startsWith('9')) {
           return { valid: false, error: 'Ergo wallet should start with "9"' };
         }
+        break;
+      
+      default:
         break;
     }
   }

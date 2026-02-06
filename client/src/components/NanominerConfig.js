@@ -209,7 +209,6 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
                             }
                             handleChange('gpus', newGpus);
                           }}
-                          disabled={miner.running}
                         />
                         <strong>GPU {idx}</strong>
                       </label>
