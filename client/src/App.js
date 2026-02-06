@@ -609,7 +609,7 @@ function App() {
         miners: minerStatuses,
         devices,
         mining: currentMiners.some(m => m.running),
-        clientName: clientNameRef.current || null
+        clientName: clientNameRef.current || ''
       });
 
       // Send hashrate updates for running miners
@@ -702,7 +702,7 @@ function App() {
         try {
           const { devices, systemInfo } = await getDeviceStatesForServer();
           if (systemInfo) {
-            const name = localStorage.getItem('minemaster-client-name') || null;
+            const name = localStorage.getItem('minemaster-client-name') || '';
             await masterServer.bind(systemInfo, true, devices, name); // silent = true for reconnect
           }
         } catch (err) {

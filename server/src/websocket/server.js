@@ -212,11 +212,10 @@ async function handleRegister(connectionId, data) {
       updateData.hostname = hostname;
     }
     
-    // Use clientName as display name if provided, otherwise fall back to hostname
+    // Use clientName as display name if provided, otherwise use hostname
     if (clientName) {
       updateData.name = clientName;
-    } else if (hostname !== 'unknown' && !miner.name?.trim()) {
-      // Only set name from hostname if no name exists yet
+    } else if (hostname !== 'unknown') {
       updateData.name = hostname;
     }
     
@@ -294,9 +293,16 @@ async function handleStatusUpdate(connectionId, data) {
     lastSeen: new Date().toISOString()
   };
   
-  // Update display name if client sends a custom name
+  // Update display name from client
   if (statusData.clientName) {
+    // Client has a custom name set
     updateData.name = statusData.clientName;
+  } else if (statusData.clientName !== undefined) {
+    // Client explicitly sent empty clientName - revert to hostname
+    const hostname = statusData.systemInfo?.hostname || statusData.systemInfo?.os?.hostname;
+    if (hostname && hostname !== 'unknown') {
+      updateData.name = hostname;
+    }
   }
   
   // Get current miner data to preserve device enabled settings

@@ -280,8 +280,8 @@ class MasterServerService {
       registrationData.devices = devices;
     }
     
-    // Include custom client name if set (overrides hostname on server)
-    if (clientName) {
+    // Include custom client name (overrides hostname on server, empty string = use hostname)
+    if (clientName !== null && clientName !== undefined) {
       registrationData.clientName = clientName;
     }
     
