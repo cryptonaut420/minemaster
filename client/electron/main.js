@@ -142,23 +142,34 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
 
     let minerProcess;
 
+    // Function to strip ANSI color codes
+    const stripAnsi = (str) => {
+      return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
+    };
+
     if (minerType === 'xmrig') {
-      // Determine xmrig executable path based on platform
+      // Determine xmrig executable path based on platform (throws if not found)
       const xmrigPath = getXmrigPath(config.customPath);
       
       // Build xmrig arguments from config
       const args = buildXmrigArgs(config);
 
-      // Spawn with detached process group for proper cleanup
+      // Spawn xmrig process
       minerProcess = spawn(xmrigPath, args, {
-        detached: false, // Keep attached to parent but in own process group
-        stdio: ['ignore', 'pipe', 'pipe']
+        detached: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
-      // Function to strip ANSI color codes
-      const stripAnsi = (str) => {
-        return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
-      };
+      // Check if spawn succeeded (pid will be undefined if binary not executable)
+      if (!minerProcess.pid) {
+        // Wait briefly for the error event to fire
+        const errorMsg = await new Promise((resolve) => {
+          minerProcess.on('error', (err) => resolve(err.message));
+          setTimeout(() => resolve('Failed to start miner - binary may be blocked by antivirus'), 1000);
+        });
+        return { success: false, error: `Failed to start xmrig: ${errorMsg}\nPath: ${xmrigPath}` };
+      }
 
       // Send stdout to renderer (strip color codes)
       minerProcess.stdout.on('data', (data) => {
@@ -200,7 +211,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
 
       return { success: true, pid: minerProcess.pid };
     } else if (minerType === 'nanominer') {
-      // Determine nanominer executable path
+      // Determine nanominer executable path (throws if not found)
       const nanominerPath = getNanominerPath(config.customPath);
       
       // Create config file for nanominer
@@ -210,34 +221,36 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       const nanominerDir = path.dirname(nanominerPath);
       
       // Nanominer needs to run from its own directory
-      // Run directly without stdbuf wrapper to maintain proper process control
       minerProcess = spawn(nanominerPath, [configPath], {
         cwd: nanominerDir,
         env: { ...process.env },
         detached: false,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
-      // Function to strip ANSI color codes
-      const stripAnsi = (str) => {
-        return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
-      };
+      // Check if spawn succeeded
+      if (!minerProcess.pid) {
+        const errorMsg = await new Promise((resolve) => {
+          minerProcess.on('error', (err) => resolve(err.message));
+          setTimeout(() => resolve('Failed to start miner - binary may be blocked by antivirus'), 1000);
+        });
+        return { success: false, error: `Failed to start nanominer: ${errorMsg}\nPath: ${nanominerPath}` };
+      }
 
       // Send stdout to renderer
       minerProcess.stdout.on('data', (data) => {
-        const output = stripAnsi(data.toString());
         mainWindow.webContents.send('miner-output', {
           minerId,
-          data: output
+          data: stripAnsi(data.toString())
         });
       });
 
       // Send stderr to renderer
       minerProcess.stderr.on('data', (data) => {
-        const output = stripAnsi(data.toString());
         mainWindow.webContents.send('miner-output', {
           minerId,
-          data: output
+          data: stripAnsi(data.toString())
         });
       });
 
@@ -951,50 +964,69 @@ ipcMain.handle('get-gpu-stats', () => {
 
 // Helper functions
 
-function getXmrigPath(customPath) {
+function getMinerBinaryPath(minerType, customPath) {
+  const binaryNames = {
+    xmrig: process.platform === 'win32' ? 'xmrig.exe' : 'xmrig',
+    nanominer: process.platform === 'win32' ? 'nanominer.exe' : 'nanominer'
+  };
+
+  const binaryName = binaryNames[minerType];
+  if (!binaryName) {
+    throw new Error(`Unknown miner type: ${minerType}`);
+  }
+
+  // Custom path provided by user
   if (customPath) {
-    // Normalize path for the current platform
-    return path.normalize(customPath);
+    const normalized = path.normalize(customPath);
+    if (fs.existsSync(normalized)) {
+      return normalized;
+    }
+    throw new Error(
+      `Custom ${minerType} path not found: ${normalized}\n` +
+      `Make sure the file exists and is not blocked by antivirus.`
+    );
   }
 
-  // Determine binary name based on platform
-  const binaryName = process.platform === 'win32' ? 'xmrig.exe' : 'xmrig';
+  // Bundled binary paths to check (in priority order)
+  const searchPaths = [];
 
-  // Default to bundled xmrig in miners folder
-  const bundledXmrigPath = isDev
-    ? path.join(__dirname, '../miners/xmrig', binaryName)
-    : path.join(process.resourcesPath, 'miners/xmrig', binaryName);
-
-  // Check if bundled version exists, otherwise fall back to system PATH
-  if (fs.existsSync(bundledXmrigPath)) {
-    return path.normalize(bundledXmrigPath);
+  // Production: process.resourcesPath/miners/<type>/binary
+  if (!isDev && process.resourcesPath) {
+    searchPaths.push(path.join(process.resourcesPath, 'miners', minerType, binaryName));
   }
 
-  // Fallback to system PATH
-  return binaryName;
+  // Dev mode: project/miners/<type>/binary
+  searchPaths.push(path.join(__dirname, '..', 'miners', minerType, binaryName));
+
+  // Check each path
+  for (const searchPath of searchPaths) {
+    if (fs.existsSync(searchPath)) {
+      return path.normalize(searchPath);
+    }
+  }
+
+  // Nothing found - build a helpful error message
+  const searchedStr = searchPaths.map(p => `  - ${p}`).join('\n');
+  let errorMsg = `${binaryName} not found. Searched:\n${searchedStr}`;
+
+  if (process.platform === 'win32') {
+    errorMsg += `\n\nCommon fixes on Windows:\n` +
+      `1. Windows Defender or antivirus may have quarantined ${binaryName} — add an exclusion for the MineMaster folder\n` +
+      `2. Re-download: run "npm run setup" from the MineMaster directory\n` +
+      `3. Or manually place ${binaryName} in the miners/${minerType}/ folder`;
+  } else {
+    errorMsg += `\n\nRe-download: run "npm run setup" from the MineMaster directory`;
+  }
+
+  throw new Error(errorMsg);
+}
+
+function getXmrigPath(customPath) {
+  return getMinerBinaryPath('xmrig', customPath);
 }
 
 function getNanominerPath(customPath) {
-  if (customPath) {
-    // Normalize path for the current platform
-    return path.normalize(customPath);
-  }
-
-  // Determine binary name based on platform
-  const binaryName = process.platform === 'win32' ? 'nanominer.exe' : 'nanominer';
-
-  // Default to bundled nanominer in miners folder
-  const bundledNanominerPath = isDev
-    ? path.join(__dirname, '../miners/nanominer', binaryName)
-    : path.join(process.resourcesPath, 'miners/nanominer', binaryName);
-
-  // Check if bundled version exists
-  if (fs.existsSync(bundledNanominerPath)) {
-    return path.normalize(bundledNanominerPath);
-  }
-
-  // Fallback to miners folder (dev mode)
-  return path.normalize(path.join(__dirname, '../miners/nanominer', binaryName));
+  return getMinerBinaryPath('nanominer', customPath);
 }
 
 function createNanominerConfig(minerId, config) {
