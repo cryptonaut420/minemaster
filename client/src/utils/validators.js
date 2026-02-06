@@ -44,9 +44,9 @@ export function validateWallet(wallet, coin = null) {
     switch (coin.toUpperCase()) {
       case 'XMR':
       case 'WOW':
-        // Monero addresses start with 4 and are ~95 characters
-        if (!trimmed.startsWith('4')) {
-          return { valid: false, error: 'Monero wallet should start with "4"' };
+        // Monero standard addresses start with 4, subaddresses start with 8
+        if (!trimmed.startsWith('4') && !trimmed.startsWith('8')) {
+          return { valid: false, error: 'Monero wallet should start with "4" or "8"' };
         }
         if (trimmed.length < 90 || trimmed.length > 100) {
           return { valid: false, error: 'Monero wallet length seems incorrect' };

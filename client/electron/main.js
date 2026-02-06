@@ -1162,8 +1162,8 @@ ipcMain.handle('load-master-config', async () => {
       // Return default config
       const defaultConfig = {
         enabled: false,
-        host: 'localhost',
-        port: 3001,
+        host: 'mining.ironcladtech.ca',
+        port: 443,
         autoReconnect: true,
         reconnectInterval: 5000,
         heartbeatInterval: 30000

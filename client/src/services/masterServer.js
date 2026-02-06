@@ -74,7 +74,12 @@ class MasterServerService {
       return;
     }
 
-    const url = `ws://${this.config.host}:${this.config.port}`;
+    // Use wss:// for port 443 (HTTPS/TLS via nginx-proxy), ws:// for local dev
+    const secure = this.config.port === 443;
+    const protocol = secure ? 'wss' : 'ws';
+    const url = secure
+      ? `${protocol}://${this.config.host}`
+      : `${protocol}://${this.config.host}:${this.config.port}`;
 
     return new Promise((resolve, reject) => {
       try {
