@@ -23,8 +23,8 @@ const MINERS = {
       binary: 'xmrig'
     },
     win32: {
-      url: 'https://github.com/xmrig/xmrig/releases/download/v6.25.0/xmrig-6.25.0-msvc-win64.zip',
-      archive: 'xmrig-6.25.0-msvc-win64.zip',
+      url: 'https://github.com/xmrig/xmrig/releases/download/v6.25.0/xmrig-6.25.0-windows-x64.zip',
+      archive: 'xmrig-6.25.0-windows-x64.zip',
       extractedDir: 'xmrig-6.25.0',
       binary: 'xmrig.exe'
     },

@@ -155,7 +155,9 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       const args = buildXmrigArgs(config);
 
       // Spawn xmrig process
+      // cwd must be the xmrig directory so it can find WinRing0x64.sys (MSR mod) on Windows
       minerProcess = spawn(xmrigPath, args, {
+        cwd: path.dirname(xmrigPath),
         detached: false,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
@@ -1188,15 +1190,40 @@ ipcMain.handle('get-mac-address', async () => {
 });
 
 /**
+ * Get the writable path for master-server.json
+ * In production, __dirname is inside the read-only app.asar, so we use userData instead.
+ * In dev mode, we use the project directory as before.
+ */
+function getMasterConfigPath() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'master-server.json');
+  }
+  return path.join(app.getPath('userData'), 'master-server.json');
+}
+
+/**
  * Load master server configuration
  */
 ipcMain.handle('load-master-config', async () => {
-  const configPath = path.join(__dirname, '..', 'master-server.json');
+  const configPath = getMasterConfigPath();
+  
+  // Also check the bundled default (inside asar) for first-run migration
+  const bundledPath = path.join(__dirname, '..', 'master-server.json');
   
   try {
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
       return JSON.parse(data);
+    } else if (!isDev && fs.existsSync(bundledPath)) {
+      // First run after install: copy bundled config to writable location
+      const data = fs.readFileSync(bundledPath, 'utf8');
+      const config = JSON.parse(data);
+      try {
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      } catch (e) {
+        // If migration fails, still return the config
+      }
+      return config;
     } else {
       // Return default config
       const defaultConfig = {
@@ -1218,7 +1245,7 @@ ipcMain.handle('load-master-config', async () => {
  * Save master server configuration
  */
 ipcMain.handle('save-master-config', async (event, config) => {
-  const configPath = path.join(__dirname, '..', 'master-server.json');
+  const configPath = getMasterConfigPath();
   
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));

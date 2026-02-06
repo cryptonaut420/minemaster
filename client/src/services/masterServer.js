@@ -13,10 +13,15 @@ class MasterServerService {
     this.bound = false;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectDelay = 30000; // Cap at 30 seconds
+    this.baseReconnectDelay = 2000; // Start at 2 seconds
+    this._connecting = false; // Guard against concurrent connect() calls
     this.listeners = {
       connected: [],
       disconnected: [],
       bound: [],
+      registered: [],
       unbound: [],
       configUpdate: [],
       command: [],
@@ -70,9 +75,22 @@ class MasterServerService {
     }
 
     // Don't create a new connection if already connected or connecting
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       return;
     }
+
+    // Guard against concurrent connect calls
+    if (this._connecting) {
+      return;
+    }
+
+    // Clean up any previous dead socket
+    if (this.ws) {
+      try { this.ws.close(); } catch (e) {}
+      this.ws = null;
+    }
+
+    this._connecting = true;
 
     // Use wss:// for port 443 (HTTPS/TLS via nginx-proxy), ws:// for local dev
     const secure = this.config.port === 443;
@@ -82,39 +100,81 @@ class MasterServerService {
       : `${protocol}://${this.config.host}:${this.config.port}`;
 
     return new Promise((resolve, reject) => {
+      let resolved = false;
+
       try {
         this.ws = new WebSocket(url);
 
+        // Connection timeout — if we don't connect within 10 seconds, give up this attempt
+        const connectTimeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            this._connecting = false;
+            try { this.ws.close(); } catch (e) {}
+            const err = new Error('Connection timeout');
+            this.emit('error', err);
+            // Schedule reconnect on timeout
+            if (this.config?.autoReconnect) {
+              this.scheduleReconnect();
+            }
+            reject(err);
+          }
+        }, 10000);
+
         this.ws.onopen = () => {
+          clearTimeout(connectTimeout);
+          this._connecting = false;
           this.connected = true;
+          this.reconnectAttempts = 0; // Reset backoff on successful connect
           this.emit('connected');
           this.startHeartbeat();
-          resolve();
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
         };
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
+          clearTimeout(connectTimeout);
+          this._connecting = false;
+          const wasConnected = this.connected;
           const wasBound = this.bound;
           this.connected = false;
           this.bound = false;
-          this.emit('disconnected');
           this.stopHeartbeat();
-          
-          // Auto-reconnect if enabled
-          if (this.config?.autoReconnect && wasBound) {
+
+          if (wasConnected) {
+            this.emit('disconnected');
+          }
+
+          // Auto-reconnect if enabled — reconnect whether we were bound or not,
+          // as long as the config says auto-reconnect and the connection was intentional
+          if (this.config?.enabled && this.config?.autoReconnect) {
             this.scheduleReconnect();
+          }
+
+          // Reject the initial connect promise if it hasn't resolved yet
+          if (!resolved) {
+            resolved = true;
+            reject(new Error('Connection closed'));
           }
         };
 
         this.ws.onerror = (error) => {
+          clearTimeout(connectTimeout);
           this.emit('error', error);
-          reject(error);
+          // Don't reject here — let onclose handle it (onerror is always followed by onclose)
         };
 
         this.ws.onmessage = (event) => {
           this.handleMessage(event.data);
         };
       } catch (error) {
-        reject(error);
+        this._connecting = false;
+        if (!resolved) {
+          resolved = true;
+          reject(error);
+        }
       }
     });
   }
@@ -129,40 +189,54 @@ class MasterServerService {
     }
     
     this.stopHeartbeat();
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.cancelReconnect();
     if (this.ws) {
-      this.ws.close();
+      try { this.ws.close(); } catch (e) {}
       this.ws = null;
     }
     this.connected = false;
     this.bound = false;
+    this._connecting = false;
+    this.reconnectAttempts = 0;
   }
 
   /**
-   * Schedule reconnection attempt (for auto-reconnect when bound)
+   * Cancel any pending reconnect
    */
-  scheduleReconnect() {
+  cancelReconnect() {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+  }
 
-    const interval = this.config?.reconnectInterval || 5000;
+  /**
+   * Schedule reconnection with exponential backoff + jitter
+   */
+  scheduleReconnect() {
+    this.cancelReconnect();
+
+    // Exponential backoff: 2s, 4s, 8s, 16s, 30s (capped)
+    const delay = Math.min(
+      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
+      this.maxReconnectDelay
+    );
+    // Add jitter (±25%) to prevent thundering herd
+    const jitter = delay * (0.75 + Math.random() * 0.5);
+    
+    this.reconnectAttempts++;
+
     this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
       try {
         await this.connect();
-        // After reconnecting, we need to re-register
-        // This will be handled by MasterServerPanel's auto-reconnect logic
-        // which calls bind() with silent=true
+        // After reconnecting, the 'connected' event will fire
+        // App.js handles re-registration via the connected event listener
       } catch (err) {
-        // Schedule another attempt if still enabled
-        if (this.config?.autoReconnect) {
-          this.scheduleReconnect();
-        }
+        // connect() failure will trigger onclose which calls scheduleReconnect again
+        // So we don't need to explicitly schedule here
       }
-    }, interval);
+    }, jitter);
   }
 
   /**
@@ -173,7 +247,13 @@ class MasterServerService {
     const interval = this.config?.heartbeatInterval || 30000;
     
     this.heartbeatTimer = setInterval(() => {
-      this.send({ type: 'heartbeat' });
+      if (!this.send({ type: 'heartbeat' })) {
+        // Send failed — socket is dead, trigger reconnect
+        this.stopHeartbeat();
+        if (this.ws) {
+          try { this.ws.close(); } catch (e) {}
+        }
+      }
     }, interval);
   }
 
@@ -195,8 +275,12 @@ class MasterServerService {
       return false;
     }
 
-    this.ws.send(JSON.stringify(message));
-    return true;
+    try {
+      this.ws.send(JSON.stringify(message));
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   /**
@@ -285,10 +369,9 @@ class MasterServerService {
       registrationData.clientName = clientName;
     }
     
-    this.send({
-      type: 'register',
-      data: registrationData
-    });
+    if (!this.send({ type: 'register', data: registrationData })) {
+      throw new Error('Failed to send registration — connection may have dropped');
+    }
     
     // Note: bound event will be emitted when server responds
   }
@@ -395,14 +478,14 @@ class MasterServerService {
    * Check if connected
    */
   isConnected() {
-    return this.connected;
+    return this.connected && this.ws && this.ws.readyState === WebSocket.OPEN;
   }
 
   /**
    * Check if bound
    */
   isBound() {
-    return this.bound;
+    return this.bound && this.isConnected();
   }
 }
 
