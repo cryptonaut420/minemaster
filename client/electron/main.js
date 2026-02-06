@@ -1045,9 +1045,9 @@ function createNanominerConfig(minerId, config) {
     configContent += `pool1 = ${config.pool}${lineEnding}`;
   }
   
-  if (config.rigName) {
-    configContent += `rigName = ${config.rigName}${lineEnding}`;
-  }
+  // Set rig name for pool identification (default to hostname if not set)
+  const rigName = config.rigName || os.hostname();
+  configContent += `rigName = ${rigName}${lineEnding}`;
   
   if (config.email) {
     configContent += `email = ${config.email}${lineEnding}`;
@@ -1086,9 +1086,8 @@ function buildXmrigArgs(config) {
     args.push('-u', config.user);
   }
 
-  if (config.password) {
-    args.push('-p', config.password);
-  }
+  // Password defaults to hostname (used as worker name by many pools)
+  args.push('-p', config.password || os.hostname());
 
   if (config.algorithm) {
     args.push('-a', config.algorithm);
@@ -1105,6 +1104,14 @@ function buildXmrigArgs(config) {
 
   if (config.donateLevel !== undefined) {
     args.push('--donate-level', config.donateLevel.toString());
+  }
+
+  // Set rig-id (worker name) for pool identification
+  if (config.workerName) {
+    args.push('--rig-id', config.workerName);
+  } else {
+    // Default to hostname if no custom worker name
+    args.push('--rig-id', os.hostname());
   }
 
   // Add any additional arguments

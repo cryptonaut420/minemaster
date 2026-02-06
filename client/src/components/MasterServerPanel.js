@@ -5,7 +5,7 @@ import './MasterServerPanel.css';
 // MasterServerPanel is a UI-only component for bind/unbind actions and settings.
 // All connection lifecycle management (connect, auto-reconnect, re-register, status updates)
 // is handled in App.js so it persists across route/view changes.
-function MasterServerPanel({ isBound, onUnbind, systemInfo, miners }) {
+function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }) {
   const [config, setConfig] = useState(null);
   const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -124,7 +124,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners }) {
       }
       
       // Connect and bind - App.js will catch the 'bound' event
-      await masterServer.bind(sysInfo, false, devices);
+      await masterServer.bind(sysInfo, false, devices, clientName || null);
       
       if (bindTimeoutRef.current) {
         clearTimeout(bindTimeoutRef.current);

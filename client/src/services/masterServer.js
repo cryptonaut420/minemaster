@@ -248,7 +248,7 @@ class MasterServerService {
   /**
    * Bind this client to the master server (connects + registers)
    */
-  async bind(systemInfo, silent = false, devices = null) {
+  async bind(systemInfo, silent = false, devices = null, clientName = null) {
     // First ensure we're connected
     if (!this.connected) {
       if (!this.config) {
@@ -278,6 +278,11 @@ class MasterServerService {
     // Include device states if provided (so server knows current enabled states)
     if (devices) {
       registrationData.devices = devices;
+    }
+    
+    // Include custom client name if set (overrides hostname on server)
+    if (clientName) {
+      registrationData.clientName = clientName;
     }
     
     this.send({

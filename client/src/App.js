@@ -42,7 +42,7 @@ function App() {
       config: savedConfig?.['xmrig-1'] || {
         pool: '',
         user: '',
-        password: 'x',
+        password: '',
         coin: 'XMR',
         algorithm: 'rx/0',
         threads: 0,
@@ -86,6 +86,10 @@ function App() {
     // Initialize from localStorage on app start
     return localStorage.getItem('master-server-bound') === 'true';
   });
+  const [clientName, setClientName] = useState(() => {
+    return localStorage.getItem('minemaster-client-name') || '';
+  });
+  const clientNameRef = useRef(clientName);
   const statusUpdateInterval = useRef(null);
   const minersRef = useRef(miners); // Keep a ref to always have latest miners
   const stoppingMinersRef = useRef(new Set()); // Track miners being intentionally stopped
@@ -97,6 +101,16 @@ function App() {
   useEffect(() => {
     minersRef.current = miners;
   }, [miners]);
+
+  // Keep clientName ref in sync
+  useEffect(() => {
+    clientNameRef.current = clientName;
+    if (clientName) {
+      localStorage.setItem('minemaster-client-name', clientName);
+    } else {
+      localStorage.removeItem('minemaster-client-name');
+    }
+  }, [clientName]);
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
@@ -588,13 +602,14 @@ function App() {
         coin: m.config.coin
       }));
 
-      // Send status update
+      // Send status update (include custom name if set)
       await masterServer.sendStatusUpdate({
         systemInfo,
         stats,
         miners: minerStatuses,
         devices,
-        mining: currentMiners.some(m => m.running)
+        mining: currentMiners.some(m => m.running),
+        clientName: clientNameRef.current || null
       });
 
       // Send hashrate updates for running miners
@@ -687,7 +702,8 @@ function App() {
         try {
           const { devices, systemInfo } = await getDeviceStatesForServer();
           if (systemInfo) {
-            await masterServer.bind(systemInfo, true, devices); // silent = true for reconnect
+            const name = localStorage.getItem('minemaster-client-name') || null;
+            await masterServer.bind(systemInfo, true, devices, name); // silent = true for reconnect
           }
         } catch (err) {
           // Silent fail - will retry on next reconnect
@@ -1083,6 +1099,8 @@ function App() {
               onToggleDevice={handleToggleDevice}
               isBoundToMaster={isBoundToMaster}
               onUnbind={handleUnbindFromUI}
+              clientName={clientName}
+              onClientNameChange={setClientName}
             />
           ) : (
             currentMiner && (
@@ -1094,6 +1112,7 @@ function App() {
                     onStart={() => handleStartMiner(currentMiner.id)}
                     onStop={() => handleStopMiner(currentMiner.id)}
                     isBoundToMaster={isBoundToMaster}
+                    defaultWorkerName={clientName}
                   />
                 ) : (
                   <MinerConfig
@@ -1102,6 +1121,7 @@ function App() {
                     onStart={() => handleStartMiner(currentMiner.id)}
                     onStop={() => handleStopMiner(currentMiner.id)}
                     isBoundToMaster={isBoundToMaster}
+                    defaultWorkerName={clientName}
                   />
                 )}
                 

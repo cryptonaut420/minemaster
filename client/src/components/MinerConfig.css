@@ -145,6 +145,12 @@
   letter-spacing: 0.5px;
 }
 
+.field-hint {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
 .form-group input,
 .form-group select {
   padding: 10px 12px;

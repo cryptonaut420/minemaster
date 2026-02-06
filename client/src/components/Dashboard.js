@@ -3,7 +3,7 @@ import './Dashboard.css';
 import { formatHashrate, formatBytes, formatTemp, formatPercent } from '../utils/formatters';
 import MasterServerPanel from './MasterServerPanel';
 
-function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMaster, onUnbind }) {
+function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMaster, onUnbind, clientName, onClientNameChange }) {
   const [systemInfo, setSystemInfo] = useState(() => {
     // Try to load from sessionStorage first
     const cached = sessionStorage.getItem('minemaster-system-info');
@@ -111,14 +111,69 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
            });
   }, [systemInfo]);
 
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState(clientName || '');
+  const displayName = clientName || systemInfo?.hostname || 'Loading...';
+
+  const handleSaveName = () => {
+    const trimmed = editName.trim();
+    onClientNameChange(trimmed);
+    setIsEditingName(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditName(clientName || '');
+    setIsEditingName(false);
+  };
+
+  const handleClearName = () => {
+    onClientNameChange('');
+    setEditName('');
+    setIsEditingName(false);
+  };
+
   return (
     <div className="dashboard">
+      {/* Client Identity */}
+      <div className="client-identity">
+        <div className="identity-row">
+          {isEditingName ? (
+            <div className="identity-edit">
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveName();
+                  if (e.key === 'Escape') handleCancelEdit();
+                }}
+                placeholder={systemInfo?.hostname || 'Enter a name...'}
+                autoFocus
+                className="identity-input"
+              />
+              <button className="identity-btn save" onClick={handleSaveName} title="Save">Save</button>
+              {clientName && <button className="identity-btn clear" onClick={handleClearName} title="Reset to hostname">Reset</button>}
+              <button className="identity-btn cancel" onClick={handleCancelEdit} title="Cancel">Cancel</button>
+            </div>
+          ) : (
+            <div className="identity-display">
+              <span className="identity-name">{displayName}</span>
+              {clientName && systemInfo?.hostname && clientName !== systemInfo.hostname && (
+                <span className="identity-hostname">({systemInfo.hostname})</span>
+              )}
+              <button className="identity-btn edit" onClick={() => { setEditName(clientName || ''); setIsEditingName(true); }} title="Rename this PC">Rename</button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Master Server Panel */}
       <MasterServerPanel 
         isBound={isBoundToMaster}
         onUnbind={onUnbind}
         systemInfo={systemInfo} 
         miners={miners}
+        clientName={clientName}
       />
       
       {/* Main Control Section */}

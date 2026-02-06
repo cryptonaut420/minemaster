@@ -90,7 +90,7 @@ async function handleMessage(connectionId, data) {
 }
 
 async function handleRegister(connectionId, data) {
-  const {systemId, systemInfo, silent } = data.data || data;
+  const {systemId, systemInfo, silent, clientName } = data.data || data;
   const Config = require('../models/Config');
   
   // Get IP from connection
@@ -170,7 +170,7 @@ async function handleRegister(connectionId, data) {
     
     miner = await Miner.create({
       systemId,
-      name: hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`,
+      name: clientName || (hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`),
       hostname,
       ip: ip,
       os: osName,
@@ -207,9 +207,16 @@ async function handleRegister(connectionId, data) {
       ip: ip // Update IP address
     };
     
-    // Update hostname if available
+    // Update hostname (always track the real hostname)
     if (hostname !== 'unknown') {
       updateData.hostname = hostname;
+    }
+    
+    // Use clientName as display name if provided, otherwise fall back to hostname
+    if (clientName) {
+      updateData.name = clientName;
+    } else if (hostname !== 'unknown' && !miner.name?.trim()) {
+      // Only set name from hostname if no name exists yet
       updateData.name = hostname;
     }
     
@@ -286,6 +293,11 @@ async function handleStatusUpdate(connectionId, data) {
   const updateData = {
     lastSeen: new Date().toISOString()
   };
+  
+  // Update display name if client sends a custom name
+  if (statusData.clientName) {
+    updateData.name = statusData.clientName;
+  }
   
   // Get current miner data to preserve device enabled settings
   const currentMiner = await Miner.getById(connection.minerId);

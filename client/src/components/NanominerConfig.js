@@ -3,7 +3,7 @@ import './MinerConfig.css';
 import { formatHashrate } from '../utils/formatters';
 import { useSystemInfo, useGpuList } from '../hooks/useSystemInfo';
 
-function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false }) {
+function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false, defaultWorkerName = '' }) {
   const systemInfo = useSystemInfo();
   const gpuList = useGpuList();
   
@@ -173,11 +173,12 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
             <label>Rig Name (optional)</label>
             <input
               type="text"
-              placeholder="worker1"
+              placeholder={defaultWorkerName || 'worker1'}
               value={miner.config.rigName}
               onChange={(e) => handleChange('rigName', e.target.value)}
               disabled={miner.running || isFieldDisabled('rigName')}
             />
+            <span className="field-hint">Identifies this machine on the pool. Defaults to {defaultWorkerName ? `"${defaultWorkerName}"` : 'hostname'} if empty.</span>
           </div>
         </div>
 

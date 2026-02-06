@@ -1,3 +1,75 @@
+/* Client Identity */
+.client-identity {
+  padding: 16px 30px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.identity-row {
+  display: flex;
+  align-items: center;
+}
+
+.identity-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.identity-name {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.identity-hostname {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.identity-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.identity-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #e0e0e0;
+  padding: 6px 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  width: 280px;
+}
+
+.identity-input:focus {
+  outline: none;
+  border-color: #4fc3f7;
+}
+
+.identity-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: #aaa;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.identity-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e0e0e0;
+}
+
+.identity-btn.save { color: #4fc3f7; border-color: rgba(79, 195, 247, 0.3); }
+.identity-btn.save:hover { background: rgba(79, 195, 247, 0.15); }
+.identity-btn.clear { color: #ffb74d; border-color: rgba(255, 183, 77, 0.3); }
+.identity-btn.clear:hover { background: rgba(255, 183, 77, 0.15); }
+
 .dashboard {
   padding: 0;
 }

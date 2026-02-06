@@ -4,7 +4,7 @@ import { formatHashrate } from '../utils/formatters';
 import { useSystemInfo, useSystemStats } from '../hooks/useSystemInfo';
 import SystemInfoCard from './SystemInfoCard';
 
-function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false }) {
+function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false, defaultWorkerName = '' }) {
   const systemInfo = useSystemInfo();
   const systemStats = useSystemStats();
   
@@ -129,15 +129,28 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
         </div>
 
           <div className="form-group">
-            <label>Password</label>
+            <label>Password / Worker Name</label>
             <input
               type="text"
-              placeholder="x"
+              placeholder={defaultWorkerName || 'x'}
               value={miner.config.password}
               onChange={(e) => handleChange('password', e.target.value)}
               disabled={miner.running || isFieldDisabled('password')}
             />
+            <span className="field-hint">Defaults to {defaultWorkerName ? `"${defaultWorkerName}"` : 'hostname'} if empty. Some pools use this as the worker name.</span>
           </div>
+        </div>
+
+        <div className="form-group">
+          <label>Worker Name / Rig ID (optional)</label>
+          <input
+            type="text"
+            placeholder={defaultWorkerName || 'worker1'}
+            value={miner.config.workerName || ''}
+            onChange={(e) => handleChange('workerName', e.target.value)}
+            disabled={miner.running || isFieldDisabled('workerName')}
+          />
+          <span className="field-hint">Identifies this machine on the pool. Defaults to {defaultWorkerName ? `"${defaultWorkerName}"` : 'hostname'} if empty.</span>
         </div>
 
         <div className="form-group thread-control">
