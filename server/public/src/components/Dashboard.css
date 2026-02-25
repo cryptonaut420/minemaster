@@ -112,6 +112,80 @@
 .stat-value.mono { font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; }
 .stat-label { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.15rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 
+/* ===== Hashrate Chart ===== */
+.hashrate-chart-section {
+  margin-bottom: 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chart-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-header h3::before {
+  content: '📈';
+}
+
+.chart-timeframe-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.chart-timeframe-tabs button {
+  padding: 0.35rem 0.75rem;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chart-timeframe-tabs button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chart-timeframe-tabs button.active {
+  background: var(--gradient-blue);
+  color: white;
+  border-color: transparent;
+}
+
+.hashrate-chart-wrap {
+  padding: var(--space-4);
+  min-height: 220px;
+}
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 /* ===== Toolbar ===== */
 .toolbar {
   display: flex;

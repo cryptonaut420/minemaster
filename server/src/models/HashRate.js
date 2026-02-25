@@ -18,23 +18,12 @@ class HashRate {
       
       await db.collection('hashrates').insertOne(record);
       
-      // Throttled cleanup — only check every CLEANUP_INTERVAL_MS per miner
+      // Throttled cleanup — delete records older than 7 days (keeps data for graph)
       const lastRun = _lastCleanup.get(minerId) || 0;
       if (Date.now() - lastRun > CLEANUP_INTERVAL_MS) {
         _lastCleanup.set(minerId, Date.now());
-        const count = await db.collection('hashrates').countDocuments({ minerId });
-        if (count > 1000) {
-          const oldest = await db.collection('hashrates')
-            .find({ minerId })
-            .sort({ timestamp: 1 })
-            .limit(count - 1000)
-            .toArray();
-          
-          const ids = oldest.map(r => r._id);
-          if (ids.length > 0) {
-            await db.collection('hashrates').deleteMany({ _id: { $in: ids } });
-          }
-        }
+        const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        await db.collection('hashrates').deleteMany({ minerId, timestamp: { $lt: cutoff } });
       }
       
       return record;
@@ -106,6 +95,70 @@ class HashRate {
     } catch (error) {
       console.error('Error getting hash rate stats:', error);
       return {};
+    }
+  }
+
+  /**
+   * Get time-series hashrate data for graphing (hourly buckets).
+   * Returns array of { hour, total, cpu, gpu } for the last 7 days.
+   */
+  static async getTimeSeries(timeframe = '7d') {
+    try {
+      const db = getDb();
+      const now = new Date();
+      let startTime;
+      switch (timeframe) {
+        case '24h':
+          startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          break;
+        case '7d':
+        default:
+          startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+      }
+
+      const pipeline = [
+        { $match: { timestamp: { $gte: startTime } } },
+        {
+          $group: {
+            _id: {
+              y: { $year: '$timestamp' },
+              m: { $month: '$timestamp' },
+              d: { $dayOfMonth: '$timestamp' },
+              h: { $hour: '$timestamp' },
+              deviceType: '$deviceType'
+            },
+            avgHashrate: { $avg: '$hashrate' },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.y': 1, '_id.m': 1, '_id.d': 1, '_id.h': 1 } }
+      ];
+
+      const results = await db.collection('hashrates').aggregate(pipeline).toArray();
+
+      const byHour = new Map();
+      results.forEach((r) => {
+        const { y, m, d, h } = r._id;
+        const hourKey = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:00:00.000Z`;
+        if (!byHour.has(hourKey)) {
+          byHour.set(hourKey, { hour: hourKey, total: 0, cpu: 0, gpu: 0 });
+        }
+        const entry = byHour.get(hourKey);
+        const rate = r.avgHashrate || 0;
+        if (r._id.deviceType === 'CPU') {
+          entry.cpu = rate;
+        } else if (r._id.deviceType === 'GPU') {
+          entry.gpu = rate;
+        }
+        entry.total = entry.cpu + entry.gpu;
+      });
+
+      const sorted = Array.from(byHour.values()).sort((a, b) => a.hour.localeCompare(b.hour));
+      return sorted;
+    } catch (error) {
+      console.error('Error getting hashrate time series:', error);
+      return [];
     }
   }
 

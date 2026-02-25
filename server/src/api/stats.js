@@ -8,6 +8,17 @@ const { requireAuth } = require('../middleware/auth');
 router.use(requireAuth);
 
 // Get hash rate statistics broken down by device type and algorithm
+// Get hashrate time-series for 7-day graph (hourly buckets)
+router.get('/hashrates-timeseries', async (req, res) => {
+  try {
+    const timeframe = req.query.timeframe || '7d';
+    const data = await HashRate.getTimeSeries(timeframe);
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.get('/hashrates', async (req, res) => {
   try {
     const timeframe = req.query.timeframe || '1h';

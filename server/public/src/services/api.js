@@ -52,6 +52,11 @@ export const configsAPI = {
   apply: (type) => api.post(`/configs/${type}/apply`)
 };
 
+// Stats API
+export const statsAPI = {
+  getHashrateTimeseries: (timeframe = '7d') => api.get('/stats/hashrates-timeseries', { params: { timeframe } })
+};
+
 // Health check
 export const healthAPI = {
   check: () => api.get('/health')

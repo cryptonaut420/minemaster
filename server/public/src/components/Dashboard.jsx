@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { minersAPI } from '../services/api';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
+import { minersAPI, statsAPI } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useToast } from '../hooks/useToast';
 import ToastContainer from './ToastContainer';
@@ -69,6 +79,8 @@ function Dashboard() {
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [hashrateChartData, setHashrateChartData] = useState([]);
+  const [chartTimeframe, setChartTimeframe] = useState('7d');
   const { toasts, success, error: showError, dismissToast } = useToast();
 
   const fetchMiners = useCallback(async () => {
@@ -86,6 +98,26 @@ function Dashboard() {
     const interval = setInterval(fetchMiners, 5000);
     return () => clearInterval(interval);
   }, [fetchMiners]);
+
+  const fetchHashrateChart = useCallback(async () => {
+    try {
+      const res = await statsAPI.getHashrateTimeseries(chartTimeframe);
+      const raw = res.data?.data || [];
+      setHashrateChartData(raw.map((d) => ({
+        ...d,
+        time: new Date(d.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: new Date(d.hour).toLocaleDateString([], { month: 'short', day: 'numeric' })
+      })));
+    } catch (err) {
+      setHashrateChartData([]);
+    }
+  }, [chartTimeframe]);
+
+  useEffect(() => {
+    fetchHashrateChart();
+    const interval = setInterval(fetchHashrateChart, 60000);
+    return () => clearInterval(interval);
+  }, [fetchHashrateChart]);
 
   const wsRefreshTimerRef = useRef(null);
   useWebSocket(useCallback((message) => {
@@ -295,6 +327,75 @@ function Dashboard() {
             <div className="stat-value mono">{formatHashrate(stats.gpuHashrate)}</div>
             <div className="stat-label">GPU Hashrate</div>
           </div>
+        </div>
+      </div>
+
+      {/* 7-day Hashrate Graph */}
+      <div className="hashrate-chart-section">
+        <div className="chart-header">
+          <h3>Hashrate History</h3>
+          <div className="chart-timeframe-tabs">
+            {['24h', '7d'].map((tf) => (
+              <button
+                key={tf}
+                className={chartTimeframe === tf ? 'active' : ''}
+                onClick={() => setChartTimeframe(tf)}
+              >
+                {tf === '24h' ? '24 Hours' : '7 Days'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="hashrate-chart-wrap">
+          {hashrateChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={hashrateChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="fillTotal" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent-purple)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--accent-purple)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" opacity={0.5} />
+                <XAxis
+                  dataKey="hour"
+                  tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                  tickFormatter={(_, i) => (hashrateChartData[i]?.date || '')}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                  tickFormatter={(v) => formatHashrate(v)}
+                  width={70}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-md)'
+                  }}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                  formatter={(value) => [formatHashrate(value), 'Hashrate']}
+                  labelFormatter={(_, payload) => {
+                    const p = payload?.[0]?.payload;
+                    return p ? `${p.date} ${p.time}` : '';
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="var(--accent-purple)"
+                  strokeWidth={2}
+                  fill="url(#fillTotal)"
+                  name="Total Hashrate"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-empty">
+              <span>No hashrate data yet. Data will appear as miners report.</span>
+            </div>
+          )}
         </div>
       </div>
 
