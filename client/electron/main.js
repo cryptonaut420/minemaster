@@ -12,8 +12,163 @@ const execAsync = promisify(exec);
 let mainWindow;
 let miners = {}; // Store active miner processes { minerId: { process, configPath, executable } }
 
-// Cache for system info (fetched once on startup)
+// System info cache (persisted on disk and refreshed once per app launch)
 let systemInfoCache = null;
+let systemInfoCachePath = null;
+let systemInfoRefreshPromise = null;
+const SYSTEM_INFO_CACHE_FILENAME = 'system-info-cache.json';
+
+function isLikelyIntegratedGpu(gpu = {}) {
+  const model = (gpu.model || '').toLowerCase();
+  const vendor = (gpu.vendor || '').toLowerCase();
+
+  // Intel integrated graphics
+  if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris') || model.includes('hd graphics'))) {
+    return true;
+  }
+
+  // AMD APU graphics
+  if ((vendor.includes('amd') || vendor.includes('ati')) &&
+      (model.includes('vega') || model.includes('radeon graphics') ||
+       model.includes('raphael') || model.includes('renoir') ||
+       model.includes('cezanne') || model.includes('lucienne'))) {
+    return true;
+  }
+
+  // Microsoft fallback/virtual display adapter
+  if (vendor.includes('microsoft') || model.includes('basic display')) {
+    return true;
+  }
+
+  return false;
+}
+
+function mapDiscreteGpus(controllers = []) {
+  return controllers
+    .filter(gpu => !isLikelyIntegratedGpu(gpu))
+    .map((gpu, idx) => ({
+      id: idx,
+      vendor: gpu.vendor || '',
+      model: gpu.model || 'Unknown GPU',
+      vram: gpu.vram || null,
+      bus: gpu.bus || null
+    }));
+}
+
+function buildBasicSystemInfo() {
+  const cpus = os.cpus();
+  const cpuInfo = cpus[0] || {};
+
+  return {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    os: {
+      platform: os.platform(),
+      distro: os.type(),
+      release: os.release(),
+      arch: os.arch(),
+      hostname: os.hostname()
+    },
+    cpu: {
+      manufacturer: '',
+      brand: cpuInfo.model || 'Unknown CPU',
+      cores: cpus.length,
+      physicalCores: cpus.length,
+      speed: cpuInfo.speed || 0
+    },
+    memory: {
+      total: os.totalmem(),
+      available: os.freemem(),
+      used: os.totalmem() - os.freemem()
+    },
+    gpus: null,
+    gpuDetectionStatus: 'pending',
+    lastUpdatedAt: Date.now()
+  };
+}
+
+function readSystemInfoCacheFromDisk() {
+  if (!systemInfoCachePath || !fs.existsSync(systemInfoCachePath)) {
+    return null;
+  }
+
+  try {
+    const fileData = fs.readFileSync(systemInfoCachePath, 'utf8');
+    const parsed = JSON.parse(fileData);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return {
+      ...buildBasicSystemInfo(),
+      ...parsed,
+      gpuDetectionStatus: parsed.gpuDetectionStatus || 'complete'
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeSystemInfoCacheToDisk(cacheData) {
+  if (!systemInfoCachePath || !cacheData) return;
+
+  try {
+    fs.writeFileSync(systemInfoCachePath, JSON.stringify(cacheData, null, 2), 'utf8');
+  } catch (error) {
+    // Silent fail - in-memory cache still works
+  }
+}
+
+async function refreshSystemInfoCache() {
+  if (systemInfoRefreshPromise) {
+    return systemInfoRefreshPromise;
+  }
+
+  systemInfoRefreshPromise = (async () => {
+    try {
+      const baseInfo = systemInfoCache || buildBasicSystemInfo();
+      const [osInfo, graphics] = await Promise.all([
+        si.osInfo(),
+        si.graphics()
+      ]);
+
+      const discreteGpus = mapDiscreteGpus((graphics && graphics.controllers) || []);
+      const refreshedInfo = {
+        ...baseInfo,
+        os: {
+          platform: osInfo.platform,
+          distro: osInfo.distro,
+          release: osInfo.release,
+          arch: osInfo.arch
+        },
+        gpus: discreteGpus.length > 0 ? discreteGpus : null,
+        gpuDetectionStatus: 'complete',
+        lastUpdatedAt: Date.now()
+      };
+
+      systemInfoCache = refreshedInfo;
+      writeSystemInfoCacheToDisk(refreshedInfo);
+      return refreshedInfo;
+    } catch (error) {
+      // Keep existing cache if refresh fails
+      return systemInfoCache;
+    } finally {
+      systemInfoRefreshPromise = null;
+    }
+  })();
+
+  return systemInfoRefreshPromise;
+}
+
+function initializeSystemInfoCache() {
+  systemInfoCachePath = path.join(app.getPath('userData'), SYSTEM_INFO_CACHE_FILENAME);
+  systemInfoCache = readSystemInfoCacheFromDisk() || buildBasicSystemInfo();
+
+  // Refresh once on startup in the background.
+  setTimeout(() => {
+    refreshSystemInfoCache();
+  }, 1500);
+}
 
 
 function createWindow() {
@@ -84,7 +239,10 @@ function createWindow() {
   });
 }
 
-app.on('ready', createWindow);
+app.on('ready', () => {
+  initializeSystemInfoCache();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   // Kill all miners before quitting
@@ -574,104 +732,17 @@ ipcMain.handle('get-all-miners-status', async () => {
   return statuses;
 });
 
-// System info handlers - fetch once, cache forever (specs don't change)
-let systemInfoFetched = false;
-
 ipcMain.handle('get-system-info', async () => {
-  // Return cached if available
-  if (systemInfoCache) return systemInfoCache;
-  
-  try {
-    // Get basic info from Node.js (instant)
-    const cpus = os.cpus();
-    const cpuInfo = cpus[0] || {};
-    
-    const basicInfo = {
-      hostname: os.hostname(),
-      platform: os.platform(),
-      os: {
-        platform: os.platform(),
-        distro: os.type(),
-        release: os.release(),
-        arch: os.arch(),
-        hostname: os.hostname()
-      },
-      cpu: {
-        manufacturer: '',
-        brand: cpuInfo.model || 'Unknown CPU',
-        cores: cpus.length,
-        physicalCores: cpus.length,
-        speed: cpuInfo.speed || 0
-      },
-      memory: {
-        total: os.totalmem(),
-        available: os.freemem(),
-        used: os.totalmem() - os.freemem()
-      },
-      gpus: null
-    };
-
-    systemInfoCache = basicInfo;
-
-    // Fetch detailed info in background only once
-    if (!systemInfoFetched) {
-      systemInfoFetched = true;
-      setTimeout(async () => {
-        try {
-          const [osInfo, graphics] = await Promise.all([
-            si.osInfo(),
-            si.graphics()
-          ]);
-          
-          // Map all GPUs (filter out integrated graphics)
-          const gpus = graphics.controllers
-            .filter(gpu => {
-              // Filter out integrated graphics
-              const model = (gpu.model || '').toLowerCase();
-              const vendor = (gpu.vendor || '').toLowerCase();
-              
-              // Skip Intel integrated graphics
-              if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris'))) {
-                return false;
-              }
-              
-              // Skip AMD APU graphics (Vega, Radeon Graphics without model number)
-              if ((vendor.includes('amd') || vendor.includes('ati')) && 
-                  (model.includes('vega') || model.includes('radeon graphics') || 
-                   model.includes('raphael') || model.includes('renoir'))) {
-                return false;
-              }
-              
-              return true;
-            })
-            .map((gpu, idx) => ({
-              id: idx,
-              vendor: gpu.vendor,
-              model: gpu.model,
-              vram: gpu.vram,
-              bus: gpu.bus
-            }));
-          
-          systemInfoCache = {
-            ...basicInfo,
-            os: {
-              platform: osInfo.platform,
-              distro: osInfo.distro,
-              release: osInfo.release,
-              arch: osInfo.arch
-            },
-            gpus: gpus.length > 0 ? gpus : null
-          };
-        } catch (e) {
-          // Silent fail - will use basic info
-        }
-      }, 2000);
-    }
-
-    return basicInfo;
-  } catch (error) {
-    return null;
+  if (!systemInfoCache) {
+    systemInfoCache = buildBasicSystemInfo();
   }
+
+  // Ensure one startup refresh is in progress if detection is still pending.
+  if (systemInfoCache.gpuDetectionStatus !== 'complete') {
+    refreshSystemInfoCache();
+  }
+
+  return systemInfoCache;
 });
 
 // Cache for slow-changing stats (updated in background)
@@ -831,27 +902,12 @@ function updateGpuInfoAsync() {
           if (graphics && graphics.controllers) {
             let gpuIndex = 0;
             graphics.controllers.forEach((gpu) => {
-              // Skip integrated graphics
-              const model = (gpu.model || '').toLowerCase();
-              const vendor = (gpu.vendor || '').toLowerCase();
-              
-              // Skip Intel integrated graphics
-              if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris') || model.includes('hd graphics'))) {
-                return;
-              }
-              // Skip AMD APU integrated graphics
-              if ((vendor.includes('amd') || vendor.includes('ati')) && 
-                  (model.includes('vega') || model.includes('radeon graphics') || 
-                   model.includes('raphael') || model.includes('renoir') ||
-                   model.includes('cezanne') || model.includes('lucienne'))) {
-                return;
-              }
-              // Skip Microsoft Basic Display (virtual/fallback)
-              if (vendor.includes('microsoft') || model.includes('basic display')) {
+              if (isLikelyIntegratedGpu(gpu)) {
                 return;
               }
               
               // Discrete GPU detected
+              const vendor = (gpu.vendor || '').toLowerCase();
               const gpuInfo = {
                 id: gpuIndex++,
                 temperature: gpu.temperatureGpu || null,

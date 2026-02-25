@@ -6,20 +6,23 @@ import { useSystemInfo, useGpuList } from '../hooks/useSystemInfo';
 function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false, defaultWorkerName = '' }) {
   const systemInfo = useSystemInfo();
   const gpuList = useGpuList();
+  const gpuDetectionComplete = systemInfo?.gpuDetectionStatus === 'complete';
   
   // Check if GPU is detected
-  const hasGpu = systemInfo?.gpus && 
-                 Array.isArray(systemInfo.gpus) && 
-                 systemInfo.gpus.length > 0 &&
-                 systemInfo.gpus.some(gpu => {
-                   if (!gpu) return false;
-                   const model = (gpu.model || gpu.name || '').toLowerCase();
-                   // Exclude "no gpu detected" or empty models
-                   return model && 
-                          !model.includes('no gpu') && 
-                          !model.includes('detected') &&
-                          model.trim().length > 0;
-                 });
+  const hasGpu = !gpuDetectionComplete || (
+    systemInfo?.gpus &&
+    Array.isArray(systemInfo.gpus) &&
+    systemInfo.gpus.length > 0 &&
+    systemInfo.gpus.some(gpu => {
+      if (!gpu) return false;
+      const model = (gpu.model || gpu.name || '').toLowerCase();
+      // Exclude "no gpu detected" or empty models
+      return model &&
+             !model.includes('no gpu') &&
+             !model.includes('detected') &&
+             model.trim().length > 0;
+    })
+  );
   
   const handleChange = (field, value) => {
     onConfigChange({
@@ -49,6 +52,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
     if (!miner.config.pool) return 'Pool address required';
     if (!miner.config.user) return 'Wallet address required';
     if (!miner.config.algorithm) return 'Algorithm required';
+    if (!gpuDetectionComplete) return 'Detecting GPU...';
     if (!hasGpu) return 'No GPU detected';
     if (miner.enabled === false) return 'GPU mining is disabled';
     return 'Start Mining';
@@ -102,7 +106,7 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
       )}
 
       <div className="config-form">
-        {!hasGpu && (
+        {gpuDetectionComplete && !hasGpu && (
           <div className="no-gpu-warning">
             ⚠️ No GPU detected - GPU mining is unavailable on this system. The Start Mining button is disabled.
           </div>
@@ -209,7 +213,6 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
                             }
                             handleChange('gpus', newGpus);
                           }}
-                          disabled={miner.running}
                         />
                         <strong>GPU {idx}</strong>
                       </label>

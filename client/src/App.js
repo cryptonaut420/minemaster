@@ -26,7 +26,22 @@ function App() {
     return null;
   };
 
+  // Load saved miner state (enabled/disabled toggles)
+  const loadSavedMinerState = () => {
+    try {
+      const saved = localStorage.getItem('minemaster-miner-state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed && typeof parsed === 'object' ? parsed : null;
+      }
+    } catch (error) {
+      // Silently fail - will use defaults
+    }
+    return null;
+  };
+
   const savedConfig = loadSavedConfig();
+  const savedMinerState = loadSavedMinerState();
 
   const [miners, setMiners] = useState([
     {
@@ -35,7 +50,7 @@ function App() {
       type: 'xmrig',
       deviceType: 'CPU',
       running: false,
-      enabled: true,
+      enabled: savedMinerState?.['xmrig-1']?.enabled !== false,
       loading: false,
       hashrate: null,
       startTime: null,
@@ -60,7 +75,7 @@ function App() {
       type: 'nanominer',
       deviceType: 'GPU',
       running: false,
-      enabled: true, // Will be checked and disabled if no GPU on mount
+      enabled: savedMinerState?.['nanominer-1']?.enabled !== false,
       loading: false,
       hashrate: null,
       startTime: null,
@@ -121,6 +136,17 @@ function App() {
     localStorage.setItem('minemaster-config', JSON.stringify(configToSave));
   }, [miners]);
 
+  // Persist miner enabled/disabled states independently from miner config
+  useEffect(() => {
+    const stateToSave = {};
+    miners.forEach(miner => {
+      stateToSave[miner.id] = {
+        enabled: miner.enabled !== false
+      };
+    });
+    localStorage.setItem('minemaster-miner-state', JSON.stringify(stateToSave));
+  }, [miners]);
+
   // Check for running miners and GPU detection on mount only (not periodically)
   useEffect(() => {
     const checkRunningMiners = async () => {
@@ -130,8 +156,9 @@ function App() {
         const statuses = await window.electronAPI.getAllMinersStatus();
         const systemInfo = await window.electronAPI.getSystemInfo();
         
-        // Check if GPU is detected
+        // Only treat as "no GPU" when detection is definitively complete.
         const hasGpu = systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0;
+        const gpuDetectionComplete = systemInfo?.gpuDetectionStatus === 'complete';
         
         setMiners(prev => prev.map(miner => {
           const status = statuses[miner.id];
@@ -146,8 +173,8 @@ function App() {
             };
           }
           
-          // Disable GPU miner if no GPU detected
-          if (miner.deviceType === 'GPU' && !hasGpu) {
+          // Disable GPU miner only after a definitive "no GPU" result.
+          if (miner.deviceType === 'GPU' && gpuDetectionComplete && !hasGpu) {
             updatedMiner = {
               ...updatedMiner,
               enabled: false
@@ -997,19 +1024,20 @@ function App() {
       try {
         const systemInfo = await window.electronAPI.getSystemInfo();
         
-        const hasGpu = systemInfo?.gpus && 
-                       Array.isArray(systemInfo.gpus) && 
+        const hasGpu = systemInfo?.gpus &&
+                       Array.isArray(systemInfo.gpus) &&
                        systemInfo.gpus.length > 0 &&
                        systemInfo.gpus.some(gpu => {
                          if (!gpu) return false;
                          const model = (gpu.model || gpu.name || '').toLowerCase();
-                         return model && 
-                                !model.includes('no gpu') && 
+                         return model &&
+                                !model.includes('no gpu') &&
                                 !model.includes('detected') &&
                                 model.trim().length > 0;
                        });
+        const gpuDetectionComplete = systemInfo?.gpuDetectionStatus === 'complete';
         
-        if (!hasGpu) {
+        if (gpuDetectionComplete && !hasGpu) {
           // No GPU detected - revert the optimistic update
           addNotification('Cannot enable GPU mining: No GPU detected', 'warning');
           setMiners(prev => prev.map(m =>

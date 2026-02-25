@@ -77,26 +77,17 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
   // Note: Status updates to master server are handled in App.js
   // This component only collects local system stats for display
 
-  // Force disable GPU miner if no GPU detected
-  useEffect(() => {
-    if (!systemInfo) return;
-    
-    const hasGpu = systemInfo?.gpus && 
-                   Array.isArray(systemInfo.gpus) && 
-                   systemInfo.gpus.length > 0 &&
-                   systemInfo.gpus.some(gpu => gpu && (gpu.model || gpu.name || gpu.id !== undefined));
-    
-    // GPU detection and disable is handled in App.js on mount
-    // UI shows disabled state via shouldDisable check
-  }, [systemInfo, miners]);
-
   // Memoize expensive calculations to prevent lag
   const anyRunning = useMemo(() => miners.some(m => m.running), [miners]);
   const anyLoading = useMemo(() => miners.some(m => m.loading), [miners]);
-  const enabledMiners = useMemo(() => miners.filter(m => m.enabled !== false), [miners]);
   
   // Check if GPUs are detected - memoized to only recalculate when systemInfo changes
   const hasGpu = useMemo(() => {
+    // Do not treat "detection in progress" as "no GPU".
+    if (systemInfo?.gpuDetectionStatus !== 'complete') {
+      return true;
+    }
+
     return systemInfo?.gpus && 
            Array.isArray(systemInfo.gpus) && 
            systemInfo.gpus.length > 0 &&
@@ -404,7 +395,8 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
               <div className="system-info">
                 <div className="system-label">GPU</div>
                 <div className="system-value">
-                  {systemInfo?.gpus?.[0]?.model || 'No GPU detected'}
+                  {systemInfo?.gpus?.[0]?.model ||
+                   (systemInfo?.gpuDetectionStatus === 'complete' ? 'No GPU detected' : 'Detecting GPU...')}
                 </div>
                 {systemInfo?.gpus?.[0]?.vram && (
                   <div className="system-stats">
