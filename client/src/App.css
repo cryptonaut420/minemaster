@@ -9,6 +9,14 @@
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 20px 30px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header-main {
+  min-width: 0;
 }
 
 .App-header h1 {
@@ -21,6 +29,19 @@
   margin: 5px 0 0 0;
   font-size: 14px;
   opacity: 0.9;
+}
+
+.app-version {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  padding: 6px 10px;
+  white-space: nowrap;
 }
 
 .App-content {

@@ -10,6 +10,7 @@ import { formatHashrate, parseHashrate } from './utils/formatters';
 import { validateMinerConfig } from './utils/validators';
 import { addConsoleOutput } from './utils/consoleManager';
 import { masterServer } from './services/masterServer';
+import versionInfo from './version.json';
 
 function App() {
   // Load saved config from localStorage
@@ -1043,8 +1044,13 @@ function App() {
         />
         
         <header className="App-header">
-          <h1>⛏️ MineMaster</h1>
-          <p className="subtitle">Crypto Mining Manager</p>
+          <div className="header-main">
+            <h1>⛏️ MineMaster</h1>
+            <p className="subtitle">Crypto Mining Manager</p>
+          </div>
+          <div className="app-version" title={`Base ${versionInfo.baseVersion} | Build ${versionInfo.buildMetadata}`}>
+            v{versionInfo.displayVersion}
+          </div>
         </header>
 
       <div className="App-content">

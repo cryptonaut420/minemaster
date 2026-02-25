@@ -1,6 +1,6 @@
 {
   "name": "minemaster-client",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Cross-platform GUI wrapper for crypto mining software",
   "author": "MineMaster",
   "main": "electron/main.js",
@@ -8,6 +8,12 @@
   "scripts": {
     "postinstall": "node scripts/download-miners.js",
     "setup": "node scripts/download-miners.js",
+    "generate:version": "node scripts/generate-version.js",
+    "bump:patch": "node scripts/bump-version.js patch",
+    "bump:minor": "node scripts/bump-version.js minor",
+    "bump:major": "node scripts/bump-version.js major",
+    "prestart": "npm run generate:version",
+    "prebuild": "npm run generate:version",
     "generate-config": "node scripts/generate-mining-config.js",
     "dev": "npm run start",
     "start": "concurrently \"npm run start:react\" \"wait-on http://localhost:3000 && npm run start:electron\"",
@@ -49,23 +55,32 @@
       {
         "from": "miners",
         "to": "miners",
-        "filter": ["**/*", "!**/.gitkeep"]
+        "filter": [
+          "**/*",
+          "!**/.gitkeep"
+        ]
       },
       {
         "from": "assets",
         "to": "app/assets",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico",
@@ -85,7 +100,9 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.png",
@@ -102,7 +119,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "assets/icon.png",
