@@ -435,13 +435,21 @@ async function handleStatusUpdate(connectionId, data) {
     updateData.mining = anyMining;
     updateData.status = anyMining ? 'mining' : 'online';
     
-    // Update hashrate from running miners, or clear if none running
-    const runningMiner = statusData.miners.find(m => m.running && m.hashrate);
-    if (runningMiner) {
-      updateData.hashrate = runningMiner.hashrate;
-      updateData.algorithm = runningMiner.algorithm;
-      updateData.deviceType = runningMiner.deviceType;
-      updateData.currentMiner = runningMiner.type;
+    // Prefer GPU aggregate hashrate when GPU miner is running.
+    // This prevents CPU-first ordering from intermittently overriding GPU display.
+    const runningGpuMiner = statusData.miners.find(
+      (m) => m.running && m.deviceType === 'GPU' && m.hashrate
+    );
+    const runningCpuMiner = statusData.miners.find(
+      (m) => m.running && m.deviceType === 'CPU' && m.hashrate
+    );
+    const preferredMiner = runningGpuMiner || runningCpuMiner || null;
+
+    if (preferredMiner) {
+      updateData.hashrate = preferredMiner.hashrate;
+      updateData.algorithm = preferredMiner.algorithm;
+      updateData.deviceType = preferredMiner.deviceType;
+      updateData.currentMiner = preferredMiner.type;
     } else if (!anyMining) {
       // No miners running - explicitly clear hashrate and related fields
       updateData.hashrate = null;
@@ -559,12 +567,8 @@ async function handleMiningUpdate(connectionId, data) {
         hashrate: hashData.hashrate
       });
       
-      // Update miner's current hashrate
       const currentMiner = await Miner.getById(connection.minerId);
       const updateData = {
-        hashrate: hashData.hashrate,
-        algorithm: hashData.algorithm,
-        deviceType: hashData.deviceType,
         mining: true,
         status: 'mining',
         lastSeen: new Date().toISOString()
@@ -574,6 +578,34 @@ async function handleMiningUpdate(connectionId, data) {
       if (!currentMiner?.miningStartTime) {
         updateData.miningStartTime = new Date().toISOString();
       }
+      
+      // Write hashrate into the correct device entry so the dashboard
+      // can always read it from devices.cpu.hashrate / devices.gpus[].hashrate
+      // without depending on the top-level hashrate + deviceType combo.
+      if (currentMiner?.devices) {
+        const devices = JSON.parse(JSON.stringify(currentMiner.devices));
+        
+        if (hashData.deviceType === 'CPU' && devices.cpu) {
+          devices.cpu.hashrate = hashData.hashrate;
+          devices.cpu.algorithm = hashData.algorithm;
+          devices.cpu.running = true;
+        } else if (hashData.deviceType === 'GPU' && devices.gpus?.length > 0) {
+          // Place aggregate hashrate on first GPU entry
+          devices.gpus = devices.gpus.map((gpu, idx) => ({
+            ...gpu,
+            hashrate: idx === 0 ? hashData.hashrate : gpu.hashrate,
+            algorithm: hashData.algorithm,
+            running: true
+          }));
+        }
+        
+        updateData.devices = devices;
+      }
+      
+      // Keep top-level fields for backward compatibility
+      updateData.hashrate = hashData.hashrate;
+      updateData.algorithm = hashData.algorithm;
+      updateData.deviceType = hashData.deviceType;
       
       const miner = await Miner.update(connection.minerId, updateData);
       

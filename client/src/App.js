@@ -578,13 +578,14 @@ function App() {
       
       // Add GPU states if available
       if (systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0) {
+        const gpuAggregateHash = (gpuMiner?.running && gpuMiner?.hashrate) ? gpuMiner.hashrate : null;
         devices.gpus = systemInfo.gpus.map((gpu, idx) => ({
           id: idx,
           model: gpu.model || gpu.name || `GPU ${idx}`,
           enabled: gpuMiner?.enabled !== false,
           running: gpuMiner?.running || false,
-          // Nanominer reports aggregate hashrate; do not duplicate total per GPU.
-          hashrate: null,
+          // Place aggregate hashrate on first GPU only to avoid double-counting
+          hashrate: idx === 0 ? gpuAggregateHash : null,
           algorithm: gpuMiner?.config?.algorithm || null
         }));
       }
