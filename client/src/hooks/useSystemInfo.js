@@ -25,6 +25,7 @@ export function useSystemInfo() {
     return null;
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let mounted = true;
 
@@ -37,7 +38,6 @@ export function useSystemInfo() {
         if (mounted && info) {
           setSystemInfo(info);
           
-          // Cache to localStorage with timestamp
           try {
             localStorage.setItem(CACHE_KEYS.SYSTEM_INFO, JSON.stringify({
               data: info,
@@ -52,19 +52,16 @@ export function useSystemInfo() {
       }
     };
 
-    // Load immediately if not cached
-    if (!systemInfo) {
-      loadSystemInfo();
-    }
+    loadSystemInfo();
 
-    // Re-fetch in background after 3 seconds to update
+    // Re-fetch once after 3s to pick up completed GPU detection
     const refetchTimeout = setTimeout(loadSystemInfo, 3000);
     
     return () => {
       mounted = false;
       clearTimeout(refetchTimeout);
     };
-  }, [systemInfo]);
+  }, []);
 
   return systemInfo;
 }
@@ -127,7 +124,7 @@ export function useSystemStats() {
       clearTimeout(initialTimeout);
       clearInterval(interval);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return systemStats;
 }

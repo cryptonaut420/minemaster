@@ -9,6 +9,7 @@
     "postinstall": "node scripts/download-miners.js",
     "setup": "node scripts/download-miners.js",
     "generate-config": "node scripts/generate-mining-config.js",
+    "dev": "npm run start",
     "start": "concurrently \"npm run start:react\" \"wait-on http://localhost:3000 && npm run start:electron\"",
     "start:react": "react-scripts start",
     "start:electron": "electron .",

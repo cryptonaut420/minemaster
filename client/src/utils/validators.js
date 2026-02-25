@@ -12,8 +12,8 @@ export function validatePool(pool) {
     return { valid: false, error: 'Pool address is required' };
   }
   
-  // Basic format: host:port
-  const poolPattern = /^[\w\-\.]+:\d+$/;
+  // Accept host:port or stratum+tcp://host:port / stratum+ssl://host:port
+  const poolPattern = /^(stratum\+?(tcp|ssl|tls)?:\/\/)?[\w.-]+:\d+$/;
   if (!poolPattern.test(pool.trim())) {
     return { valid: false, error: 'Pool format should be host:port (e.g., pool.example.com:3333)' };
   }
@@ -77,6 +77,9 @@ export function validateWallet(wallet, coin = null) {
           return { valid: false, error: 'Ergo wallet should start with "9"' };
         }
         break;
+
+      default:
+        break;
     }
   }
   
@@ -108,9 +111,9 @@ export function validateXMRigConfig(config) {
     errors.push('Algorithm is required');
   }
   
-  // Validate thread percentage
   if (config.threadPercentage !== undefined) {
-    if (config.threadPercentage < 10 || config.threadPercentage > 100) {
+    const tp = Number(config.threadPercentage);
+    if (isNaN(tp) || tp < 10 || tp > 100) {
       errors.push('CPU usage must be between 10% and 100%');
     }
   }

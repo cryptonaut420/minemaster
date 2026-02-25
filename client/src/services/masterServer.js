@@ -17,11 +17,15 @@ class MasterServerService {
       connected: [],
       disconnected: [],
       bound: [],
+      registered: [],
       unbound: [],
       configUpdate: [],
       command: [],
       error: []
     };
+    this.maxMessageBytes = 1024 * 1024;
+    this.reconnectAttempts = 0;
+    this.maxReconnectInterval = 60000;
   }
 
   /**
@@ -87,6 +91,7 @@ class MasterServerService {
 
         this.ws.onopen = () => {
           this.connected = true;
+          this.reconnectAttempts = 0;
           this.emit('connected');
           this.startHeartbeat();
           resolve();
@@ -149,20 +154,19 @@ class MasterServerService {
       clearTimeout(this.reconnectTimer);
     }
 
-    const interval = this.config?.reconnectInterval || 5000;
+    const baseInterval = this.config?.reconnectInterval || 5000;
+    const backoff = Math.min(baseInterval * Math.pow(2, this.reconnectAttempts), this.maxReconnectInterval);
+    this.reconnectAttempts++;
+
     this.reconnectTimer = setTimeout(async () => {
       try {
         await this.connect();
-        // After reconnecting, we need to re-register
-        // This will be handled by MasterServerPanel's auto-reconnect logic
-        // which calls bind() with silent=true
       } catch (err) {
-        // Schedule another attempt if still enabled
         if (this.config?.autoReconnect) {
           this.scheduleReconnect();
         }
       }
-    }, interval);
+    }, backoff);
   }
 
   /**
@@ -195,8 +199,20 @@ class MasterServerService {
       return false;
     }
 
-    this.ws.send(JSON.stringify(message));
-    return true;
+    try {
+      const serialized = JSON.stringify(message);
+      const messageBytes = new TextEncoder().encode(serialized).byteLength;
+      if (messageBytes > this.maxMessageBytes) {
+        this.emit('error', new Error(`Outbound message too large: ${messageBytes} bytes`));
+        return false;
+      }
+
+      this.ws.send(serialized);
+      return true;
+    } catch (error) {
+      this.emit('error', error);
+      return false;
+    }
   }
 
   /**

@@ -9,8 +9,37 @@ const fs = require('fs');
 
 const execAsync = promisify(exec);
 
+app.disableHardwareAcceleration();
+
 let mainWindow;
 let miners = {}; // Store active miner processes { minerId: { process, configPath, executable } }
+const MAX_RENDERER_IPC_BYTES = 512 * 1024;
+const MAX_LOG_READ_BYTES = 256 * 1024;
+
+function sendToRenderer(channel, payload) {
+  if (!mainWindow || !mainWindow.webContents) return;
+
+  try {
+    // Prevent oversized IPC frames by chunking very large miner output strings.
+    if (channel === 'miner-output' && payload && typeof payload.data === 'string') {
+      const totalBytes = Buffer.byteLength(payload.data, 'utf8');
+      if (totalBytes > MAX_RENDERER_IPC_BYTES) {
+        const chunkSizeChars = Math.floor(MAX_RENDERER_IPC_BYTES / 2);
+        for (let i = 0; i < payload.data.length; i += chunkSizeChars) {
+          mainWindow.webContents.send(channel, {
+            ...payload,
+            data: payload.data.slice(i, i + chunkSizeChars)
+          });
+        }
+        return;
+      }
+    }
+
+    mainWindow.webContents.send(channel, payload);
+  } catch (error) {
+    // Ignore transient renderer send failures
+  }
+}
 
 // System info cache (persisted on disk and refreshed once per app launch)
 let systemInfoCache = null;
@@ -196,7 +225,7 @@ function createWindow() {
 
   mainWindow.loadURL(startURL);
 
-  if (isDev) {
+  if (isDev && process.env.MINEMASTER_OPEN_DEVTOOLS === '1') {
     mainWindow.webContents.openDevTools();
   }
 
@@ -207,7 +236,9 @@ function createWindow() {
       if (minerProcess && !minerProcess.killed) {
         const pid = minerProcess.pid;
         
-        // Clean up log watchers
+        if (minerProcess._logSetupTimeout) {
+          clearTimeout(minerProcess._logSetupTimeout);
+        }
         if (minerProcess._logWatcher) {
           try { minerProcess._logWatcher.close(); } catch (e) {}
         }
@@ -307,54 +338,62 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       // Build xmrig arguments from config
       const args = buildXmrigArgs(config);
 
-      // Spawn with detached process group for proper cleanup
       minerProcess = spawn(xmrigPath, args, {
-        detached: false, // Keep attached to parent but in own process group
+        detached: false,
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
-      // Function to strip ANSI color codes
-      const stripAnsi = (str) => {
-        return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
-      };
+      const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
 
-      // Send stdout to renderer (strip color codes)
       minerProcess.stdout.on('data', (data) => {
-        mainWindow.webContents.send('miner-output', {
+        sendToRenderer('miner-output', {
           minerId,
           data: stripAnsi(data.toString())
         });
       });
 
-      // Send stderr to renderer (strip color codes)
       minerProcess.stderr.on('data', (data) => {
-        mainWindow.webContents.send('miner-output', {
+        sendToRenderer('miner-output', {
           minerId,
           data: stripAnsi(data.toString())
         });
       });
 
       minerProcess.on('error', (error) => {
-        mainWindow.webContents.send('miner-error', {
+        sendToRenderer('miner-error', {
           minerId,
           error: error.message
         });
+        delete miners[minerId];
       });
 
       minerProcess.on('close', (code) => {
-        mainWindow.webContents.send('miner-closed', {
+        sendToRenderer('miner-closed', {
           minerId,
           code
         });
         delete miners[minerId];
       });
 
-      // Store process with metadata for robust killing
       miners[minerId] = {
         process: minerProcess,
         executable: xmrigPath,
         type: 'xmrig'
       };
+
+      // Wait briefly for spawn errors (e.g. ENOENT) before reporting success
+      const spawnOk = await new Promise((resolve) => {
+        const onError = () => resolve(false);
+        minerProcess.once('error', onError);
+        setTimeout(() => {
+          minerProcess.removeListener('error', onError);
+          resolve(true);
+        }, 200);
+      });
+
+      if (!spawnOk) {
+        return { success: false, error: `Failed to launch ${xmrigPath}` };
+      }
 
       return { success: true, pid: minerProcess.pid };
     } else if (minerType === 'nanominer') {
@@ -367,8 +406,6 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       // Get nanominer directory
       const nanominerDir = path.dirname(nanominerPath);
       
-      // Nanominer needs to run from its own directory
-      // Run directly without stdbuf wrapper to maintain proper process control
       minerProcess = spawn(nanominerPath, [configPath], {
         cwd: nanominerDir,
         env: { ...process.env },
@@ -376,36 +413,26 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
-      // Function to strip ANSI color codes
-      const stripAnsi = (str) => {
-        return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
-      };
+      const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
 
-      // Send stdout to renderer
       minerProcess.stdout.on('data', (data) => {
-        const output = stripAnsi(data.toString());
-        mainWindow.webContents.send('miner-output', {
+        sendToRenderer('miner-output', {
           minerId,
-          data: output
+          data: stripAnsi(data.toString())
         });
       });
 
-      // Send stderr to renderer
       minerProcess.stderr.on('data', (data) => {
-        const output = stripAnsi(data.toString());
-        mainWindow.webContents.send('miner-output', {
+        sendToRenderer('miner-output', {
           minerId,
-          data: output
+          data: stripAnsi(data.toString())
         });
       });
 
-      // Nanominer parent process doesn't output to stdout/stderr
-      // The child process writes to log files instead
-      // Watch the log file to get real-time output (cross-platform)
       const logDir = path.join(nanominerDir, 'logs');
       
-      // Wait a moment for nanominer to create the log file
-      setTimeout(() => {
+      // Wait for nanominer to create log file; store timeout handle for cleanup
+      const logSetupTimeout = setTimeout(() => {
         try {
           // Find the most recent log file
           if (!fs.existsSync(logDir)) {
@@ -436,18 +463,19 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
                 const stats = fs.statSync(latestLog);
                 if (stats.size > lastSize) {
                   const fd = fs.openSync(latestLog, 'r');
-                  const buffer = Buffer.alloc(stats.size - lastSize);
+                  const bytesToRead = Math.min(stats.size - lastSize, MAX_LOG_READ_BYTES);
+                  const buffer = Buffer.alloc(bytesToRead);
                   fs.readSync(fd, buffer, 0, buffer.length, lastSize);
                   fs.closeSync(fd);
                   
                   const output = stripAnsi(buffer.toString('utf8'));
                   if (output.trim()) {
-                    mainWindow.webContents.send('miner-output', {
+                    sendToRenderer('miner-output', {
                       minerId,
                       data: output
                     });
                   }
-                  lastSize = stats.size;
+                  lastSize += bytesToRead;
                 }
               } catch (e) {
                 // File might be locked or rotated
@@ -476,40 +504,54 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         } catch (e) {
           // Silent fail - log watching is optional
         }
-      }, 2000); // Wait 2 seconds for log file to be created
+      }, 2000);
+      minerProcess._logSetupTimeout = logSetupTimeout;
 
       minerProcess.on('error', (error) => {
-        mainWindow.webContents.send('miner-error', {
+        clearTimeout(logSetupTimeout);
+        sendToRenderer('miner-error', {
           minerId,
           error: error.message
         });
+        delete miners[minerId];
       });
 
       minerProcess.on('close', (code) => {
-        // Clean up log watcher and poll interval
+        clearTimeout(logSetupTimeout);
         if (minerProcess._logWatcher) {
-          try {
-            minerProcess._logWatcher.close();
-          } catch (e) {}
+          try { minerProcess._logWatcher.close(); } catch (e) {}
         }
         if (minerProcess._logPollInterval) {
           clearInterval(minerProcess._logPollInterval);
         }
         
-        mainWindow.webContents.send('miner-closed', {
+        sendToRenderer('miner-closed', {
           minerId,
           code
         });
         delete miners[minerId];
       });
 
-      // Store process with metadata for robust killing
       miners[minerId] = {
         process: minerProcess,
         configPath: configPath,
         executable: nanominerPath,
         type: 'nanominer'
       };
+
+      // Wait briefly for spawn errors before reporting success
+      const spawnOk = await new Promise((resolve) => {
+        const onError = () => resolve(false);
+        minerProcess.once('error', onError);
+        setTimeout(() => {
+          minerProcess.removeListener('error', onError);
+          resolve(true);
+        }, 200);
+      });
+
+      if (!spawnOk) {
+        return { success: false, error: `Failed to launch ${nanominerPath}` };
+      }
 
       return { success: true, pid: minerProcess.pid };
     } else {
@@ -562,11 +604,15 @@ async function findProcessPIDs(processName, configPath) {
 async function killMinerProcess(pid, signal = 'SIGTERM') {
   try {
     if (process.platform === 'win32') {
-      // Windows
       if (signal === 'SIGKILL') {
         await execAsync(`taskkill /PID ${pid} /T /F`);
       } else {
-        await execAsync(`taskkill /PID ${pid} /T`);
+        // Graceful: try WM_CLOSE via taskkill without /F, fall back to /F if it fails
+        try {
+          await execAsync(`taskkill /PID ${pid} /T`);
+        } catch (e) {
+          await execAsync(`taskkill /PID ${pid} /T /F`);
+        }
       }
     } else {
       // Unix - try multiple approaches
@@ -668,21 +714,24 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
       }
     }
     
-    // Step 3: Last resort - platform-specific process kill by name
+    // Step 3: Last resort - force-kill remaining known PIDs directly
     try {
+      const remaining = allPIDs.filter(pid => isProcessRunning(pid));
       if (process.platform === 'win32') {
-        // Windows: Use taskkill by image name
-        const exeName = minerType === 'xmrig' ? 'xmrig.exe' : 'nanominer.exe';
-        await execAsync(`taskkill /F /IM ${exeName} 2>nul`);
-      } else {
-        // Linux/macOS: Use pkill
-        if (configPath) {
-          await execAsync(`pkill -9 -f "${configPath}"`);
+        for (const pid of remaining) {
+          await execAsync(`taskkill /PID ${pid} /T /F 2>nul`).catch(() => {});
         }
-        await execAsync(`pkill -9 ${minerType}`);
+      } else {
+        // Only kill by config path to avoid killing other miner instances
+        if (configPath) {
+          await execAsync(`pkill -9 -f "${configPath}"`).catch(() => {});
+        }
+        for (const pid of remaining) {
+          await execAsync(`kill -9 ${pid}`).catch(() => {});
+        }
       }
     } catch (e) {
-      // kill commands will error if no processes found, that's okay
+      // kill commands will error if no processes found
     }
     
     // Final check
@@ -929,26 +978,33 @@ function updateGpuInfoAsync() {
         }
       }
       
-      // Try NVIDIA GPUs using nvidia-smi (works on Linux, Windows, and macOS with NVIDIA drivers)
+      const hasNvidiaFromSi = detectedGpus.some(g => g.type === 'NVIDIA');
+
       const nvidiaSmiCmd = process.platform === 'win32' 
         ? 'nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>nul'
         : 'nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null';
       
-      exec(nvidiaSmiCmd, (error, stdout) => {
+      exec(nvidiaSmiCmd, { timeout: 5000 }, (error, stdout) => {
         if (!error && stdout && stdout.trim()) {
+          // If si.graphics already found NVIDIA GPUs, replace them with nvidia-smi data (more accurate stats)
+          if (hasNvidiaFromSi) {
+            const nonNvidia = detectedGpus.filter(g => g.type !== 'NVIDIA');
+            detectedGpus.length = 0;
+            nonNvidia.forEach(g => detectedGpus.push(g));
+          }
+
           const lines = stdout.trim().split('\n');
           lines.forEach(line => {
             const parts = line.split(',').map(p => p.trim());
             if (parts.length >= 5 && !isNaN(parts[0])) {
-              const gpuInfo = {
+              detectedGpus.push({
                 id: parseInt(parts[0]),
                 temperature: parseFloat(parts[1]),
                 usage: parseFloat(parts[2]),
-                vramUsed: parseFloat(parts[3]), // Already in MB from nvidia-smi
-                vramTotal: parseFloat(parts[4]), // Already in MB from nvidia-smi
+                vramUsed: parseFloat(parts[3]),
+                vramTotal: parseFloat(parts[4]),
                 type: 'NVIDIA'
-              };
-              detectedGpus.push(gpuInfo);
+              });
             }
           });
         }

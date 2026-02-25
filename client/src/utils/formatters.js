@@ -9,14 +9,15 @@
  * @returns {string} Formatted string (e.g., "8.0 GB")
  */
 export function formatBytes(bytes, decimals = 1) {
-  if (!bytes || bytes === 0) return '0 B';
-  if (typeof bytes !== 'number') return 'N/A';
+  if (bytes === null || bytes === undefined || bytes === 0) return '0 B';
+  if (typeof bytes !== 'number' || !isFinite(bytes)) return 'N/A';
+  if (bytes < 0) bytes = Math.abs(bytes);
   
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
@@ -49,6 +50,7 @@ export function formatPercent(value, decimals = 1) {
  */
 export function formatHashrate(hashrate) {
   if (!hashrate || hashrate === 0) return null;
+  if (typeof hashrate !== 'number' || !isFinite(hashrate)) return null;
   
   const absHashrate = Math.abs(hashrate);
   
@@ -71,17 +73,23 @@ export function formatHashrate(hashrate) {
  * @returns {number|null} Hashrate in H/s or null if not found
  */
 export function parseHashrate(output) {
-  // XMRig format: "speed 10s/60s/15m ... H/s"
-  const xmrigPattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
+  if (!output || typeof output !== 'string') return null;
+
+  // XMRig format: "speed 10s/60s/15m 123.4 456.7 789.0 H/s" - capture first hashrate value after the label
+  const xmrigPattern = /speed\s+\S+\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
   
-  // Nanominer format: "Total: 25.5 Mh/s" or "GPU0: 12.3 Mh/s"
+  // Nanominer format: "Total: 25.5 Mh/s"
   const nanominerPattern = /Total:\s*([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)/i;
+
+  // Generic fallback: any number followed by hashrate unit
+  const genericPattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
   
-  const match = output.match(xmrigPattern) || output.match(nanominerPattern);
+  const match = output.match(xmrigPattern) || output.match(nanominerPattern) || output.match(genericPattern);
   
   if (!match) return null;
   
   const value = parseFloat(match[1]);
+  if (isNaN(value) || value === 0) return null;
   const unit = match[2].toLowerCase();
   
   // Convert to base H/s

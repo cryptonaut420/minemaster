@@ -108,11 +108,14 @@ function App() {
   const statusUpdateInterval = useRef(null);
   const minersRef = useRef(miners); // Keep a ref to always have latest miners
   const stoppingMinersRef = useRef(new Set()); // Track miners being intentionally stopped
+  const notificationIdRef = useRef(0);
   const sendImmediateStatusUpdateRef = useRef(null); // Ref for latest status update function
   const startStatusUpdatesRef = useRef(null); // Ref for latest start function
   const stopStatusUpdatesRef = useRef(null); // Ref for latest stop function
   
   // Update ref whenever miners changes
+  // Uses latest state through refs; keeping stable subscription is intentional.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     minersRef.current = miners;
   }, [miners]);
@@ -190,50 +193,15 @@ function App() {
 
     // Only check once on mount, output events handle the rest
     checkRunningMiners();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keyboard shortcuts
+  // IPC listener cleanup; runs once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const handleKeyPress = (event) => {
-      // Only handle if Ctrl/Cmd is pressed
-      if (!event.ctrlKey && !event.metaKey) return;
+    const cleanups = [];
 
-      switch (event.key.toLowerCase()) {
-        case 's':
-          event.preventDefault();
-          handleStartAll();
-          break;
-        case 'x':
-          event.preventDefault();
-          handleStopAll();
-          break;
-        case 'd':
-          event.preventDefault();
-          setSelectedView('dashboard');
-          break;
-        case '1':
-          event.preventDefault();
-          setSelectedView('xmrig-1');
-          setSelectedMiner('xmrig-1');
-          break;
-        case '2':
-          event.preventDefault();
-          setSelectedView('nanominer-1');
-          setSelectedMiner('nanominer-1');
-          break;
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [miners]); // Include miners for handleStartAll/StopAll closures
-
-  useEffect(() => {
-    // Set up listeners for miner events
     if (window.electronAPI) {
-      window.electronAPI.onMinerOutput((data) => {
+      cleanups.push(window.electronAPI.onMinerOutput((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
             // Parse hashrate from output using new utility
@@ -253,9 +221,9 @@ function App() {
           }
           return miner;
         }));
-      });
+      }));
 
-      window.electronAPI.onMinerError((data) => {
+      cleanups.push(window.electronAPI.onMinerError((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
             const newOutput = addConsoleOutput(miner.output, `ERROR: ${data.error}\n`);
@@ -270,9 +238,9 @@ function App() {
         
         // Add notification for error
         addNotification(`Miner Error: ${data.error}`, 'error');
-      });
+      }));
 
-      window.electronAPI.onMinerClosed((data) => {
+      cleanups.push(window.electronAPI.onMinerClosed((data) => {
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
             const exitMessage = `\nMiner exited with code: ${data.code ?? 'null'}\n`;
@@ -305,9 +273,11 @@ function App() {
           const minerName = miner?.name || 'Miner';
           addNotification(`${minerName} crashed unexpectedly (exit code ${data.code})`, 'error');
         }
-      });
+      }));
     }
-  }, []);
+
+    return () => cleanups.forEach(fn => fn && fn());
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Master Server Integration - Command and Config Handlers
   useEffect(() => {
@@ -361,13 +331,14 @@ function App() {
           if (command.minerId) {
             stoppingMinersRef.current.add(command.minerId);
             await handleStopMiner(command.minerId);
-            setTimeout(() => handleStartMiner(command.minerId), 2000);
+            stoppingMinersRef.current.delete(command.minerId);
+            setTimeout(() => handleStartMiner(command.minerId), 1500);
           } else {
-            // Stop all, then start all enabled
             for (const miner of currentMiners) {
               if (miner.running) {
                 stoppingMinersRef.current.add(miner.id);
                 await handleStopMiner(miner.id);
+                stoppingMinersRef.current.delete(miner.id);
               }
             }
             setTimeout(async () => {
@@ -377,7 +348,7 @@ function App() {
                   await handleStartMiner(miner.id);
                 }
               }
-            }, 2000);
+            }, 1500);
           }
           break;
         
@@ -388,11 +359,11 @@ function App() {
             const targetMiner = currentMiners.find(m => m.deviceType === deviceType);
             
             if (targetMiner && targetMiner.running) {
-              const minerId = targetMiner.id; // Capture ID for closure
+              const minerId = targetMiner.id;
               stoppingMinersRef.current.add(minerId);
               await handleStopMiner(minerId);
+              stoppingMinersRef.current.delete(minerId);
               
-              // Restart after 2 seconds if still enabled
               setTimeout(async () => {
                 const latestMiners = minersRef.current;
                 const currentMiner = latestMiners.find(m => m.id === minerId);
@@ -409,56 +380,52 @@ function App() {
         
         // Device enable/disable commands (from server toggle switches)
         case 'device-enable':
-          {
-            if (command.deviceType === 'cpu') {
-              const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-              if (cpuMiner) {
-                setMiners(prev => prev.map(m => 
-                  m.id === cpuMiner.id ? { ...m, enabled: true } : m
-                ));
-                addNotification('CPU mining enabled (remote command)', 'info');
-              }
-            } else if (command.deviceType === 'gpu') {
-              const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-              if (gpuMiner) {
-                setMiners(prev => prev.map(m => 
-                  m.id === gpuMiner.id ? { ...m, enabled: true } : m
-                ));
-                addNotification('GPU mining enabled (remote command)', 'info');
-              }
+          if (command.deviceType === 'cpu') {
+            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
+            if (cpuMiner) {
+              setMiners(prev => prev.map(m => 
+                m.id === cpuMiner.id ? { ...m, enabled: true } : m
+              ));
+              addNotification('CPU mining enabled (remote command)', 'info');
+            }
+          } else if (command.deviceType === 'gpu') {
+            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
+            if (gpuMiner) {
+              setMiners(prev => prev.map(m => 
+                m.id === gpuMiner.id ? { ...m, enabled: true } : m
+              ));
+              addNotification('GPU mining enabled (remote command)', 'info');
             }
           }
           break;
           
         case 'device-disable':
-          {
-            if (command.deviceType === 'cpu') {
-              const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-              if (cpuMiner) {
-                setMiners(prev => prev.map(m => 
-                  m.id === cpuMiner.id ? { ...m, enabled: false } : m
-                ));
-                // Stop mining if running
-                if (cpuMiner.running) {
-                  addNotification('CPU mining disabled and stopped (remote command)', 'info');
-                  await handleStopMiner(cpuMiner.id);
-                } else {
-                  addNotification('CPU mining disabled (remote command)', 'info');
-                }
+          if (command.deviceType === 'cpu') {
+            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
+            if (cpuMiner) {
+              setMiners(prev => prev.map(m => 
+                m.id === cpuMiner.id ? { ...m, enabled: false } : m
+              ));
+              // Stop mining if running
+              if (cpuMiner.running) {
+                addNotification('CPU mining disabled and stopped (remote command)', 'info');
+                await handleStopMiner(cpuMiner.id);
+              } else {
+                addNotification('CPU mining disabled (remote command)', 'info');
               }
-            } else if (command.deviceType === 'gpu') {
-              const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-              if (gpuMiner) {
-                setMiners(prev => prev.map(m => 
-                  m.id === gpuMiner.id ? { ...m, enabled: false } : m
-                ));
-                // Stop mining if running
-                if (gpuMiner.running) {
-                  addNotification('GPU mining disabled and stopped (remote command)', 'info');
-                  await handleStopMiner(gpuMiner.id);
-                } else {
-                  addNotification('GPU mining disabled (remote command)', 'info');
-                }
+            }
+          } else if (command.deviceType === 'gpu') {
+            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
+            if (gpuMiner) {
+              setMiners(prev => prev.map(m => 
+                m.id === gpuMiner.id ? { ...m, enabled: false } : m
+              ));
+              // Stop mining if running
+              if (gpuMiner.running) {
+                addNotification('GPU mining disabled and stopped (remote command)', 'info');
+                await handleStopMiner(gpuMiner.id);
+              } else {
+                addNotification('GPU mining disabled (remote command)', 'info');
               }
             }
           }
@@ -517,7 +484,7 @@ function App() {
       masterServer.off('configUpdate', handleConfigUpdate);
       masterServer.off('command', handleCommand);
     };
-  }, [miners]); // Include miners for command handlers
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle explicit unbind from MasterServerPanel UI
   const handleUnbindFromUI = async () => {
@@ -688,6 +655,8 @@ function App() {
   // Master Server Connection Management (global, persists across all views)
   // This runs at the App level so it never unmounts when navigating between views
   // ============================================================
+  // Connection lifecycle is intentionally initialized once on app mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     // Build device states from current miners for server registration
     const getDeviceStatesForServer = async () => {
@@ -809,7 +778,7 @@ function App() {
       masterServer.off('unbound', handleUnbound);
       stopStatusUpdatesRef.current?.();
     };
-  }, []); // Run once on mount - persists for entire app lifecycle
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ============================================================
   // Reactive status sync - push updates immediately when mining state changes
@@ -833,7 +802,7 @@ function App() {
   // Notification helper
   const addNotification = (message, type = 'info') => {
     const notification = {
-      id: Date.now(),
+      id: ++notificationIdRef.current,
       message,
       type, // 'info', 'success', 'warning', 'error'
       timestamp: Date.now()
@@ -919,7 +888,7 @@ function App() {
   };
 
   const handleStopMiner = async (minerId) => {
-    const miner = miners.find(m => m.id === minerId);
+    const miner = minersRef.current.find(m => m.id === minerId);
     if (!miner) return;
 
     // Set loading state

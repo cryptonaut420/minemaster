@@ -15,15 +15,21 @@ contextBridge.exposeInMainWorld('electron', {
   getMemoryStats: () => ipcRenderer.invoke('get-memory-stats'),
   getGpuStats: () => ipcRenderer.invoke('get-gpu-stats'),
   
-  // Listeners for miner events
+  // Listeners for miner events (return cleanup function)
   onMinerOutput: (callback) => {
-    ipcRenderer.on('miner-output', (event, data) => callback(data));
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('miner-output', handler);
+    return () => ipcRenderer.removeListener('miner-output', handler);
   },
   onMinerError: (callback) => {
-    ipcRenderer.on('miner-error', (event, data) => callback(data));
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('miner-error', handler);
+    return () => ipcRenderer.removeListener('miner-error', handler);
   },
   onMinerClosed: (callback) => {
-    ipcRenderer.on('miner-closed', (event, data) => callback(data));
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('miner-closed', handler);
+    return () => ipcRenderer.removeListener('miner-closed', handler);
   }
 });
 
@@ -38,14 +44,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMemoryStats: () => ipcRenderer.invoke('get-memory-stats'),
   getGpuStats: () => ipcRenderer.invoke('get-gpu-stats'),
   
-  // Listeners for miner events
+  // Listeners for miner events (return cleanup function)
   onMinerOutput: (callback) => {
-    ipcRenderer.on('miner-output', (event, data) => callback(data));
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('miner-output', handler);
+    return () => ipcRenderer.removeListener('miner-output', handler);
   },
   onMinerError: (callback) => {
-    ipcRenderer.on('miner-error', (event, data) => callback(data));
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('miner-error', handler);
+    return () => ipcRenderer.removeListener('miner-error', handler);
   },
   onMinerClosed: (callback) => {
-    ipcRenderer.on('miner-closed', (event, data) => callback(data));
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('miner-closed', handler);
+    return () => ipcRenderer.removeListener('miner-closed', handler);
   }
 });

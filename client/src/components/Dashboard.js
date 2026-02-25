@@ -5,9 +5,12 @@ import MasterServerPanel from './MasterServerPanel';
 
 function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMaster, onUnbind, clientName, onClientNameChange }) {
   const [systemInfo, setSystemInfo] = useState(() => {
-    // Try to load from sessionStorage first
-    const cached = sessionStorage.getItem('minemaster-system-info');
-    return cached ? JSON.parse(cached) : null;
+    try {
+      const cached = sessionStorage.getItem('minemaster-system-info');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
   });
   const [systemStats, setSystemStats] = useState(null);
 
@@ -24,10 +27,9 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
       }
     };
     
-    // Load immediately from cache/API
     const cached = sessionStorage.getItem('minemaster-system-info');
     if (cached) {
-      setSystemInfo(JSON.parse(cached));
+      try { setSystemInfo(JSON.parse(cached)); } catch (e) { /* corrupted cache */ }
     } else {
       loadSystemInfo();
     }
@@ -173,7 +175,7 @@ function Dashboard({ miners, onStartAll, onStopAll, onToggleDevice, isBoundToMas
           className={`master-control ${anyRunning ? 'stop' : 'start'} ${anyLoading ? 'loading' : ''}`}
           onClick={anyRunning ? onStopAll : onStartAll}
           disabled={anyLoading}
-          title={anyRunning ? 'Stop All Mining (Ctrl+X)' : 'Start All Mining (Ctrl+S)'}
+          title={anyRunning ? 'Stop All Mining' : 'Start All Mining'}
         >
           {anyLoading ? '⏳' : (anyRunning ? '⏸' : '▶')}
         </button>

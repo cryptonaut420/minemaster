@@ -26,14 +26,15 @@ export async function getMacAddress() {
  * @returns {Promise<string>} System ID
  */
 export async function getSystemId() {
-  // Check if we have a cached ID
   const cachedId = localStorage.getItem('systemId');
-  if (cachedId) {
+  if (cachedId && cachedId !== 'unknown-mac') {
     return cachedId;
   }
 
-  // Get MAC address and cache it
   const macAddress = await getMacAddress();
-  localStorage.setItem('systemId', macAddress);
+  // Only persist if we got a real MAC address
+  if (macAddress && macAddress !== 'unknown-mac') {
+    localStorage.setItem('systemId', macAddress);
+  }
   return macAddress;
 }

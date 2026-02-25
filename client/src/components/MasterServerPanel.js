@@ -117,10 +117,10 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
       // Get current device states from miners
       const devices = getDeviceStatesFromMiners();
       
-      // Ensure config is enabled
       if (!config.enabled) {
-        config.enabled = true;
-        await masterServer.saveConfig(config);
+        const updatedConfig = { ...config, enabled: true };
+        setConfig(updatedConfig);
+        await masterServer.saveConfig(updatedConfig);
       }
       
       // Connect and bind - App.js will catch the 'bound' event
@@ -164,22 +164,6 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
       setError(null);
     } catch (err) {
       setError('Failed to save settings');
-    }
-  };
-
-  const handleToggleEnabled = async () => {
-    const newConfig = { ...config, enabled: !config.enabled };
-    setConfig(newConfig);
-    
-    try {
-      await masterServer.saveConfig(newConfig);
-      
-      // If disabling, unbind (which will disconnect)
-      if (!newConfig.enabled && isBound) {
-        await handleUnbind();
-      }
-    } catch (err) {
-      setError('Failed to update settings');
     }
   };
 
@@ -229,7 +213,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
             <input
               type="number"
               value={config.port}
-              onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) })}
+              onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) || 0 })}
               placeholder="3001"
             />
           </div>

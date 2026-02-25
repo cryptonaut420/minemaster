@@ -203,13 +203,20 @@ function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMast
                           checked={isSelected}
                           disabled={miner.running || isFieldDisabled('gpus')}
                           onChange={(e) => {
-                            let newGpus = [...(miner.config.gpus || [])];
+                            let currentGpus = miner.config.gpus || [];
+                            // If empty (all selected), expand to explicit list of all GPU indices
+                            if (currentGpus.length === 0) {
+                              currentGpus = gpuList.map((_, i) => i);
+                            }
+                            let newGpus;
                             if (e.target.checked) {
-                              if (!newGpus.includes(idx)) {
-                                newGpus.push(idx);
-                              }
+                              newGpus = currentGpus.includes(idx) ? currentGpus : [...currentGpus, idx];
                             } else {
-                              newGpus = newGpus.filter(g => g !== idx);
+                              newGpus = currentGpus.filter(g => g !== idx);
+                            }
+                            // If all GPUs selected again, collapse back to empty (= "all")
+                            if (newGpus.length === gpuList.length) {
+                              newGpus = [];
                             }
                             handleChange('gpus', newGpus);
                           }}
