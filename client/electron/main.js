@@ -343,11 +343,15 @@ app.on('before-quit', () => {
   // Ensure all miners are stopped before app quits
   Object.values(miners).forEach(minerData => {
     if (minerData && minerData.process && !minerData.process.killed) {
+      const pid = minerData.process.pid;
       try {
-        minerData.process.kill('SIGKILL');
-      } catch (error) {
-        // Silent fail - app is quitting anyway
-      }
+        if (process.platform === 'win32') {
+          // taskkill /T kills the entire process tree (child workers, etc.)
+          exec(`taskkill /PID ${pid} /T /F`, () => {});
+        } else {
+          minerData.process.kill('SIGKILL');
+        }
+      } catch (_) {}
     }
   });
 });
@@ -1132,10 +1136,16 @@ function updateGpuInfoAsync() {
 
       let nvidiaSmiExe = 'nvidia-smi';
       if (process.platform === 'win32') {
-        // nvidia-smi is often not on PATH on Windows; check the standard install location
-        const defaultPath = path.join(process.env.ProgramFiles || 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe');
-        if (fs.existsSync(defaultPath)) {
-          nvidiaSmiExe = `"${defaultPath}"`;
+        // nvidia-smi may not be on PATH on Windows; check known install locations
+        const candidates = [
+          path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvidia-smi.exe'),
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe')
+        ];
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) {
+            nvidiaSmiExe = `"${candidate}"`;
+            break;
+          }
         }
       }
 
@@ -1196,14 +1206,35 @@ bgUpdateInitTimeout = setTimeout(() => {
   updateGpuInfoAsync();
 }, 2000);
 
-// System stats handlers (all fast - use cached values)
+// Cross-platform CPU usage: sample os.cpus() and compute delta between ticks.
+// os.loadavg() returns [0,0,0] on Windows, so we must use tick-based measurement.
+let prevCpuTimes = null;
+let cachedCpuUsage = 0;
+
+function sampleCpuUsage() {
+  const cpus = os.cpus();
+  const totals = { idle: 0, total: 0 };
+  cpus.forEach(cpu => {
+    const t = cpu.times;
+    totals.idle += t.idle;
+    totals.total += t.user + t.nice + t.sys + t.irq + t.idle;
+  });
+
+  if (prevCpuTimes) {
+    const idleDelta = totals.idle - prevCpuTimes.idle;
+    const totalDelta = totals.total - prevCpuTimes.total;
+    cachedCpuUsage = totalDelta > 0 ? Math.min(((totalDelta - idleDelta) / totalDelta) * 100, 100) : 0;
+  }
+  prevCpuTimes = totals;
+}
+
+// Sample every 5 seconds in the background (lightweight — just reads /proc/stat or kernel counters)
+setInterval(sampleCpuUsage, 5000);
+setTimeout(sampleCpuUsage, 500);
+
 ipcMain.handle('get-cpu-stats', () => {
-  const numCpus = os.cpus().length;
-  const loadAvg = os.loadavg();
-  const cpuUsage = loadAvg[0] / numCpus * 100;
-  
   return {
-    usage: Math.min(cpuUsage, 100),
+    usage: cachedCpuUsage,
     temperature: cachedCpuTemp
   };
 });
@@ -1291,10 +1322,10 @@ function getNanominerPath(customPath) {
 }
 
 function createNanominerConfig(minerId, config) {
-  // Create a config.ini file for nanominer
+  // Write config to userData (writable on all platforms, even if installed to Program Files)
   const configDir = isDev
     ? path.join(__dirname, '../miners/nanominer')
-    : path.join(process.resourcesPath, 'miners/nanominer');
+    : path.join(app.getPath('userData'), 'nanominer-configs');
   
   // Ensure config directory exists
   if (!fs.existsSync(configDir)) {

@@ -1,5 +1,6 @@
 const { autoUpdater } = require('electron-updater');
 const { app } = require('electron');
+const path = require('path');
 
 let mainWindow = null;
 let stopAllMinersCallback = null;
@@ -115,12 +116,18 @@ function initAutoUpdater(win, stopMinersCallback) {
 }
 
 function checkForUpdates() {
-  // Skip in dev mode — electron-updater requires a packaged app
   if (!app.isPackaged) return;
 
   // On Linux, electron-updater needs the APPIMAGE env var (set by the AppImage runtime).
-  // If it's missing, we're running from an extracted dir or non-AppImage context — skip.
   if (process.platform === 'linux' && !process.env.APPIMAGE) return;
+
+  // On Windows, auto-update only works with NSIS installs (not portable .exe).
+  // NSIS creates an uninstaller next to the app; if it's absent, we're portable.
+  if (process.platform === 'win32') {
+    const appDir = path.dirname(app.getPath('exe'));
+    const hasUninstaller = require('fs').existsSync(path.join(appDir, 'Uninstall MineMaster.exe'));
+    if (!hasUninstaller) return;
+  }
 
   // Don't trigger a new check while one is already in progress or a download is active
   if (updateState === 'checking' || updateState === 'downloading' || updateState === 'downloaded') {
