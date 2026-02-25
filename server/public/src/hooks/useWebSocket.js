@@ -19,7 +19,6 @@ export function useWebSocket(onMessage) {
 
   useEffect(() => {
     let reconnectAttempts = 0;
-    const maxReconnectAttempts = 20;
     let isUnmounting = false;
 
     function connect() {
@@ -45,7 +44,7 @@ export function useWebSocket(onMessage) {
           }
         };
 
-        ws.onerror = (error) => {
+        ws.onerror = () => {
           // Connection error - will trigger onclose
         };
 
@@ -53,10 +52,10 @@ export function useWebSocket(onMessage) {
           setConnected(false);
           wsRef.current = null;
           
-          // Attempt to reconnect
-          if (!isUnmounting && reconnectAttempts < maxReconnectAttempts) {
+          // Always reconnect (24/7 dashboard) with exponential backoff capped at 30s
+          if (!isUnmounting) {
             reconnectAttempts++;
-            const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts - 1), 30000);
+            const delay = Math.min(1000 * Math.pow(1.5, Math.min(reconnectAttempts - 1, 15)), 30000);
             reconnectTimeoutRef.current = setTimeout(connect, delay);
           }
         };

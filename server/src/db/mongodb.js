@@ -81,17 +81,6 @@ function getDb() {
   return db;
 }
 
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-  await disconnect();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  await disconnect();
-  process.exit(0);
-});
-
 module.exports = {
   connect,
   disconnect,

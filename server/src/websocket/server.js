@@ -674,11 +674,31 @@ async function handleUnbind(connectionId, data) {
 async function handleDisconnect(connectionId) {
   const connection = connections.get(connectionId);
   if (connection && connection.minerId) {
-    // Update miner status (but keep bound state)
+    // Clear all running/hashrate states so the dashboard doesn't show stale data
+    const currentMiner = await Miner.getById(connection.minerId);
+    const cleanDevices = currentMiner?.devices
+      ? JSON.parse(JSON.stringify(currentMiner.devices))
+      : { cpu: { enabled: true, running: false, hashrate: null, algorithm: null }, gpus: [] };
+    
+    if (cleanDevices.cpu) {
+      cleanDevices.cpu.running = false;
+      cleanDevices.cpu.hashrate = null;
+    }
+    if (cleanDevices.gpus && cleanDevices.gpus.length > 0) {
+      cleanDevices.gpus = cleanDevices.gpus.map(gpu => ({
+        ...gpu,
+        running: false,
+        hashrate: null
+      }));
+    }
+
     const miner = await Miner.update(connection.minerId, {
       status: 'offline',
       mining: false,
-      connectionId: null
+      hashrate: null,
+      miningStartTime: null,
+      connectionId: null,
+      devices: cleanDevices
     });
     
     if (miner) {

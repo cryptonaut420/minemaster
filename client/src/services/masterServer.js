@@ -13,6 +13,7 @@ class MasterServerService {
     this.bound = false;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
+    this._cachedSystemId = null;
     this.listeners = {
       connected: [],
       disconnected: [],
@@ -312,7 +313,7 @@ class MasterServerService {
     }
     
     // Now register/bind
-    const systemId = await getSystemId();
+    const systemId = await this.getCachedSystemId();
     
     const registrationData = {
       systemId,
@@ -345,7 +346,7 @@ class MasterServerService {
   async unbind() {
     // First unregister if bound
     if (this.bound) {
-      const systemId = await getSystemId();
+      const systemId = await this.getCachedSystemId();
       
       this.send({
         type: 'unbound',
@@ -373,10 +374,22 @@ class MasterServerService {
   }
 
   /**
+   * Get systemId with in-memory caching (avoids repeated localStorage reads on every update cycle)
+   */
+  async getCachedSystemId() {
+    if (this._cachedSystemId) return this._cachedSystemId;
+    const id = await getSystemId();
+    if (id && id !== 'unknown-mac') {
+      this._cachedSystemId = id;
+    }
+    return id;
+  }
+
+  /**
    * Send status update to server
    */
   async sendStatusUpdate(status) {
-    const systemId = await getSystemId();
+    const systemId = await this.getCachedSystemId();
     
     this.send({
       type: 'status-update',
@@ -392,7 +405,7 @@ class MasterServerService {
    * Send hashrate update to server
    */
   async sendHashrateUpdate(hashrate) {
-    const systemId = await getSystemId();
+    const systemId = await this.getCachedSystemId();
     
     this.send({
       type: 'hashrate-update',

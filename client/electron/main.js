@@ -590,12 +590,15 @@ function isProcessRunning(pid) {
 async function findProcessPIDs(processName, configPath) {
   try {
     if (process.platform === 'win32') {
-      // Windows approach
-      const { stdout } = await execAsync(`wmic process where "name='${processName}'" get ProcessId`);
+      // Windows: use tasklist (wmic is deprecated on modern Windows)
+      const exeName = processName.endsWith('.exe') ? processName : `${processName}.exe`;
+      const { stdout } = await execAsync(`tasklist /FI "IMAGENAME eq ${exeName}" /FO CSV /NH`, { timeout: 5000 });
       return stdout.split('\n')
-        .map(line => line.trim())
-        .filter(line => line && !isNaN(line))
-        .map(Number);
+        .map(line => {
+          const parts = line.split(',');
+          return parts.length >= 2 ? parseInt(parts[1].replace(/"/g, '').trim()) : NaN;
+        })
+        .filter(pid => !isNaN(pid) && pid > 0);
     } else {
       // Unix approach - find by command line containing config path
       try {
@@ -995,9 +998,17 @@ function updateGpuInfoAsync() {
       
       const hasNvidiaFromSi = detectedGpus.some(g => g.type === 'NVIDIA');
 
-      const nvidiaSmiCmd = process.platform === 'win32' 
-        ? 'nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>nul'
-        : 'nvidia-smi --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null';
+      let nvidiaSmiExe = 'nvidia-smi';
+      if (process.platform === 'win32') {
+        // nvidia-smi is often not on PATH on Windows; check the standard install location
+        const defaultPath = path.join(process.env.ProgramFiles || 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe');
+        if (fs.existsSync(defaultPath)) {
+          nvidiaSmiExe = `"${defaultPath}"`;
+        }
+      }
+
+      const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null';
+      const nvidiaSmiCmd = `${nvidiaSmiExe} --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>${nullDev}`;
       
       exec(nvidiaSmiCmd, { timeout: 5000 }, (error, stdout) => {
         if (!error && stdout && stdout.trim()) {

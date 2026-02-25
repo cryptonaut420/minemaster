@@ -6,7 +6,7 @@ const path = require('path');
 const WebSocket = require('ws');
 const rateLimit = require('express-rate-limit');
 
-const { connect: connectDB, getDb } = require('./db/mongodb');
+const { connect: connectDB, disconnect: disconnectDB, getDb } = require('./db/mongodb');
 const minerRoutes = require('./api/miners');
 const configRoutes = require('./api/configs');
 const statsRoutes = require('./api/stats');
@@ -121,6 +121,9 @@ process.on('uncaughtException', (err) => {
 function gracefulShutdown(signal) {
   console.log(`${signal} received, shutting down gracefully...`);
 
+  // Clean up WebSocket server internals (stale connection reaper, etc.)
+  websocketServer.shutdown();
+
   // Close all WebSocket connections
   if (wss) {
     wss.clients.forEach((client) => {
@@ -128,7 +131,8 @@ function gracefulShutdown(signal) {
     });
   }
 
-  server.close(() => {
+  server.close(async () => {
+    await disconnectDB();
     console.log('Server closed');
     process.exit(0);
   });
