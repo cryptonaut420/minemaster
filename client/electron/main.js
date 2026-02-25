@@ -450,19 +450,34 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
 
     let minerProcess;
 
+    // Function to strip ANSI color codes
+    const stripAnsi = (str) => {
+      return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
+    };
+
     if (minerType === 'xmrig') {
-      // Determine xmrig executable path based on platform
+      // Determine xmrig executable path based on platform (throws if not found)
       const xmrigPath = getXmrigPath(config.customPath);
       
       // Build xmrig arguments from config
       const args = buildXmrigArgs(config);
 
+      // cwd must be the xmrig directory so it can find WinRing0x64.sys (MSR mod) on Windows
       minerProcess = spawn(xmrigPath, args, {
+        cwd: path.dirname(xmrigPath),
         detached: false,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
-      const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
+      // Check if spawn succeeded (pid will be undefined if binary not executable)
+      if (!minerProcess.pid) {
+        const errorMsg = await new Promise((resolve) => {
+          minerProcess.on('error', (err) => resolve(err.message));
+          setTimeout(() => resolve('Failed to start miner - binary may be blocked by antivirus'), 1000);
+        });
+        return { success: false, error: `Failed to start xmrig: ${errorMsg}\nPath: ${xmrigPath}` };
+      }
 
       minerProcess.stdout.on('data', (data) => {
         sendToRenderer('miner-output', {
@@ -516,7 +531,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
 
       return { success: true, pid: minerProcess.pid };
     } else if (minerType === 'nanominer') {
-      // Determine nanominer executable path
+      // Determine nanominer executable path (throws if not found)
       const nanominerPath = getNanominerPath(config.customPath);
       
       // Create config file for nanominer
@@ -529,10 +544,18 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         cwd: nanominerDir,
         env: { ...process.env },
         detached: false,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
-      const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
+      // Check if spawn succeeded
+      if (!minerProcess.pid) {
+        const errorMsg = await new Promise((resolve) => {
+          minerProcess.on('error', (err) => resolve(err.message));
+          setTimeout(() => resolve('Failed to start miner - binary may be blocked by antivirus'), 1000);
+        });
+        return { success: false, error: `Failed to start nanominer: ${errorMsg}\nPath: ${nanominerPath}` };
+      }
 
       minerProcess.stdout.on('data', (data) => {
         sendToRenderer('miner-output', {
@@ -1202,50 +1225,69 @@ ipcMain.handle('get-gpu-stats', () => {
 
 // Helper functions
 
-function getXmrigPath(customPath) {
+function getMinerBinaryPath(minerType, customPath) {
+  const binaryNames = {
+    xmrig: process.platform === 'win32' ? 'xmrig.exe' : 'xmrig',
+    nanominer: process.platform === 'win32' ? 'nanominer.exe' : 'nanominer'
+  };
+
+  const binaryName = binaryNames[minerType];
+  if (!binaryName) {
+    throw new Error(`Unknown miner type: ${minerType}`);
+  }
+
+  // Custom path provided by user
   if (customPath) {
-    // Normalize path for the current platform
-    return path.normalize(customPath);
+    const normalized = path.normalize(customPath);
+    if (fs.existsSync(normalized)) {
+      return normalized;
+    }
+    throw new Error(
+      `Custom ${minerType} path not found: ${normalized}\n` +
+      `Make sure the file exists and is not blocked by antivirus.`
+    );
   }
 
-  // Determine binary name based on platform
-  const binaryName = process.platform === 'win32' ? 'xmrig.exe' : 'xmrig';
+  // Bundled binary paths to check (in priority order)
+  const searchPaths = [];
 
-  // Default to bundled xmrig in miners folder
-  const bundledXmrigPath = isDev
-    ? path.join(__dirname, '../miners/xmrig', binaryName)
-    : path.join(process.resourcesPath, 'miners/xmrig', binaryName);
-
-  // Check if bundled version exists, otherwise fall back to system PATH
-  if (fs.existsSync(bundledXmrigPath)) {
-    return path.normalize(bundledXmrigPath);
+  // Production: process.resourcesPath/miners/<type>/binary
+  if (!isDev && process.resourcesPath) {
+    searchPaths.push(path.join(process.resourcesPath, 'miners', minerType, binaryName));
   }
 
-  // Fallback to system PATH
-  return binaryName;
+  // Dev mode: project/miners/<type>/binary
+  searchPaths.push(path.join(__dirname, '..', 'miners', minerType, binaryName));
+
+  // Check each path
+  for (const searchPath of searchPaths) {
+    if (fs.existsSync(searchPath)) {
+      return path.normalize(searchPath);
+    }
+  }
+
+  // Nothing found - build a helpful error message
+  const searchedStr = searchPaths.map(p => `  - ${p}`).join('\n');
+  let errorMsg = `${binaryName} not found. Searched:\n${searchedStr}`;
+
+  if (process.platform === 'win32') {
+    errorMsg += `\n\nCommon fixes on Windows:\n` +
+      `1. Windows Defender or antivirus may have quarantined ${binaryName} — add an exclusion for the MineMaster folder\n` +
+      `2. Re-download: run "npm run setup" from the MineMaster directory\n` +
+      `3. Or manually place ${binaryName} in the miners/${minerType}/ folder`;
+  } else {
+    errorMsg += `\n\nRe-download: run "npm run setup" from the MineMaster directory`;
+  }
+
+  throw new Error(errorMsg);
+}
+
+function getXmrigPath(customPath) {
+  return getMinerBinaryPath('xmrig', customPath);
 }
 
 function getNanominerPath(customPath) {
-  if (customPath) {
-    // Normalize path for the current platform
-    return path.normalize(customPath);
-  }
-
-  // Determine binary name based on platform
-  const binaryName = process.platform === 'win32' ? 'nanominer.exe' : 'nanominer';
-
-  // Default to bundled nanominer in miners folder
-  const bundledNanominerPath = isDev
-    ? path.join(__dirname, '../miners/nanominer', binaryName)
-    : path.join(process.resourcesPath, 'miners/nanominer', binaryName);
-
-  // Check if bundled version exists
-  if (fs.existsSync(bundledNanominerPath)) {
-    return path.normalize(bundledNanominerPath);
-  }
-
-  // Fallback to miners folder (dev mode)
-  return path.normalize(path.join(__dirname, '../miners/nanominer', binaryName));
+  return getMinerBinaryPath('nanominer', customPath);
 }
 
 function createNanominerConfig(minerId, config) {
@@ -1407,15 +1449,40 @@ ipcMain.handle('get-mac-address', async () => {
 });
 
 /**
+ * Get the writable path for master-server.json
+ * In production, __dirname is inside the read-only app.asar, so we use userData instead.
+ * In dev mode, we use the project directory as before.
+ */
+function getMasterConfigPath() {
+  if (isDev) {
+    return path.join(__dirname, '..', 'master-server.json');
+  }
+  return path.join(app.getPath('userData'), 'master-server.json');
+}
+
+/**
  * Load master server configuration
  */
 ipcMain.handle('load-master-config', async () => {
-  const configPath = path.join(__dirname, '..', 'master-server.json');
+  const configPath = getMasterConfigPath();
+  
+  // Also check the bundled default (inside asar) for first-run migration
+  const bundledPath = path.join(__dirname, '..', 'master-server.json');
   
   try {
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
       return JSON.parse(data);
+    } else if (!isDev && fs.existsSync(bundledPath)) {
+      // First run after install: copy bundled config to writable location
+      const data = fs.readFileSync(bundledPath, 'utf8');
+      const config = JSON.parse(data);
+      try {
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      } catch (e) {
+        // If migration fails, still return the config
+      }
+      return config;
     } else {
       // Return default config
       const defaultConfig = {
@@ -1437,7 +1504,7 @@ ipcMain.handle('load-master-config', async () => {
  * Save master server configuration
  */
 ipcMain.handle('save-master-config', async (event, config) => {
-  const configPath = path.join(__dirname, '..', 'master-server.json');
+  const configPath = getMasterConfigPath();
   
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
