@@ -1,7 +1,7 @@
 {
   "enabled": true,
-  "host": "mining.ironcladtech.ca",
-  "port": 443,
+  "host": "127.0.0.1",
+  "port": 3001,
   "autoReconnect": true,
   "reconnectInterval": 5000,
   "heartbeatInterval": 30000

@@ -196,60 +196,6 @@
   transform: translateY(-1px);
 }
 
-/* ===== Connection Status ===== */
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  transition: all 0.25s ease;
-}
-
-.connection-status.connected {
-  background: rgba(63, 185, 80, 0.12);
-  color: #3fb950;
-  border: 1px solid rgba(63, 185, 80, 0.25);
-}
-
-.connection-status.disconnected {
-  background: rgba(248, 81, 73, 0.12);
-  color: #f85149;
-  border: 1px solid rgba(248, 81, 73, 0.25);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  position: relative;
-}
-
-.connected .status-dot {
-  background: #3fb950;
-  box-shadow: 0 0 10px #3fb950;
-  animation: statusPulse 2s ease-in-out infinite;
-}
-
-.disconnected .status-dot {
-  background: #f85149;
-}
-
-@keyframes statusPulse {
-  0%, 100% { 
-    box-shadow: 0 0 5px #3fb950;
-    transform: scale(1);
-  }
-  50% { 
-    box-shadow: 0 0 15px #3fb950, 0 0 25px #3fb950;
-    transform: scale(1.1);
-  }
-}
-
 /* ===== Main Content ===== */
 .main-content {
   flex: 1;

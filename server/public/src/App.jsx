@@ -1,33 +1,20 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import Dashboard from './components/Dashboard';
-import Miners from './components/Miners';
 import Configs from './components/Configs';
 import Login from './components/Login';
 import Register from './components/Register';
-import { useWebSocket } from './hooks/useWebSocket';
 import { authAPI, removeToken } from './services/auth';
 import './App.css';
 
 function App() {
   const location = useLocation();
-  const [wsConnected, setWsConnected] = useState(false);
   const [authState, setAuthState] = useState({
     loading: true,
     authenticated: false,
     setupRequired: false,
     user: null
   });
-
-  const handleWsMessage = useCallback((message) => {
-    // Handle global WebSocket messages if needed
-  }, []);
-
-  const { connected } = useWebSocket(handleWsMessage);
-
-  React.useEffect(() => {
-    setWsConnected(connected);
-  }, [connected]);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -148,12 +135,6 @@ function App() {
             📊 Dashboard
           </Link>
           <Link 
-            to="/miners" 
-            className={location.pathname === '/miners' ? 'active' : ''}
-          >
-            💻 Miners
-          </Link>
-          <Link 
             to="/configs" 
             className={location.pathname === '/configs' ? 'active' : ''}
           >
@@ -162,11 +143,6 @@ function App() {
         </div>
 
         <div className="navbar-right">
-          <div className={`connection-status ${wsConnected ? 'connected' : 'disconnected'}`}>
-            <span className="status-dot"></span>
-            <span>{wsConnected ? 'Live' : 'Offline'}</span>
-          </div>
-          
           <div className="user-info">
             <div className="user-avatar">
               {authState.user?.email?.charAt(0).toUpperCase() || '?'}
@@ -182,7 +158,6 @@ function App() {
       <main className="main-content">
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/miners" element={<Miners />} />
           <Route path="/configs" element={<Configs />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
