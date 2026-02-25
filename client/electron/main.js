@@ -51,8 +51,8 @@ function isLikelyIntegratedGpu(gpu = {}) {
   const model = (gpu.model || '').toLowerCase();
   const vendor = (gpu.vendor || '').toLowerCase();
 
-  // Intel integrated graphics
-  if (vendor.includes('intel') && (model.includes('uhd') || model.includes('iris') || model.includes('hd graphics'))) {
+  // Intel GPUs are typically integrated unless explicitly Arc (discrete line).
+  if (vendor.includes('intel') && !model.includes('arc')) {
     return true;
   }
 
@@ -65,7 +65,12 @@ function isLikelyIntegratedGpu(gpu = {}) {
   }
 
   // Microsoft fallback/virtual display adapter
-  if (vendor.includes('microsoft') || model.includes('basic display')) {
+  if (
+    vendor.includes('microsoft') ||
+    model.includes('basic display') ||
+    model.includes('virtual') ||
+    model.includes('integrated')
+  ) {
     return true;
   }
 
@@ -75,6 +80,7 @@ function isLikelyIntegratedGpu(gpu = {}) {
 function mapDiscreteGpus(controllers = []) {
   return controllers
     .filter(gpu => !isLikelyIntegratedGpu(gpu))
+    .filter((gpu) => !gpu.vram || gpu.vram > 512)
     .map((gpu, idx) => ({
       id: idx,
       vendor: gpu.vendor || '',

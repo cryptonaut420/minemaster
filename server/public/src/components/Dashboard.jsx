@@ -15,6 +15,32 @@ function Dashboard() {
   const [miners, setMiners] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const getGpuHashrate = (miner) => {
+    const runningGpus = (miner?.devices?.gpus || []).filter((g) => g?.running);
+    const gpuRates = runningGpus
+      .map((g) => (typeof g.hashrate === 'number' ? g.hashrate : null))
+      .filter((h) => h && h > 0);
+
+    // No per-GPU rates available; fall back to aggregate GPU rate if present.
+    if (gpuRates.length === 0) {
+      if (runningGpus.length > 0 && miner?.deviceType === 'GPU' && typeof miner?.hashrate === 'number') {
+        return miner.hashrate;
+      }
+      return 0;
+    }
+
+    // Defensive dedupe: older payloads may copy total GPU hashrate onto each GPU entry.
+    if (
+      gpuRates.length > 1 &&
+      typeof miner?.hashrate === 'number' &&
+      gpuRates.every((rate) => Math.abs(rate - miner.hashrate) < 0.0001)
+    ) {
+      return miner.hashrate;
+    }
+
+    return gpuRates.reduce((sum, rate) => sum + rate, 0);
+  };
+
   const fetchMiners = useCallback(async () => {
     try {
       const response = await minersAPI.getAll();
@@ -28,14 +54,7 @@ function Dashboard() {
         if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
           totalHashrate += miner.devices.cpu.hashrate;
         }
-        // Add all GPU hashrates if mining
-        if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
-          miner.devices.gpus.forEach(gpu => {
-            if (gpu.running && gpu.hashrate) {
-              totalHashrate += gpu.hashrate;
-            }
-          });
-        }
+        totalHashrate += getGpuHashrate(miner);
       });
       
       const newStats = {
@@ -84,10 +103,11 @@ function Dashboard() {
         
         // Process GPU mining
         if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
-          const runningGpus = miner.devices.gpus.filter(g => g.running && g.hashrate);
-          if (runningGpus.length > 0) {
-            const firstGpu = runningGpus[0];
-            const algo = firstGpu.algorithm || 'Unknown';
+          const runningGpus = miner.devices.gpus.filter(g => g.running);
+          const gpuHashrate = getGpuHashrate(miner);
+          if (runningGpus.length > 0 && gpuHashrate > 0) {
+            const firstGpu = runningGpus[0] || {};
+            const algo = firstGpu.algorithm || miner.algorithm || 'Unknown';
             const coin = firstGpu.coin || 'Unknown';
             const key = `${coin}_${algo}_GPU`;
             
@@ -101,10 +121,7 @@ function Dashboard() {
               };
             }
             
-            // Sum hashrate from all running GPUs on this miner
-            runningGpus.forEach(gpu => {
-              breakdown[key].hashrate += gpu.hashrate;
-            });
+            breakdown[key].hashrate += gpuHashrate;
             breakdown[key].devices += runningGpus.length;
           }
         }
@@ -259,10 +276,10 @@ function Dashboard() {
                 if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
                   const runningGpus = miner.devices.gpus.filter(g => g.running);
                   if (runningGpus.length > 0) {
-                    const totalGpuHashrate = runningGpus.reduce((sum, g) => sum + (g.hashrate || 0), 0);
+                    const totalGpuHashrate = getGpuHashrate(miner);
                     activeDevices.push({
                       type: `GPU (${runningGpus.length})`,
-                      algo: runningGpus[0].algorithm,
+                      algo: runningGpus[0].algorithm || miner.algorithm,
                       hashrate: totalGpuHashrate
                     });
                   }

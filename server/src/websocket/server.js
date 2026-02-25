@@ -5,6 +5,47 @@ const { v4: uuidv4 } = require('uuid');
 let wss = null;
 const connections = new Map(); // connectionId -> { ws, minerId }
 
+function isLikelyIntegratedGpu(gpu = {}) {
+  const model = (gpu.model || gpu.name || '').toLowerCase();
+  const vendor = (gpu.vendor || '').toLowerCase();
+
+  if (vendor.includes('intel') && !model.includes('arc')) return true;
+  if (
+    (vendor.includes('amd') || vendor.includes('ati')) &&
+    (model.includes('radeon graphics') ||
+      model.includes('vega') ||
+      model.includes('renoir') ||
+      model.includes('cezanne') ||
+      model.includes('lucienne') ||
+      model.includes('raphael'))
+  ) {
+    return true;
+  }
+  if (
+    vendor.includes('microsoft') ||
+    model.includes('basic display') ||
+    model.includes('virtual') ||
+    model.includes('integrated')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeGpuList(gpus = []) {
+  const seen = new Set();
+  return (Array.isArray(gpus) ? gpus : [])
+    .filter(Boolean)
+    .filter((gpu) => !isLikelyIntegratedGpu(gpu))
+    .filter((gpu) => !gpu.vram || gpu.vram > 512)
+    .filter((gpu) => {
+      const key = `${(gpu.vendor || '').toLowerCase()}|${(gpu.model || gpu.name || '').toLowerCase()}`;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function initialize(webSocketServer) {
   wss = webSocketServer;
   
@@ -109,7 +150,8 @@ async function handleRegister(connectionId, data) {
                  systemInfo?.os?.name || 
                  platform;
   const cpuInfo = systemInfo?.cpu || systemInfo?.hardware?.cpu || null;
-  const gpuInfo = systemInfo?.gpus || systemInfo?.gpu?.controllers || [];
+  const rawGpuInfo = systemInfo?.gpus || systemInfo?.gpu?.controllers || [];
+  const gpuInfo = normalizeGpuList(rawGpuInfo);
   const memoryInfo = systemInfo?.memory || systemInfo?.mem || null;
   
   // Extract device states from client if provided
@@ -312,7 +354,7 @@ async function handleStatusUpdate(connectionId, data) {
     updateData.systemInfo = statusData.systemInfo;
     updateData.hardware = {
       cpu: statusData.systemInfo.cpu || null,
-      gpus: statusData.systemInfo.gpus || [],
+      gpus: normalizeGpuList(statusData.systemInfo.gpus || []),
       ram: statusData.systemInfo.memory || null
     };
   }
@@ -413,7 +455,8 @@ async function handleStatusUpdate(connectionId, data) {
               ...gpu,
               enabled: gpuEnabled,
               running: true,
-              hashrate: gpuMiner.hashrate !== undefined ? gpuMiner.hashrate : null,
+              // GPU miner hashrate is aggregate; avoid writing full total to each GPU entry.
+              hashrate: null,
               algorithm: gpuMiner.algorithm || null
             }));
           } else {

@@ -579,7 +579,8 @@ function App() {
           model: gpu.model || gpu.name || `GPU ${idx}`,
           enabled: gpuMiner?.enabled !== false,
           running: gpuMiner?.running || false,
-          hashrate: gpuMiner?.running ? gpuMiner.hashrate : null,
+          // Nanominer reports aggregate hashrate; do not duplicate total per GPU.
+          hashrate: null,
           algorithm: gpuMiner?.config?.algorithm || null
         }));
       }
@@ -682,7 +683,8 @@ function App() {
               model: gpu.model || `GPU ${idx}`,
               enabled: gpuMiner?.enabled !== false,
               running: gpuMiner?.running || false,
-              hashrate: gpuMiner?.hashrate || null,
+              // Keep null unless explicit per-GPU hashrate is available.
+              hashrate: null,
               algorithm: gpuMiner?.config?.algorithm || null
             }))
           : []

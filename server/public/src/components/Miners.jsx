@@ -11,6 +11,30 @@ function Miners() {
   const [filter, setFilter] = useState('all');
   const { toasts, success, error, dismissToast } = useToast();
 
+  const getGpuHashrate = (miner) => {
+    const runningGpus = (miner?.devices?.gpus || []).filter((g) => g?.running);
+    const gpuRates = runningGpus
+      .map((g) => (typeof g.hashrate === 'number' ? g.hashrate : null))
+      .filter((h) => h && h > 0);
+
+    if (gpuRates.length === 0) {
+      if (runningGpus.length > 0 && miner?.deviceType === 'GPU' && typeof miner?.hashrate === 'number') {
+        return miner.hashrate;
+      }
+      return null;
+    }
+
+    if (
+      gpuRates.length > 1 &&
+      typeof miner?.hashrate === 'number' &&
+      gpuRates.every((rate) => Math.abs(rate - miner.hashrate) < 0.0001)
+    ) {
+      return miner.hashrate;
+    }
+
+    return gpuRates.reduce((sum, rate) => sum + rate, 0);
+  };
+
   const fetchMiners = useCallback(async () => {
     try {
       const response = await minersAPI.getAll();
@@ -355,9 +379,9 @@ function Miners() {
                                 <div className="device-status">
                                   {anyGpuRunning && (
                                     <>
-                                      {miner.devices?.gpus?.find(g => g.hashrate) && (
+                                      {getGpuHashrate(miner) && (
                                         <span className="device-hashrate mono">
-                                          {formatHashrate(miner.devices.gpus.find(g => g.hashrate)?.hashrate)}
+                                          {formatHashrate(getGpuHashrate(miner))}
                                         </span>
                                       )}
                                       {miner.devices?.gpus?.find(g => g.algorithm) && (
