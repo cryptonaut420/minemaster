@@ -46,27 +46,31 @@ function normalizeGpuList(gpus = []) {
     });
 }
 
+// Stale-connection reaper interval (cleaned up on shutdown)
+let staleConnectionTimer = null;
+const STALE_CONNECTION_MS = 90000; // 90 seconds without a heartbeat
+
 function initialize(webSocketServer) {
   wss = webSocketServer;
   
   wss.on('connection', (ws, req) => {
     const connectionId = uuidv4();
-    // Extract IP address from request
     const ip = req.socket.remoteAddress || 
                req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
                req.connection?.remoteAddress || 
                'unknown';
-    connections.set(connectionId, { ws, minerId: null, ip });
+    connections.set(connectionId, { ws, minerId: null, ip, lastSeen: Date.now() });
     
-    // Send connection ID to client
     ws.send(JSON.stringify({
       type: 'connected',
       connectionId
     }));
     
-    // Handle messages from client
     ws.on('message', async (message) => {
       try {
+        const conn = connections.get(connectionId);
+        if (conn) conn.lastSeen = Date.now();
+
         const data = JSON.parse(message);
         await handleMessage(connectionId, data);
       } catch (error) {
@@ -77,16 +81,34 @@ function initialize(webSocketServer) {
       }
     });
     
-    // Handle disconnect
-    ws.on('close', async () => {
-      await handleDisconnect(connectionId);
-    });
-    
-    // Handle errors
-    ws.on('error', async (error) => {
-      await handleDisconnect(connectionId);
-    });
+    // Guard: only the first of close/error should trigger disconnect logic
+    let disconnected = false;
+    const safeDisconnect = async () => {
+      if (disconnected) return;
+      disconnected = true;
+      try {
+        await handleDisconnect(connectionId);
+      } catch (err) {
+        console.error(`[WS] Error in handleDisconnect for ${connectionId}:`, err);
+        connections.delete(connectionId);
+      }
+    };
+
+    ws.on('close', safeDisconnect);
+    ws.on('error', safeDisconnect);
   });
+
+  // Periodically reap stale connections whose clients silently disappeared
+  staleConnectionTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [connectionId, conn] of connections.entries()) {
+      if (now - conn.lastSeen > STALE_CONNECTION_MS) {
+        console.log(`[WS] Reaping stale connection ${connectionId}`);
+        try { conn.ws.terminate(); } catch (_) {}
+        handleDisconnect(connectionId).catch(() => connections.delete(connectionId));
+      }
+    }
+  }, 30000);
 }
 
 async function handleMessage(connectionId, data) {
@@ -288,9 +310,11 @@ async function handleRegister(connectionId, data) {
     miner = updatedMiner;
   }
   
-  // Update connection mapping
+  // Update connection mapping (preserve existing ws and ip)
+  const existingConn = connections.get(connectionId);
+  if (!existingConn) return; // Connection disappeared during async registration
   connections.set(connectionId, { 
-    ws: connections.get(connectionId).ws, 
+    ...existingConn,
     minerId: miner.id,
     systemId
   });
@@ -735,8 +759,16 @@ async function getConnectedMiners() {
   return miners.filter(m => m.connectionId && (m.status === 'online' || m.status === 'mining'));
 }
 
+function shutdown() {
+  if (staleConnectionTimer) {
+    clearInterval(staleConnectionTimer);
+    staleConnectionTimer = null;
+  }
+}
+
 module.exports = {
   initialize,
+  shutdown,
   sendToMiner,
   sendToConnection,
   sendCommand,

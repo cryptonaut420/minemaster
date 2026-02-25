@@ -48,9 +48,11 @@ async function createIndexes() {
   
   try {
     // Miners collection indexes
+    await db.collection('miners').createIndex({ systemId: 1 }, { unique: true, sparse: true });
     await db.collection('miners').createIndex({ connectionId: 1 }, { unique: true, sparse: true });
     await db.collection('miners').createIndex({ hostname: 1, ip: 1 });
     await db.collection('miners').createIndex({ status: 1 });
+    await db.collection('miners').createIndex({ bound: 1 });
     await db.collection('miners').createIndex({ lastSeen: 1 });
     
     // Hash rates collection indexes

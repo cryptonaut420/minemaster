@@ -1,154 +1,118 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { minersAPI } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import './Dashboard.css';
 
-function Dashboard() {
-  const [stats, setStats] = useState({
-    total: 0,
-    online: 0,
-    mining: 0,
-    offline: 0,
-    totalHashrate: 0
-  });
-  const [hashrateBreakdown, setHashrateBreakdown] = useState({});
-  const [miners, setMiners] = useState([]);
-  const [loading, setLoading] = useState(true);
+function getGpuHashrate(miner) {
+  const runningGpus = (miner?.devices?.gpus || []).filter((g) => g?.running);
+  const gpuRates = runningGpus
+    .map((g) => (typeof g.hashrate === 'number' ? g.hashrate : null))
+    .filter((h) => h && h > 0);
 
-  const getGpuHashrate = (miner) => {
-    const runningGpus = (miner?.devices?.gpus || []).filter((g) => g?.running);
-    const gpuRates = runningGpus
-      .map((g) => (typeof g.hashrate === 'number' ? g.hashrate : null))
-      .filter((h) => h && h > 0);
-
-    // No per-GPU rates available; fall back to aggregate GPU rate if present.
-    if (gpuRates.length === 0) {
-      if (runningGpus.length > 0 && miner?.deviceType === 'GPU' && typeof miner?.hashrate === 'number') {
-        return miner.hashrate;
-      }
-      return 0;
-    }
-
-    // Defensive dedupe: older payloads may copy total GPU hashrate onto each GPU entry.
-    if (
-      gpuRates.length > 1 &&
-      typeof miner?.hashrate === 'number' &&
-      gpuRates.every((rate) => Math.abs(rate - miner.hashrate) < 0.0001)
-    ) {
+  if (gpuRates.length === 0) {
+    if (runningGpus.length > 0 && miner?.deviceType === 'GPU' && typeof miner?.hashrate === 'number') {
       return miner.hashrate;
     }
+    return 0;
+  }
 
-    return gpuRates.reduce((sum, rate) => sum + rate, 0);
-  };
+  // Defensive dedupe: older payloads may copy total GPU hashrate onto each GPU entry.
+  if (
+    gpuRates.length > 1 &&
+    typeof miner?.hashrate === 'number' &&
+    gpuRates.every((rate) => Math.abs(rate - miner.hashrate) < 0.0001)
+  ) {
+    return miner.hashrate;
+  }
+
+  return gpuRates.reduce((sum, rate) => sum + rate, 0);
+}
+
+function Dashboard() {
+  const [miners, setMiners] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const fetchMiners = useCallback(async () => {
     try {
       const response = await minersAPI.getAll();
-      const minersData = response.data.miners || [];
-      setMiners(minersData);
-      
-      // Calculate total hashrate from all devices across all miners
-      let totalHashrate = 0;
-      minersData.forEach(miner => {
-        // Add CPU hashrate if mining
-        if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
-          totalHashrate += miner.devices.cpu.hashrate;
-        }
-        totalHashrate += getGpuHashrate(miner);
-      });
-      
-      const newStats = {
-        total: minersData.length,
-        online: minersData.filter(m => m.status === 'online' || m.status === 'mining').length,
-        mining: minersData.filter(m => m.status === 'mining').length,
-        offline: minersData.filter(m => m.status === 'offline').length,
-        totalHashrate
-      };
-      setStats(newStats);
-      setLoading(false);
+      setMiners(response.data.miners || []);
     } catch (error) {
       console.error('Error fetching miners:', error);
-      setLoading(false);
     }
+    setLoading(false);
   }, []);
 
-  const fetchHashrateStats = useCallback(async () => {
-    try {
-      // Calculate hashrate breakdown from current miners by coin + algorithm
-      const response = await minersAPI.getAll();
-      const minersData = response.data.miners || [];
-      const breakdown = {};
-      
-      minersData.forEach(miner => {
-        if (miner.status !== 'mining') return;
-        
-        // Process CPU mining
-        if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
-          const algo = miner.devices.cpu.algorithm || 'Unknown';
-          const coin = miner.devices.cpu.coin || 'Unknown';
-          const key = `${coin}_${algo}_CPU`;
-          
+  // Derive stats and breakdown from miners state — no separate API call needed
+  const stats = useMemo(() => {
+    let totalHashrate = 0;
+    miners.forEach(miner => {
+      if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
+        totalHashrate += miner.devices.cpu.hashrate;
+      }
+      totalHashrate += getGpuHashrate(miner);
+    });
+
+    return {
+      total: miners.length,
+      online: miners.filter(m => m.status === 'online' || m.status === 'mining').length,
+      mining: miners.filter(m => m.status === 'mining').length,
+      offline: miners.filter(m => m.status === 'offline').length,
+      totalHashrate
+    };
+  }, [miners]);
+
+  const hashrateBreakdown = useMemo(() => {
+    const breakdown = {};
+    miners.forEach(miner => {
+      if (miner.status !== 'mining') return;
+
+      if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
+        const algo = miner.devices.cpu.algorithm || 'Unknown';
+        const coin = miner.devices.cpu.coin || 'Unknown';
+        const key = `${coin}_${algo}_CPU`;
+        if (!breakdown[key]) {
+          breakdown[key] = { coin, algorithm: algo, deviceType: 'CPU', hashrate: 0, devices: 0 };
+        }
+        breakdown[key].hashrate += miner.devices.cpu.hashrate;
+        breakdown[key].devices += 1;
+      }
+
+      if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
+        const runningGpus = miner.devices.gpus.filter(g => g.running);
+        const gpuHash = getGpuHashrate(miner);
+        if (runningGpus.length > 0 && gpuHash > 0) {
+          const firstGpu = runningGpus[0] || {};
+          const algo = firstGpu.algorithm || miner.algorithm || 'Unknown';
+          const coin = firstGpu.coin || 'Unknown';
+          const key = `${coin}_${algo}_GPU`;
           if (!breakdown[key]) {
-            breakdown[key] = {
-              coin,
-              algorithm: algo,
-              deviceType: 'CPU',
-              hashrate: 0,
-              devices: 0
-            };
+            breakdown[key] = { coin, algorithm: algo, deviceType: 'GPU', hashrate: 0, devices: 0 };
           }
-          breakdown[key].hashrate += miner.devices.cpu.hashrate;
-          breakdown[key].devices += 1;
+          breakdown[key].hashrate += gpuHash;
+          breakdown[key].devices += runningGpus.length;
         }
-        
-        // Process GPU mining
-        if (miner.devices?.gpus && Array.isArray(miner.devices.gpus)) {
-          const runningGpus = miner.devices.gpus.filter(g => g.running);
-          const gpuHashrate = getGpuHashrate(miner);
-          if (runningGpus.length > 0 && gpuHashrate > 0) {
-            const firstGpu = runningGpus[0] || {};
-            const algo = firstGpu.algorithm || miner.algorithm || 'Unknown';
-            const coin = firstGpu.coin || 'Unknown';
-            const key = `${coin}_${algo}_GPU`;
-            
-            if (!breakdown[key]) {
-              breakdown[key] = {
-                coin,
-                algorithm: algo,
-                deviceType: 'GPU',
-                hashrate: 0,
-                devices: 0
-              };
-            }
-            
-            breakdown[key].hashrate += gpuHashrate;
-            breakdown[key].devices += runningGpus.length;
-          }
-        }
-      });
-      
-      setHashrateBreakdown(breakdown);
-    } catch (error) {
-      // Silent fail - will retry on interval
-    }
-  }, []);
+      }
+    });
+    return breakdown;
+  }, [miners]);
 
   useEffect(() => {
     fetchMiners();
-    fetchHashrateStats();
-    const interval = setInterval(() => {
-      fetchMiners();
-      fetchHashrateStats();
-    }, 5000); // Refresh every 5 seconds
+    const interval = setInterval(fetchMiners, 5000);
     return () => clearInterval(interval);
-  }, [fetchMiners, fetchHashrateStats]);
+  }, [fetchMiners]);
 
+  // Debounce rapid WebSocket-triggered refreshes to avoid hammering the API
+  const wsRefreshTimerRef = React.useRef(null);
   useWebSocket(useCallback((message) => {
     if (['miner_connected', 'miner_disconnected', 'miner_status_update', 'mining_update', 'miner_device_update'].includes(message.type)) {
-      fetchMiners();
-      fetchHashrateStats();
+      if (wsRefreshTimerRef.current) clearTimeout(wsRefreshTimerRef.current);
+      wsRefreshTimerRef.current = setTimeout(() => {
+        wsRefreshTimerRef.current = null;
+        fetchMiners();
+      }, 300);
     }
-  }, [fetchMiners, fetchHashrateStats]));
+  }, [fetchMiners]));
 
   const formatHashrate = (h) => {
     if (!h) return '0 H/s';
@@ -160,7 +124,9 @@ function Dashboard() {
   };
 
   const getTimeAgo = (dateString) => {
+    if (!dateString) return '—';
     const diff = Date.now() - new Date(dateString).getTime();
+    if (isNaN(diff) || diff < 0) return '—';
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);

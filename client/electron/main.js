@@ -301,6 +301,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Clear background intervals to prevent work after quit
+  if (bgUpdateInterval) { clearInterval(bgUpdateInterval); bgUpdateInterval = null; }
+  if (bgUpdateInitTimeout) { clearTimeout(bgUpdateInitTimeout); bgUpdateInitTimeout = null; }
+
   // Ensure all miners are stopped before app quits
   Object.values(miners).forEach(minerData => {
     if (minerData && minerData.process && !minerData.process.killed) {
@@ -465,14 +469,14 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
             
             // Read new content from log file
             const readNewContent = () => {
+              let fd = -1;
               try {
                 const stats = fs.statSync(latestLog);
                 if (stats.size > lastSize) {
-                  const fd = fs.openSync(latestLog, 'r');
+                  fd = fs.openSync(latestLog, 'r');
                   const bytesToRead = Math.min(stats.size - lastSize, MAX_LOG_READ_BYTES);
                   const buffer = Buffer.alloc(bytesToRead);
                   fs.readSync(fd, buffer, 0, buffer.length, lastSize);
-                  fs.closeSync(fd);
                   
                   const output = stripAnsi(buffer.toString('utf8'));
                   if (output.trim()) {
@@ -485,6 +489,10 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
                 }
               } catch (e) {
                 // File might be locked or rotated
+              } finally {
+                if (fd >= 0) {
+                  try { fs.closeSync(fd); } catch (_) {}
+                }
               }
             };
             
@@ -608,6 +616,7 @@ async function findProcessPIDs(processName, configPath) {
 
 // Aggressive kill with multiple strategies
 async function killMinerProcess(pid, signal = 'SIGTERM') {
+  if (!pid || pid <= 0) return false;
   try {
     if (process.platform === 'win32') {
       if (signal === 'SIGKILL') {
@@ -623,8 +632,8 @@ async function killMinerProcess(pid, signal = 'SIGTERM') {
     } else {
       // Unix - try multiple approaches
       try {
-        // Try process group kill first
-        process.kill(-pid, signal);
+        // Try process group kill first (pid must be positive for group kill)
+        if (pid > 1) process.kill(-pid, signal);
       } catch (e1) {
         try {
           // Fallback to regular kill
@@ -1028,14 +1037,18 @@ function updateGpuInfoAsync() {
   }, 0);
 }
 
+// Track background timers for cleanup on quit
+let bgUpdateInterval = null;
+let bgUpdateInitTimeout = null;
+
 // Start background updates every 10 seconds
-setInterval(() => {
+bgUpdateInterval = setInterval(() => {
   updateCpuTempAsync();
   updateGpuInfoAsync();
 }, 10000);
 
 // Initial update after 2 seconds
-setTimeout(() => {
+bgUpdateInitTimeout = setTimeout(() => {
   updateCpuTempAsync();
   updateGpuInfoAsync();
 }, 2000);

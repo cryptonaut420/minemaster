@@ -86,10 +86,24 @@ class MasterServerService {
       : `${protocol}://${this.config.host}:${this.config.port}`;
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+
+      // Timeout if connection takes too long
+      const connectTimeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try { this.ws?.close(); } catch (_) {}
+          reject(new Error('Connection timeout'));
+        }
+      }, 15000);
+
       try {
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(connectTimeout);
           this.connected = true;
           this.reconnectAttempts = 0;
           this.emit('connected');
@@ -98,28 +112,37 @@ class MasterServerService {
         };
 
         this.ws.onclose = () => {
+          clearTimeout(connectTimeout);
           const wasBound = this.bound;
           this.connected = false;
           this.bound = false;
           this.emit('disconnected');
           this.stopHeartbeat();
           
-          // Auto-reconnect if enabled
           if (this.config?.autoReconnect && wasBound) {
             this.scheduleReconnect();
           }
         };
 
         this.ws.onerror = (error) => {
+          // Only reject the connect promise; onclose handles reconnect logic
+          if (!settled) {
+            settled = true;
+            clearTimeout(connectTimeout);
+            reject(error);
+          }
           this.emit('error', error);
-          reject(error);
         };
 
         this.ws.onmessage = (event) => {
           this.handleMessage(event.data);
         };
       } catch (error) {
-        reject(error);
+        clearTimeout(connectTimeout);
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
       }
     });
   }
@@ -152,17 +175,22 @@ class MasterServerService {
   scheduleReconnect() {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+
+    // Don't reconnect if explicitly disabled
+    if (!this.config?.enabled || !this.config?.autoReconnect) return;
 
     const baseInterval = this.config?.reconnectInterval || 5000;
     const backoff = Math.min(baseInterval * Math.pow(2, this.reconnectAttempts), this.maxReconnectInterval);
     this.reconnectAttempts++;
 
     this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
       try {
         await this.connect();
       } catch (err) {
-        if (this.config?.autoReconnect) {
+        if (this.config?.autoReconnect && this.config?.enabled) {
           this.scheduleReconnect();
         }
       }
@@ -177,7 +205,9 @@ class MasterServerService {
     const interval = this.config?.heartbeatInterval || 30000;
     
     this.heartbeatTimer = setInterval(() => {
-      this.send({ type: 'heartbeat' });
+      if (this.bound) {
+        this.send({ type: 'heartbeat' });
+      }
     }, interval);
   }
 

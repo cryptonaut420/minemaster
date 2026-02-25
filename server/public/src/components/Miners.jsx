@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { minersAPI } from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useToast } from '../hooks/useToast';
@@ -49,9 +49,14 @@ function Miners() {
     fetchMiners();
   }, [fetchMiners]);
 
+  const wsRefreshTimerRef = React.useRef(null);
   useWebSocket(useCallback((message) => {
     if (['miner_connected', 'miner_disconnected', 'miner_status_update', 'mining_update', 'miner_device_update'].includes(message.type)) {
-      fetchMiners();
+      if (wsRefreshTimerRef.current) clearTimeout(wsRefreshTimerRef.current);
+      wsRefreshTimerRef.current = setTimeout(() => {
+        wsRefreshTimerRef.current = null;
+        fetchMiners();
+      }, 300);
     }
   }, [fetchMiners]));
 
@@ -135,7 +140,9 @@ function Miners() {
   };
 
   const getTimeAgo = (dateString) => {
+    if (!dateString) return '—';
     const diff = Date.now() - new Date(dateString).getTime();
+    if (isNaN(diff) || diff < 0) return '—';
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
@@ -145,11 +152,11 @@ function Miners() {
     return 'Just now';
   };
 
-  const filteredMiners = miners.filter(m => {
+  const filteredMiners = useMemo(() => miners.filter(m => {
     if (filter === 'all') return true;
     if (filter === 'online') return m.status === 'online' || m.status === 'mining';
     return m.status === filter;
-  });
+  }), [miners, filter]);
 
   if (loading) {
     return (

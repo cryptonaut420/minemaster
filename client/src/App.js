@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './App.css';
 import Dashboard from './components/Dashboard';
 import MinerConsole from './components/MinerConsole';
@@ -130,25 +130,28 @@ function App() {
     }
   }, [clientName]);
 
-  // Save config to localStorage whenever it changes
-  useEffect(() => {
-    const configToSave = {};
-    miners.forEach(miner => {
-      configToSave[miner.id] = miner.config;
-    });
-    localStorage.setItem('minemaster-config', JSON.stringify(configToSave));
+  // Derive stable fingerprints so localStorage writes only fire when config/enabled actually change
+  const configFingerprint = useMemo(() => {
+    const obj = {};
+    miners.forEach(m => { obj[m.id] = m.config; });
+    return JSON.stringify(obj);
   }, [miners]);
 
-  // Persist miner enabled/disabled states independently from miner config
-  useEffect(() => {
-    const stateToSave = {};
-    miners.forEach(miner => {
-      stateToSave[miner.id] = {
-        enabled: miner.enabled !== false
-      };
-    });
-    localStorage.setItem('minemaster-miner-state', JSON.stringify(stateToSave));
+  const enabledFingerprint = useMemo(() => {
+    const obj = {};
+    miners.forEach(m => { obj[m.id] = { enabled: m.enabled !== false }; });
+    return JSON.stringify(obj);
   }, [miners]);
+
+  // Save config to localStorage only when configs actually change
+  useEffect(() => {
+    localStorage.setItem('minemaster-config', configFingerprint);
+  }, [configFingerprint]);
+
+  // Persist miner enabled/disabled states only when toggle state changes
+  useEffect(() => {
+    localStorage.setItem('minemaster-miner-state', enabledFingerprint);
+  }, [enabledFingerprint]);
 
   // Check for running miners and GPU detection on mount only (not periodically)
   useEffect(() => {
@@ -276,7 +279,7 @@ function App() {
       }));
     }
 
-    return () => cleanups.forEach(fn => fn && fn());
+    return () => cleanups.forEach(fn => { try { fn && fn(); } catch (_) {} });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Master Server Integration - Command and Config Handlers
@@ -608,7 +611,7 @@ function App() {
       });
 
       // Send hashrate updates for running miners
-      currentMiners.forEach(async (miner) => {
+      for (const miner of currentMiners) {
         if (miner.running && miner.hashrate) {
           await masterServer.sendHashrateUpdate({
             minerId: miner.id,
@@ -617,7 +620,7 @@ function App() {
             hashrate: miner.hashrate
           });
         }
-      });
+      }
       
     } catch (error) {
       // Silent fail - status updates are periodic anyway
@@ -786,9 +789,10 @@ function App() {
   // Reactive status sync - push updates immediately when mining state changes
   // This ensures server stays in sync even outside the 5-second interval
   // ============================================================
-  const miningStateFingerprint = miners.map(m => 
-    `${m.id}:${m.running}:${m.enabled}:${m.hashrate ? 1 : 0}`
-  ).join('|');
+  const miningStateFingerprint = useMemo(() =>
+    miners.map(m => `${m.id}:${m.running}:${m.enabled}:${m.hashrate ? 1 : 0}`).join('|'),
+    [miners]
+  );
 
   useEffect(() => {
     if (!masterServer.isBound()) return;

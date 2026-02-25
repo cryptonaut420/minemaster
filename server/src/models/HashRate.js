@@ -1,31 +1,39 @@
 const { getDb } = require('../db/mongodb');
 
+// Throttle per-miner cleanup to avoid running expensive count+delete on every insert
+const _lastCleanup = new Map();
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between cleanups per miner
+
 class HashRate {
   static async record(minerId, data) {
     try {
       const db = getDb();
       const record = {
         minerId,
-        deviceType: data.deviceType, // CPU, GPU
-        algorithm: data.algorithm, // rx/0, kawpow, etc.
+        deviceType: data.deviceType,
+        algorithm: data.algorithm,
         hashrate: data.hashrate,
         timestamp: new Date()
       };
       
       await db.collection('hashrates').insertOne(record);
       
-      // Keep only last 1000 records per miner (cleanup)
-      const count = await db.collection('hashrates').countDocuments({ minerId });
-      if (count > 1000) {
-        const oldest = await db.collection('hashrates')
-          .find({ minerId })
-          .sort({ timestamp: 1 })
-          .limit(count - 1000)
-          .toArray();
-        
-        const ids = oldest.map(r => r._id);
-        if (ids.length > 0) {
-          await db.collection('hashrates').deleteMany({ _id: { $in: ids } });
+      // Throttled cleanup — only check every CLEANUP_INTERVAL_MS per miner
+      const lastRun = _lastCleanup.get(minerId) || 0;
+      if (Date.now() - lastRun > CLEANUP_INTERVAL_MS) {
+        _lastCleanup.set(minerId, Date.now());
+        const count = await db.collection('hashrates').countDocuments({ minerId });
+        if (count > 1000) {
+          const oldest = await db.collection('hashrates')
+            .find({ minerId })
+            .sort({ timestamp: 1 })
+            .limit(count - 1000)
+            .toArray();
+          
+          const ids = oldest.map(r => r._id);
+          if (ids.length > 0) {
+            await db.collection('hashrates').deleteMany({ _id: { $in: ids } });
+          }
         }
       }
       

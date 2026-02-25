@@ -50,9 +50,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// API Routes
+// API Routes — rate limiters must be registered BEFORE the route handlers
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth', authRoutes);
-app.post('/api/auth/login', loginLimiter); // Apply rate limiting to login
 app.use('/api/miners', apiLimiter, minerRoutes);
 app.use('/api/configs', apiLimiter, configRoutes);
 app.use('/api/stats', apiLimiter, statsRoutes);
@@ -106,13 +106,41 @@ async function startServer() {
 
 startServer();
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+// Global error handlers — prevent silent crashes in production
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  // Give time for logs to flush, then exit (systemd/pm2 will restart)
+  setTimeout(() => process.exit(1), 1000);
+});
+
+// Graceful shutdown — close WebSocket connections before HTTP server
+function gracefulShutdown(signal) {
+  console.log(`${signal} received, shutting down gracefully...`);
+
+  // Close all WebSocket connections
+  if (wss) {
+    wss.clients.forEach((client) => {
+      try { client.close(1001, 'Server shutting down'); } catch (_) {}
+    });
+  }
+
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
   });
-});
+
+  // Force exit if graceful shutdown takes too long
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 module.exports = app;
