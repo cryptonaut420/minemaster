@@ -6,6 +6,7 @@ const { promisify } = require('util');
 const si = require('systeminformation');
 const os = require('os');
 const fs = require('fs');
+const { initAutoUpdater, checkForUpdates, getUpdateState, cleanup: cleanupAutoUpdater } = require('./autoUpdater');
 
 const execAsync = promisify(exec);
 
@@ -46,6 +47,34 @@ let systemInfoCache = null;
 let systemInfoCachePath = null;
 let systemInfoRefreshPromise = null;
 const SYSTEM_INFO_CACHE_FILENAME = 'system-info-cache.json';
+const UPDATE_RESUME_FILENAME = 'update-resume-state.json';
+
+function getUpdateResumeFilePath() {
+  return path.join(app.getPath('userData'), UPDATE_RESUME_FILENAME);
+}
+
+function saveUpdateResumeState(runningMinerIds) {
+  try {
+    const data = { minerIds: runningMinerIds, savedAt: Date.now() };
+    fs.writeFileSync(getUpdateResumeFilePath(), JSON.stringify(data), 'utf8');
+  } catch (_) {}
+}
+
+function loadAndClearUpdateResumeState() {
+  const filePath = getUpdateResumeFilePath();
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    fs.unlinkSync(filePath);
+    const data = JSON.parse(raw);
+    // Ignore stale resume files older than 10 minutes (something went wrong)
+    if (data.savedAt && (Date.now() - data.savedAt) > 10 * 60 * 1000) return null;
+    return data;
+  } catch (_) {
+    try { fs.unlinkSync(filePath); } catch (_e) {}
+    return null;
+  }
+}
 
 function isLikelyIntegratedGpu(gpu = {}) {
   const model = (gpu.model || '').toLowerCase();
@@ -235,6 +264,9 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // Initialize auto-updater (only runs checks in packaged builds)
+  initAutoUpdater(mainWindow, stopAllMinersForUpdate);
+
   mainWindow.on('closed', () => {
     // Kill all running miners when window closes
     Object.entries(miners).forEach(([minerId, minerData]) => {
@@ -301,6 +333,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Clean up auto-updater intervals
+  cleanupAutoUpdater();
+
   // Clear background intervals to prevent work after quit
   if (bgUpdateInterval) { clearInterval(bgUpdateInterval); bgUpdateInterval = null; }
   if (bgUpdateInitTimeout) { clearTimeout(bgUpdateInitTimeout); bgUpdateInitTimeout = null; }
@@ -321,6 +356,80 @@ app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
   }
+});
+
+// ============================================
+// AUTO-UPDATE HELPERS
+// ============================================
+
+/**
+ * Gracefully stop all running miners before an auto-update restart.
+ * Reuses the existing stop-miner IPC logic.
+ */
+async function stopAllMinersForUpdate() {
+  const minerIds = Object.keys(miners);
+
+  // Persist which miners are currently running so we can resume after update restart
+  const runningIds = minerIds.filter(id => {
+    const d = miners[id];
+    return d && d.process && !d.process.killed;
+  });
+  if (runningIds.length > 0) {
+    saveUpdateResumeState(runningIds);
+  }
+
+  if (minerIds.length === 0) return;
+
+  const stopPromises = minerIds.map(async (minerId) => {
+    const minerData = miners[minerId];
+    if (!minerData || !minerData.process || minerData.process.killed) {
+      delete miners[minerId];
+      return;
+    }
+
+    const minerProcess = minerData.process;
+    const pid = minerProcess.pid;
+
+    // Clean up log file watchers / poll intervals before killing
+    if (minerProcess._logSetupTimeout) {
+      clearTimeout(minerProcess._logSetupTimeout);
+    }
+    if (minerProcess._logWatcher) {
+      try { minerProcess._logWatcher.close(); } catch (_) {}
+    }
+    if (minerProcess._logPollInterval) {
+      clearInterval(minerProcess._logPollInterval);
+    }
+
+    try {
+      if (process.platform === 'win32') {
+        await execAsync(`taskkill /PID ${pid} /T /F`, { timeout: 5000 }).catch(() => {});
+      } else {
+        try { minerProcess.kill('SIGTERM'); } catch (_) {}
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (!minerProcess.killed) {
+          try { minerProcess.kill('SIGKILL'); } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    delete miners[minerId];
+  });
+
+  await Promise.allSettled(stopPromises);
+}
+
+// Auto-update IPC handlers
+ipcMain.handle('check-for-update', () => {
+  checkForUpdates();
+  return { success: true };
+});
+
+ipcMain.handle('get-update-status', () => {
+  return { state: getUpdateState() };
+});
+
+ipcMain.handle('get-update-resume-state', () => {
+  return loadAndClearUpdateResumeState();
 });
 
 // IPC Handlers for miner control

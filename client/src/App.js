@@ -98,6 +98,7 @@ function App() {
   const [selectedView, setSelectedView] = useState('dashboard');
   const [selectedMiner, setSelectedMiner] = useState('xmrig-1');
   const [notifications, setNotifications] = useState([]);
+  const [updateStatus, setUpdateStatus] = useState({ state: 'idle' });
   const [isBoundToMaster, setIsBoundToMaster] = useState(() => {
     // Initialize from localStorage on app start
     return localStorage.getItem('master-server-bound') === 'true';
@@ -199,6 +200,36 @@ function App() {
     checkRunningMiners();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // After an auto-update restart, resume any miners that were running before the update.
+  useEffect(() => {
+    if (!window.electronAPI?.getUpdateResumeState) return;
+
+    let cancelled = false;
+
+    const resumeAfterUpdate = async () => {
+      try {
+        const resumeState = await window.electronAPI.getUpdateResumeState();
+        if (cancelled || !resumeState?.minerIds?.length) return;
+
+        addNotification('Resuming mining after update...', 'info');
+
+        // Small delay to let the app fully initialize and configs load from localStorage
+        await new Promise(r => setTimeout(r, 5000));
+        if (cancelled) return;
+
+        for (const minerId of resumeState.minerIds) {
+          const miner = minersRef.current.find(m => m.id === minerId);
+          if (miner && miner.enabled !== false && !miner.running) {
+            await handleStartMiner(minerId);
+          }
+        }
+      } catch (_) {}
+    };
+
+    resumeAfterUpdate();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // IPC listener cleanup; runs once on mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -277,6 +308,11 @@ function App() {
           const minerName = miner?.name || 'Miner';
           addNotification(`${minerName} crashed unexpectedly (exit code ${data.code})`, 'error');
         }
+      }));
+
+      // Auto-update status listener
+      cleanups.push(window.electronAPI.onUpdateStatus((status) => {
+        setUpdateStatus(status);
       }));
     }
 
@@ -476,6 +512,12 @@ function App() {
           }
           break;
           
+        case 'check-update':
+          if (window.electronAPI) {
+            window.electronAPI.checkForUpdate();
+          }
+          break;
+
         default:
           // Unknown command - ignore silently
       }
@@ -1049,8 +1091,33 @@ function App() {
             <h1>⛏️ MineMaster</h1>
             <p className="subtitle">Crypto Mining Manager</p>
           </div>
-          <div className="app-version" title={`Base ${versionInfo.baseVersion} | Build ${versionInfo.buildMetadata}`}>
-            v{versionInfo.displayVersion}
+          <div className="header-right">
+            {updateStatus.state === 'downloading' && (
+              <div className="update-indicator downloading">
+                <span className="update-spinner"></span>
+                Updating... {updateStatus.percent || 0}%
+              </div>
+            )}
+            {updateStatus.state === 'downloaded' && (
+              <div className="update-indicator restarting">
+                <span className="update-spinner"></span>
+                Restarting...
+              </div>
+            )}
+            {updateStatus.state === 'available' && (
+              <div className="update-indicator available">
+                <span className="update-spinner"></span>
+                Preparing update v{updateStatus.version}...
+              </div>
+            )}
+            {updateStatus.state === 'error' && (
+              <div className="update-indicator update-error">
+                Update failed — retrying soon
+              </div>
+            )}
+            <div className="app-version" title={`Base ${versionInfo.baseVersion} | Build ${versionInfo.buildMetadata}`}>
+              v{versionInfo.displayVersion}
+            </div>
           </div>
         </header>
 

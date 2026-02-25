@@ -12,7 +12,10 @@ const ALLOWED_INVOKE_CHANNELS = [
   'get-gpu-stats',
   'get-mac-address',
   'load-master-config',
-  'save-master-config'
+  'save-master-config',
+  'check-for-update',
+  'get-update-status',
+  'get-update-resume-state'
 ];
 
 function safeInvoke(channel, data) {
@@ -43,7 +46,12 @@ const api = {
   getGpuStats: () => safeInvoke('get-gpu-stats'),
   onMinerOutput: createListenerFactory('miner-output'),
   onMinerError: createListenerFactory('miner-error'),
-  onMinerClosed: createListenerFactory('miner-closed')
+  onMinerClosed: createListenerFactory('miner-closed'),
+  // Auto-update
+  checkForUpdate: () => safeInvoke('check-for-update'),
+  getUpdateStatus: () => safeInvoke('get-update-status'),
+  getUpdateResumeState: () => safeInvoke('get-update-resume-state'),
+  onUpdateStatus: createListenerFactory('update-status')
 };
 
 // Expose as both 'electron' and 'electronAPI' for backward compatibility
