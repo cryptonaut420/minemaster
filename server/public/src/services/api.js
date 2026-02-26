@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getToken } from './auth';
+import { getToken, removeToken } from './auth';
 
 // In production, use relative /api path (same origin, served by Express)
 // In development, Vite proxy handles /api -> localhost:3001
@@ -23,6 +23,18 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Clear stale token on 401 so the app re-checks auth and redirects to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      removeToken();
+      window.location.reload();
+    }
     return Promise.reject(error);
   }
 );

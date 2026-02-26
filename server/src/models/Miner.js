@@ -136,11 +136,10 @@ class Miner {
         { returnDocument: 'after' }
       );
       
-      // Handle both old and new MongoDB driver API
-      const updatedDoc = result.value || result;
+      // MongoDB driver v6+ returns the doc directly; v4 wraps it in { value: doc }
+      const updatedDoc = result?.value ?? result;
       
-      if (!updatedDoc) {
-        console.error(`[Miner.update] No miner found with id: ${id}`);
+      if (!updatedDoc || !updatedDoc.id) {
         return null;
       }
       

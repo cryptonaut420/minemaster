@@ -61,6 +61,9 @@ class Config {
   }
 
   static async update(type, config) {
+    if (!DEFAULT_CONFIGS[type]) {
+      throw new Error(`Unknown config type: ${type}`);
+    }
     try {
       const db = getDb();
       const updateData = {

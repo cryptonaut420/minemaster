@@ -1,10 +1,7 @@
 const { getDb } = require('../db/mongodb');
 
-// Throttle per-miner cleanup to avoid running expensive count+delete on every insert
-const _lastCleanup = new Map();
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes between cleanups per miner
-
 class HashRate {
+  // TTL index on the hashrates collection handles automatic 7-day expiry
   static async record(minerId, data) {
     try {
       const db = getDb();
@@ -17,14 +14,6 @@ class HashRate {
       };
       
       await db.collection('hashrates').insertOne(record);
-      
-      // Throttled cleanup — delete records older than 7 days (keeps data for graph)
-      const lastRun = _lastCleanup.get(minerId) || 0;
-      if (Date.now() - lastRun > CLEANUP_INTERVAL_MS) {
-        _lastCleanup.set(minerId, Date.now());
-        const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        await db.collection('hashrates').deleteMany({ minerId, timestamp: { $lt: cutoff } });
-      }
       
       return record;
     } catch (error) {

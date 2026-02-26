@@ -60,7 +60,11 @@ export function useWebSocket(onMessage) {
           }
         };
       } catch (error) {
-        // Connection failed - will retry
+        if (!isUnmounting) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(1.5, Math.min(reconnectAttempts - 1, 15)), 30000);
+          reconnectTimeoutRef.current = setTimeout(connect, delay);
+        }
       }
     }
 

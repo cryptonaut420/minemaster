@@ -241,7 +241,7 @@ function App() {
           if (miner.id === data.minerId) {
             // Parse hashrate from output using new utility
             const parsedHashrate = parseHashrate(data.data);
-            const newHashrate = parsedHashrate || miner.hashrate;
+            const newHashrate = parsedHashrate ?? miner.hashrate;
             
             // Use console manager to prevent memory leaks
             const newOutput = addConsoleOutput(miner.output, data.data);
@@ -303,11 +303,12 @@ function App() {
                                 !normalExitCodes.includes(data.code) &&
                                 data.code > 1;
         
-        if (isAbnormalCrash) {
+        if (isAbnormalCrash && !stoppingMinersRef.current.has(data.minerId)) {
           const miner = minersRef.current.find(m => m.id === data.minerId);
           const minerName = miner?.name || 'Miner';
           addNotification(`${minerName} crashed unexpectedly (exit code ${data.code})`, 'error');
         }
+        stoppingMinersRef.current.delete(data.minerId);
       }));
 
       // Auto-update status listener
@@ -325,7 +326,7 @@ function App() {
     // Bound/unbound is handled via Dashboard -> MasterServerPanel -> onBoundChange callback
     
     const handleConfigUpdate = (configs) => {
-      applyGlobalConfigs(configs, false); // Show notification for active updates
+      applyGlobalConfigs(configs, true);
       addNotification('Configurations updated from Master Server', 'info');
     };
 
@@ -576,7 +577,7 @@ function App() {
       // Get system info and stats
       const [systemInfo, cpuStats, memoryStats, gpuStats] = window.electronAPI 
         ? await Promise.all([
-            window.electronAPI.getSystemInfo(),
+            window.electronAPI.getSystemInfo().catch(() => null),
             window.electronAPI.getCpuStats().catch(() => null),
             window.electronAPI.getMemoryStats().catch(() => null),
             window.electronAPI.getGpuStats().catch(() => null)

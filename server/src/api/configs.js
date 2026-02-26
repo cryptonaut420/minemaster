@@ -34,6 +34,10 @@ router.get('/:type', async (req, res) => {
 // Update config by type
 router.put('/:type', async (req, res) => {
   try {
+    const validTypes = ['xmrig', 'nanominer'];
+    if (!validTypes.includes(req.params.type)) {
+      return res.status(400).json({ success: false, error: `Invalid config type: ${req.params.type}` });
+    }
     const config = await Config.update(req.params.type, req.body);
     
     // Automatically send config update to all bound clients

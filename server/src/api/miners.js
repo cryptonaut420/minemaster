@@ -81,10 +81,15 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update miner
+// Update miner (only allow safe fields to be updated via API)
 router.put('/:id', async (req, res) => {
   try {
-    const miner = await Miner.update(req.params.id, req.body);
+    const ALLOWED_FIELDS = ['name', 'hostname', 'os', 'version'];
+    const updates = {};
+    for (const key of ALLOWED_FIELDS) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    const miner = await Miner.update(req.params.id, updates);
     if (!miner) {
       return res.status(404).json({ success: false, error: 'Miner not found' });
     }

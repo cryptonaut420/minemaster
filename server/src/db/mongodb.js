@@ -48,6 +48,7 @@ async function createIndexes() {
   
   try {
     // Miners collection indexes
+    await db.collection('miners').createIndex({ id: 1 }, { unique: true });
     await db.collection('miners').createIndex({ systemId: 1 }, { unique: true, sparse: true });
     await db.collection('miners').createIndex({ connectionId: 1 }, { unique: true, sparse: true });
     await db.collection('miners').createIndex({ hostname: 1, ip: 1 });
@@ -57,7 +58,10 @@ async function createIndexes() {
     
     // Hash rates collection indexes
     await db.collection('hashrates').createIndex({ minerId: 1, timestamp: -1 });
-    await db.collection('hashrates').createIndex({ timestamp: -1 }, { expireAfterSeconds: 86400 * 7 }); // 7 days TTL
+    await db.collection('hashrates').createIndex({ timestamp: -1 }, { expireAfterSeconds: 86400 * 7 });
+    
+    // Admin collection indexes
+    await db.collection('admins').createIndex({ email: 1 }, { unique: true });
     
     console.log('✅ MongoDB indexes created');
   } catch (error) {

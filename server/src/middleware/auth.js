@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 
-// Generate a secure secret for JWT (in production, use an environment variable)
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  JWT_SECRET not set in environment — generating a random secret. Sessions will not survive restarts. Set JWT_SECRET in your .env file.');
+}
 const JWT_SECRET = process.env.JWT_SECRET || require('crypto').randomBytes(64).toString('hex');
 
 /**
@@ -74,6 +76,5 @@ module.exports = {
   generateToken,
   verifyToken,
   requireAuth,
-  optionalAuth,
-  JWT_SECRET
+  optionalAuth
 };
