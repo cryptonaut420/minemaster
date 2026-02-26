@@ -1,6 +1,6 @@
 {
   "name": "minemaster-client",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Cross-platform GUI wrapper for crypto mining software",
   "author": "MineMaster",
   "main": "electron/main.js",
