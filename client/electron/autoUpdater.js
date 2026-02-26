@@ -1,6 +1,7 @@
 const { autoUpdater } = require('electron-updater');
 const { app } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow = null;
 let stopAllMinersCallback = null;
@@ -125,7 +126,7 @@ function checkForUpdates() {
   // NSIS creates an uninstaller next to the app; if it's absent, we're portable.
   if (process.platform === 'win32') {
     const appDir = path.dirname(app.getPath('exe'));
-    const hasUninstaller = require('fs').existsSync(path.join(appDir, 'Uninstall MineMaster.exe'));
+    const hasUninstaller = fs.existsSync(path.join(appDir, 'Uninstall MineMaster.exe'));
     if (!hasUninstaller) return;
   }
 

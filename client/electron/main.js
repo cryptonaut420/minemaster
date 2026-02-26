@@ -339,6 +339,8 @@ app.on('before-quit', () => {
   // Clear background intervals to prevent work after quit
   if (bgUpdateInterval) { clearInterval(bgUpdateInterval); bgUpdateInterval = null; }
   if (bgUpdateInitTimeout) { clearTimeout(bgUpdateInitTimeout); bgUpdateInitTimeout = null; }
+  if (cpuSampleInterval) { clearInterval(cpuSampleInterval); cpuSampleInterval = null; }
+  if (cpuSampleInitTimeout) { clearTimeout(cpuSampleInitTimeout); cpuSampleInitTimeout = null; }
 
   // Ensure all miners are stopped before app quits
   Object.values(miners).forEach(minerData => {
@@ -1229,8 +1231,8 @@ function sampleCpuUsage() {
 }
 
 // Sample every 5 seconds in the background (lightweight — just reads /proc/stat or kernel counters)
-setInterval(sampleCpuUsage, 5000);
-setTimeout(sampleCpuUsage, 500);
+let cpuSampleInterval = setInterval(sampleCpuUsage, 5000);
+let cpuSampleInitTimeout = setTimeout(sampleCpuUsage, 500);
 
 ipcMain.handle('get-cpu-stats', () => {
   return {
