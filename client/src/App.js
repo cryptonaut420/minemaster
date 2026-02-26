@@ -971,13 +971,13 @@ function App() {
         setTimeout(() => sendImmediateStatusUpdateRef.current?.(), 500);
       } else {
         setMiners(prev => prev.map(m => 
-          m.id === minerId ? { ...m, loading: false, running: false } : m
+          m.id === minerId ? { ...m, loading: false } : m
         ));
         addNotification(`Failed to stop ${miner.name}: ${result.error || 'Unknown error'}`, 'error');
       }
     } catch (error) {
       setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, loading: false, running: false } : m
+        m.id === minerId ? { ...m, loading: false } : m
       ));
       addNotification(`Error stopping miner: ${error.message}`, 'error');
     }

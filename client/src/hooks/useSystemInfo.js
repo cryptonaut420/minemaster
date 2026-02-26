@@ -166,6 +166,9 @@ export function useGpuList() {
     }
   }, [systemStats, systemInfo]);
 
-  return gpuList;
+  return {
+    gpuList,
+    systemInfo
+  };
 }
 

@@ -1,11 +1,10 @@
 import React from 'react';
 import './MinerConfig.css';
 import { formatHashrate } from '../utils/formatters';
-import { useSystemInfo, useGpuList } from '../hooks/useSystemInfo';
+import { useGpuList } from '../hooks/useSystemInfo';
 
 function NanominerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false, defaultWorkerName = '' }) {
-  const systemInfo = useSystemInfo();
-  const gpuList = useGpuList();
+  const { gpuList, systemInfo } = useGpuList();
   const gpuDetectionComplete = systemInfo?.gpuDetectionStatus === 'complete';
   
   // Check if GPU is detected

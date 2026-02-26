@@ -75,20 +75,22 @@ export function formatHashrate(hashrate) {
 export function parseHashrate(output) {
   if (!output || typeof output !== 'string') return null;
 
-  // XMRig format: "speed 10s/60s/15m 123.4 456.7 789.0 H/s" - capture first hashrate value after the label
-  const xmrigPattern = /speed\s+\S+\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
-  
-  // Nanominer format: "Total: 25.5 Mh/s"
-  const nanominerPattern = /Total:\s*([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)/i;
+  // XMRig format usually looks like:
+  // "speed 10s/60s/15m 1234.5 1200.0 1100.0 H/s"
+  // The 60s/15m entries can be "n/a", so we only require the first numeric value.
+  const xmrigPattern = /speed\s+\S+\s+([\d.,]+)\s+(?:[\d.,]+|n\/a)\s+(?:[\d.,]+|n\/a)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
 
-  // Generic fallback: any number followed by hashrate unit
-  const genericPattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
-  
+  // Nanominer format: "Total: 25.5 Mh/s"
+  const nanominerPattern = /Total:\s*([\d.,]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)/i;
+
+  // Generic fallback for lines like "hashrate: 1,234.56 kH/s"
+  const genericPattern = /([\d.,]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)\b/i;
+
   const match = output.match(xmrigPattern) || output.match(nanominerPattern) || output.match(genericPattern);
   
   if (!match) return null;
   
-  const value = parseFloat(match[1]);
+  const value = parseFloat(match[1].replace(/,/g, ''));
   if (isNaN(value) || value === 0) return null;
   const unit = match[2].toLowerCase();
   

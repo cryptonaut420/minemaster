@@ -63,7 +63,8 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
             model: gpu.model || `GPU ${idx}`,
             enabled: gpuMiner?.enabled !== false,
             running: gpuMiner?.running || false,
-            hashrate: gpuMiner?.hashrate || null,
+            // Keep aggregate GPU hashrate on first GPU only to avoid double-counting.
+            hashrate: idx === 0 ? (gpuMiner?.hashrate || null) : null,
             algorithm: gpuMiner?.config?.algorithm || null
           }))
         : []

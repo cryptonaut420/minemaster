@@ -728,15 +728,10 @@ function isProcessRunning(pid) {
 async function findProcessPIDs(processName, configPath) {
   try {
     if (process.platform === 'win32') {
-      // Windows: use tasklist (wmic is deprecated on modern Windows)
-      const exeName = processName.endsWith('.exe') ? processName : `${processName}.exe`;
-      const { stdout } = await execAsync(`tasklist /FI "IMAGENAME eq ${exeName}" /FO CSV /NH`, { timeout: 5000 });
-      return stdout.split('\n')
-        .map(line => {
-          const parts = line.split(',');
-          return parts.length >= 2 ? parseInt(parts[1].replace(/"/g, '').trim()) : NaN;
-        })
-        .filter(pid => !isNaN(pid) && pid > 0);
+      // On Windows we intentionally avoid broad image-name matching here.
+      // The main PID is terminated with taskkill /T, which already kills the full process tree.
+      // Returning extra PIDs by executable name risks killing unrelated miners started outside MineMaster.
+      return [];
     } else {
       // Unix approach - find by command line containing config path
       try {
