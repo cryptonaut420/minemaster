@@ -97,6 +97,7 @@ function initAutoUpdater(win, stopMinersCallback) {
       setUpdateState('idle');
     } else {
       log(`Update error: ${message}`);
+      log(`Update error stack: ${err?.stack || 'no stack'}`);
       setUpdateState('error', { message });
     }
 

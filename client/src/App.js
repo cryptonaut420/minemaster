@@ -1093,6 +1093,12 @@ function App() {
             <p className="subtitle">Crypto Mining Manager</p>
           </div>
           <div className="header-right">
+            {updateStatus.state === 'checking' && (
+              <div className="update-indicator checking">
+                <span className="update-spinner"></span>
+                Checking for updates...
+              </div>
+            )}
             {updateStatus.state === 'downloading' && (
               <div className="update-indicator downloading">
                 <span className="update-spinner"></span>
@@ -1112,11 +1118,27 @@ function App() {
               </div>
             )}
             {updateStatus.state === 'error' && (
-              <div className="update-indicator update-error">
-                Update failed — retrying soon
+              <div className="update-indicator update-error" title={updateStatus.message || 'Unknown error'}>
+                Update failed
+                <button
+                  className="update-retry-btn"
+                  onClick={() => window.electronAPI?.checkForUpdate()}
+                  title="Retry update check"
+                >
+                  Retry
+                </button>
               </div>
             )}
-            <div className="app-version" title={`Base ${versionInfo.baseVersion} | Build ${versionInfo.buildMetadata}`}>
+            <div
+              className="app-version"
+              title={updateStatus.state === 'idle' ? 'Click to check for updates' : `Base ${versionInfo.baseVersion} | Build ${versionInfo.buildMetadata}`}
+              onClick={() => {
+                if (updateStatus.state === 'idle' || updateStatus.state === 'error') {
+                  window.electronAPI?.checkForUpdate();
+                }
+              }}
+              style={(updateStatus.state === 'idle' || updateStatus.state === 'error') ? { cursor: 'pointer' } : {}}
+            >
               v{versionInfo.displayVersion}
             </div>
           </div>

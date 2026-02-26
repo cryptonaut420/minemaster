@@ -3,6 +3,7 @@
 ## How Auto-Update Works
 
 The MineMaster client uses `electron-updater` with GitHub Releases as the update source.
+The repository is public: https://github.com/cryptonaut420/minemaster
 
 **Supported targets:**
 
@@ -20,15 +21,18 @@ The MineMaster client uses `electron-updater` with GitHub Releases as the update
 5. The app quits, the installer runs silently, and the app relaunches
 6. On relaunch, previously-running miners are automatically restarted
 
+Users can also manually trigger an update check by clicking the version badge in the header, or clicking "Retry" if an update error is shown.
+
 ## Prerequisites
 
-- The GitHub repository must be **public** (or you need a `GH_TOKEN` env var for private repos)
-- You need a **GitHub Personal Access Token** with `repo` scope, exported as `GH_TOKEN`:
-  ```bash
-  export GH_TOKEN=ghp_your_token_here
+- A **GitHub Personal Access Token** (fine-grained) with **Contents: Read and Write** permission on the `cryptonaut420/minemaster` repo
+- Create the token at: https://github.com/settings/tokens
+- Save it in `client/.env`:
+  ```
+  GH_TOKEN=ghp_your_token_here
   ```
 - Node.js and npm installed
-- For Windows cross-compilation from Linux: Docker with the `electronuserland/builder:wine` image
+- Docker with the `electronuserland/builder:wine` image (for Windows cross-compilation)
 
 ## Version Bumping
 
@@ -49,75 +53,48 @@ The `prebuild` hook automatically generates `src/version.json` with the version 
 
 ## Publishing a Release
 
-### Option A: Publish from Linux (recommended for Linux + Windows)
+### One command to build & publish everything:
 
-**Linux AppImage only:**
 ```bash
-export GH_TOKEN=ghp_your_token_here
+npm run release
+```
+
+This single command:
+1. Loads `GH_TOKEN` from `client/.env`
+2. Downloads miners for all platforms
+3. Builds the React app
+4. Builds & publishes Linux AppImage (natively)
+5. Builds & publishes Windows portable .exe + NSIS installer (via Docker)
+6. Creates a GitHub Release tagged with the version (e.g., `v1.2.0`)
+7. Uploads all artifacts + `latest.yml` / `latest-linux.yml` metadata files
+
+The release appears directly in the [Releases section](https://github.com/cryptonaut420/minemaster/releases) on GitHub.
+
+### Individual platform publishing (if needed):
+
+```bash
+# Linux AppImage only
 npm run publish:linux
-```
 
-**Windows NSIS installer only (via Docker cross-compilation):**
-```bash
-export GH_TOKEN=ghp_your_token_here
-npm run build
-sudo docker run --rm \
-  -e GH_TOKEN=$GH_TOKEN \
-  -v "$(pwd):/project" \
-  -v "$(pwd)/node_modules:/project/node_modules" \
-  -v ~/.cache/electron:/root/.cache/electron \
-  -v ~/.cache/electron-builder:/root/.cache/electron-builder \
-  electronuserland/builder:wine \
-  /bin/bash -c "cd /project && npx electron-builder --windows nsis --publish always"
-```
-
-**Both platforms at once:**
-```bash
-export GH_TOKEN=ghp_your_token_here
-npm run publish:linux
-# Then run the Docker command above for Windows
-```
-
-### Option B: Publish from Windows (for Windows builds)
-
-```powershell
-$env:GH_TOKEN = "ghp_your_token_here"
+# Windows NSIS installer only (run from a Windows machine)
 npm run publish:windows
 ```
 
-### Option C: Build locally without publishing
-
-Build distributable files to `dist/` without uploading to GitHub:
+### Build locally without publishing:
 
 ```bash
-# All platforms (Linux native + Windows via Docker)
-npm run release
-
-# Or individually
 npm run build:linux              # Linux AppImage
 npm run build:windows            # Windows Portable .exe
 npm run build:windows-installer  # Windows NSIS Setup .exe
 ```
-
-## What `--publish always` Does
-
-When you run `electron-builder --publish always`, it:
-
-1. Builds the application
-2. Creates a GitHub Release tagged with the version from `package.json` (e.g., `v1.2.0`)
-3. Uploads the built artifacts (`.AppImage`, `.exe`)
-4. Uploads `latest.yml` (Windows) and `latest-linux.yml` (Linux) — these are the metadata files that `electron-updater` reads to detect new versions
 
 ## Release Checklist
 
 1. **Bump version:** `npm run bump:patch` (or minor/major)
 2. **Commit the version change:** `git add -A && git commit -m "release v1.2.0"`
 3. **Push to master:** `git push origin master`
-4. **Ensure miners are downloaded for all platforms:** `node scripts/download-miners.js --all`
-5. **Publish:**
-   - Linux: `GH_TOKEN=... npm run publish:linux`
-   - Windows: Use Docker command above (or publish from a Windows machine)
-6. **Verify on GitHub:** Check that the release appears at `https://github.com/cryptonaut420/minemaster/releases` with the correct artifacts and `latest.yml`/`latest-linux.yml` files
+4. **Publish:** `npm run release`
+5. **Verify on GitHub:** Check that the release appears at https://github.com/cryptonaut420/minemaster/releases with the correct artifacts
 
 ## Verifying Auto-Update
 
@@ -129,7 +106,12 @@ After publishing a release:
 4. After download completes, miners stop, and the app restarts with the new version
 5. Previously-running miners should auto-resume
 
+You can also click the version badge in the header to manually trigger an update check at any time.
+
 ## Troubleshooting
+
+**"Update failed" with Retry button:**
+Click "Retry" or hover over the error badge to see the detailed error message. Check the app's developer console (Ctrl+Shift+I) for `[AutoUpdater]` log lines.
 
 **"No published versions" error in logs:**
 Normal on a fresh repo with no releases yet. The app silently retries.
