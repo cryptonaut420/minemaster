@@ -377,6 +377,7 @@ router.get(
       processes: r.processes,
       stats: r.stats,
       capabilities: r.capabilities,
+      appUpdate: r.appUpdate || null,
     });
   }),
 );

@@ -98,3 +98,19 @@ Installed Windows, macOS and Linux AppImage builds can check/download app update
 - The [client audit](../docs/audits/client-2026-09-13/README.md) and [second pass](../docs/audits/client-2026-09-13/second-pass.md) record fixes and remaining hardware validation.
 
 To update an engine, pin a specific official release and checksum, verify the extracted runtime files without executing them, update the manifest and supported algorithms, run the tests and verify every requested package target. Do not replace a running executable, follow an unpinned `latest` URL at runtime, or restore old unversioned binaries as a fallback.
+
+## Version 1.3.1: reliability and troubleshooting
+
+The admin can check for application updates and explicitly install a downloaded update using whole-rig commands. Rig details show update availability, progress, errors and freshness. An installation command succeeds only when the rig reconnects reporting the requested new version. A stopped, disconnected or timed-out rig is not proof of installation. See [the command contract](../docs/backend-admin.md#desktop-131-application-updates-and-configuration-ownership).
+
+The updater observes background-download failures and rechecks cancellation/errors after stopping miners. Resume intent is atomic, limited to two hours and bound to the intended new version; a renderer reload of the old version cannot consume it. A newer operator Stop suppresses delayed resume. On Linux AppImage, MineMaster creates a sibling `.minemaster-backup` before replacement, restores a missing original after a reported install failure, and removes the backup after the intended new version starts. This is a recovery copy, not a guarantee against power loss, disk failure or an installer that never returns. If the replacement cannot launch, an operator can recover the retained original manually; inspect the diagnostic log and `appimage-update-backup.json` in user data first.
+
+**Diagnostic logs** opens the application log directory. `client.log` and one rotated `client.log.previous` are bounded to roughly 2 MiB each and record startup, process failures/exits, renderer failures and update transitions. The live mining console remains separate. Review logs before sharing because process error messages may contain local paths or miner output. Logging failures do not block mining controls.
+
+Linux executable failures distinguish missing files, missing loaders/libraries, incompatible executable format, missing execute permission, `noexec` mounts and host policy. Custom executables must already have execute permission. GPU sensor/enumeration failures no longer discard successful CPU/OS refreshes; retained GPU inventory keeps its observation timestamp. Windows retains the existing read-only Defender diagnostics and file-review workflow. No antivirus settings are changed.
+
+Admin configuration ownership is persisted separately from effective local configuration. New admin passwords remain admin-owned across revisions. Genuine local differences survive; legacy profiles without ownership history may need their overrides reviewed. Switching CPU engines clears an incompatible custom executable path. Nanominer CPU and GPU continue using independent processes/configuration; the regression harness verifies an admin CPU revision reaches the CPU configuration without replacing the GPU process.
+
+Nanominer documents a [2% RandomX fee](https://github.com/nanopool/nanominer/blob/v3.10.0/README.md) and no fee-disable setting. The shipped official XMRig build has a 1% minimum. [XMRig's GPL source explicitly permits a zero-donation build](https://github.com/xmrig/xmrig/blob/v6.26.0/src/donate.h), which would require maintaining and verifying a separate custom distribution. This release does not modify either upstream binary or ship a zero-fee build.
+
+See the [third audit](../docs/audits/client-2026-09-13/third-pass.md) for verification and outstanding Windows/Linux hardware checks.

@@ -3653,6 +3653,9 @@
           },
           "desiredConfigs": {
             "type": "object"
+          },
+          "appUpdate": {
+            "$ref": "#/components/schemas/AppUpdate"
           }
         }
       },
@@ -3681,7 +3684,9 @@
               "device-disable",
               "config-update",
               "miner-diagnose",
-              "miner-repair"
+              "miner-repair",
+              "app-update-check",
+              "app-update-install"
             ]
           },
           "deviceType": {
@@ -3692,14 +3697,16 @@
           "timeoutSeconds": {
             "type": "integer",
             "minimum": 5,
-            "maximum": 300,
-            "default": 60
+            "maximum": 1800,
+            "default": 60,
+            "description": "5\u2013300 seconds normally. App installation allows 5\u20131800 seconds and defaults to 600; miner repair defaults to 300."
           },
           "restartRunningOnly": {
             "type": "boolean",
             "default": false
           }
-        }
+        },
+        "description": "Application update actions require ALL scope and capabilities.appUpdates. Installation requires a fresh supported downloaded update; success is confirmed only after the requested version registers."
       },
       "Command": {
         "type": "object",
@@ -3740,6 +3747,10 @@
           "error": {
             "type": "string",
             "nullable": true
+          },
+          "targetVersion": {
+            "type": "string",
+            "description": "Server-captured downloaded app version for installation confirmation."
           }
         }
       },
@@ -3931,6 +3942,52 @@
             "nullable": true
           },
           "revokedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "AppUpdate": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "checking",
+              "available",
+              "downloading",
+              "downloaded",
+              "installing",
+              "error",
+              "unsupported"
+            ]
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string",
+            "nullable": true
+          },
+          "percent": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "checkedAt": {
             "type": "string",
             "format": "date-time",
             "nullable": true

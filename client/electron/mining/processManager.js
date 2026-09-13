@@ -232,6 +232,14 @@ function createProcessManager({
               entries.delete(id);
             });
             await wait(startWaitMs);
+            if (closing || generation !== (generations.get(id) || 0)) {
+              const stopped = await stopEntry(id);
+              throw Error(
+                stopped.success
+                  ? "Start canceled by stop or shutdown"
+                  : stopped.error,
+              );
+            }
             if (entry.error) throw entry.error;
             if (!owned() || !running(entry))
               throw Error(

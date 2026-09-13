@@ -447,6 +447,7 @@ export function ActionDialog({
             value={action}
             onChange={(e) => {
               setAction(e.target.value);
+              if (e.target.value.startsWith("app-update-")) setScope("ALL");
               key.current = requestId();
             }}
           >
@@ -458,6 +459,8 @@ export function ActionDialog({
               "device-disable",
               "miner-diagnose",
               "miner-repair",
+              "app-update-check",
+              "app-update-install",
             ].map((a) => (
               <option key={a}>{a}</option>
             ))}
@@ -470,10 +473,19 @@ export function ActionDialog({
             protection policies. Requires MineMaster 1.2 or later.
           </p>
         )}
+        {action.startsWith("app-update-") && (
+          <p className="op-warning">
+            Requires desktop 1.3.1. Check downloads an available app update
+            without stopping mining. Install stops all miners and hands off to
+            the installer. Success is confirmed only when the rig reconnects
+            with the requested version; allow up to 10 minutes. Cancellation
+            cannot reverse an installer already handed off.
+          </p>
+        )}
         <label>
           Process scope
           <select
-            disabled={pending || !!results}
+            disabled={pending || !!results || action.startsWith("app-update-")}
             value={deviceType}
             onChange={(e) => {
               setScope(e.target.value);

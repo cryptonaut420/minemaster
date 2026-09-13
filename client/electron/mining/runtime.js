@@ -16,7 +16,7 @@ const {
   cpuThreads,
 } = require("../../src/utils/miningConfig");
 const { createWindowsDiagnostics } = require("./windowsDiagnostics");
-function describeError(error, executable) {
+function describeError(error, executable, platform = process.platform) {
   const code = error.code || "START_FAILED";
   const messages = {
     ENOENT:
@@ -30,7 +30,22 @@ function describeError(error, executable) {
   };
   return {
     code,
-    message: messages[code] || error.message,
+    message:
+      platform === "linux" &&
+      ["ENOENT", "EACCES", "EPERM", "ENOEXEC"].includes(code)
+        ? {
+            ENOENT:
+              executable && fs.existsSync(executable)
+                ? "The miner file exists but Linux could not load it. Check its architecture and required dynamic loader/libraries for this distribution."
+                : "A required miner file is missing. Use Check miner files, then Repair while the engine is stopped.",
+            EACCES:
+              "Linux denied executable access. Check the file's executable permission, directory access and whether the user-data filesystem is mounted noexec.",
+            EPERM:
+              "Linux denied this operation. Check file ownership, mount restrictions and host policy.",
+            ENOEXEC:
+              "Linux could not execute this binary format. Check the selected engine's platform and CPU architecture.",
+          }[code]
+        : messages[code] || error.message,
     path: executable || error.path || null,
     observedAt: new Date().toISOString(),
   };
@@ -61,6 +76,8 @@ function createRuntime({
         const stat = await fs.promises.stat(customPath);
         if (!stat.isFile())
           throw Error("Custom path must point to an executable file");
+        if (platform !== "win32")
+          await fs.promises.access(customPath, fs.constants.X_OK);
         return {
           status: "custom",
           engine: type,
@@ -73,6 +90,8 @@ function createRuntime({
         };
       }
       await verifyDirectory(directory(type), release);
+      if (platform !== "win32")
+        await fs.promises.access(executable, fs.constants.X_OK);
       return {
         status: "ready",
         engine: type,
@@ -89,7 +108,7 @@ function createRuntime({
       return {
         status: "unavailable",
         engine: type,
-        ...describeError(error, error.path || executable),
+        ...describeError(error, error.path || executable, platform),
         expectedVersion: release?.version || null,
         expectedSha256: release?.files[release.binary] || null,
         sourceUrl: release?.url || null,

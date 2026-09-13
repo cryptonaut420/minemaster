@@ -421,6 +421,7 @@ class MasterServerService {
         sensorHistory: true,
         perGpuControl: false,
         minerMaintenance: true,
+        appUpdates: true,
         cpuEngines:
           window.electronAPI?.platform === "darwin"
             ? ["xmrig"]

@@ -196,6 +196,35 @@ function RigDetail({ id, close, onAction, onChanged }) {
                 <dt>Maintenance until</dt>
                 <dd>{at(r.maintenanceUntil)}</dd>
               </dl>
+              <section className="op-process" aria-label="Application updates">
+                <h3>Application updates</h3>
+                <p>
+                  {r.appUpdate
+                    ? `${r.appUpdate.state}${r.appUpdate.version ? " · " + r.appUpdate.version : ""}${r.appUpdate.percent != null ? " · " + r.appUpdate.percent + "%" : ""}`
+                    : "Not reported — update this agent for remote update status"}
+                </p>
+                {r.appUpdate && (
+                  <>
+                    <p>
+                      {r.appUpdate.supported
+                        ? "Installation supported"
+                        : "Automatic installation unavailable for this build"}{" "}
+                      ·{" "}
+                      {r.freshness.telemetryFresh
+                        ? "Current agent report"
+                        : "Stale agent report"}
+                    </p>
+                    <p>{r.appUpdate.message}</p>
+                    <p className="op-muted">
+                      Last update transition {at(r.appUpdate.updatedAt)}
+                    </p>
+                  </>
+                )}
+                <p className="op-muted">
+                  Use Control processes → app-update-check or app-update-install
+                  with whole-rig scope.
+                </p>
+              </section>
               {r.processes.map((p) => (
                 <section className="op-process" key={p.id}>
                   <div className="op-row">

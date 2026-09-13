@@ -10,7 +10,9 @@ localStorage.setItem('minemaster-config', JSON.stringify({
  'xmrig-1': {engine:'nanominer',pool:'pool.example.test:3333',user:'fixture-account',algorithm:'rx/0',coin:'XMR',threadPercentage:50,version:'fixture-v3'},
  'nanominer-1': {pool:'pool.example.test:4444',user:'fixture-account',algorithm:'etchash',coin:'ETC',rigName:'',gpus:[],version:'fixture-v3'}
 }));
+const platform = new URLSearchParams(location.search).get('platform') === 'linux' ? 'linux' : 'win32';
 const listeners = {}, states = {}, diagnostics = {};
+let update = {state:'idle',supported:true,updatedAt:new Date().toISOString()};
 let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
@@ -18,9 +20,9 @@ const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26
 const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
 diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
-const info = {hostname:'Workshop rig 07',gpuDetectionStatus:'complete',os:{distro:'Windows',release:'11',platform:'win32',arch:'x64'},cpu:{brand:'AMD Ryzen 9 5950X',cores:32,physicalCores:16},memory:{total:34359738368},gpus:[{deviceId:'pci:0000:02:00.0',model:'AMD Radeon RX 6800',vram:16384}]};
+const info = {hostname:'Workshop rig 07',gpuDetectionStatus:'complete',os:{distro:platform==='linux'?'Linux':'Windows',release:platform==='linux'?'6.8':'11',platform,arch:'x64'},cpu:{brand:'AMD Ryzen 9 5950X',cores:32,physicalCores:16},memory:{total:34359738368},gpus:[{deviceId:'pci:0000:02:00.0',model:'AMD Radeon RX 6800',vram:16384}]};
 const api = {
- platform:'win32',getSystemInfo:async()=>info,getCpuStats:async()=>({usage:32,temperature:54,observedAt:Date.now()}),getMemoryStats:async()=>({total:34359738368,used:8589934592,usagePercent:25}),
+ platform,getSystemInfo:async()=>info,getCpuStats:async()=>({usage:32,temperature:54,observedAt:Date.now()}),getMemoryStats:async()=>({total:34359738368,used:8589934592,usagePercent:25}),
  getGpuStats:async()=>[{deviceId:'pci:0000:02:00.0',type:'AMD',model:'AMD Radeon RX 6800',temperature:61,usage:98,vramUsed:5120,vramTotal:16384,observedAt:Date.now(),powerWatts:120}],
  getAllMinersStatus:async()=>Object.fromEntries(Object.entries(diagnostics).map(([id,d])=>[id,{running:false,...states[id],diagnostic:d,error:d.status==='unavailable'?d.message:null}])),
  startMiner:async({minerId,minerType,config})=>{
@@ -42,8 +44,8 @@ const api = {
   if(minerType==='xmrig')xmrigRepaired=true;
   diagnostics[minerId]=ready(minerType);return{success:true,diagnostic:diagnostics[minerId]};
  },
- openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
- getUpdateStatus:async()=>({state:'idle'}),checkForUpdate:async()=>{emit('update',{state:'downloaded',version:'1.3.1'});return{success:true};},installUpdate:async()=>{emit('update',{state:'installing',version:'1.3.1'});return{success:true};},
+ openDiagnosticFolder:async()=>({success:true}),cancelUpdateInstall:async()=>({success:true}),openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
+ getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.3.2',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
  invoke:async(channel)=>channel==='load-master-config'?{enabled:false,host:'127.0.0.1',port:65534,autoReconnect:false}:channel==='get-mac-address'?'fixture-only':{success:true}
 };
 window.electronAPI=window.electron=api;

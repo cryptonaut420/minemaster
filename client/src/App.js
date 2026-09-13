@@ -28,6 +28,8 @@ import {
 import { createCommandRunner } from "./utils/commandRunner";
 import { engineFor } from "./utils/miningConfig";
 
+import { mergeAssignment } from "./utils/configAssignment";
+
 function App() {
   const lineBuffers = useRef({});
   const commandRunnerRef = useRef(null);
@@ -61,6 +63,15 @@ function App() {
     return null;
   };
 
+  const [savedAuthority] = useState(() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("minemaster-config-authority") || "{}",
+      );
+    } catch {
+      return {};
+    }
+  });
   const [savedConfig] = useState(loadSavedConfig);
   const [savedMinerState] = useState(loadSavedMinerState);
 
@@ -69,6 +80,7 @@ function App() {
       id: "xmrig-1",
       name: "CPU Miner",
       type: "xmrig",
+      assignedConfig: savedAuthority?.["xmrig-1"] || null,
       deviceType: "CPU",
       running: false,
       enabled: savedMinerState?.["xmrig-1"]?.enabled !== false,
@@ -103,6 +115,7 @@ function App() {
       id: "nanominer-1",
       name: "Nanominer GPU",
       type: "nanominer",
+      assignedConfig: savedAuthority?.["nanominer-1"] || null,
       deviceType: "GPU",
       running: false,
       enabled: savedMinerState?.["nanominer-1"]?.enabled !== false,
@@ -128,6 +141,8 @@ function App() {
   const [selectedMiner, setSelectedMiner] = useState("xmrig-1");
   const [notifications, setNotifications] = useState([]);
   const [updateStatus, setUpdateStatus] = useState({ state: "idle" });
+  const updateStatusRef = useRef(updateStatus);
+  updateStatusRef.current = updateStatus;
   const [isBoundToMaster, setIsBoundToMaster] = useState(() => {
     // Binding is configuration authority; the connection indicator separately reports connectivity.
     return localStorage.getItem("master-server-bound") === "true";
@@ -138,6 +153,7 @@ function App() {
   const clientNameRef = useRef(clientName);
   const statusUpdateInterval = useRef(null);
   const minersRef = useRef(miners); // Keep a ref to always have latest miners
+  const resumeCanceledRef = useRef(new Set());
   const stoppingMinersRef = useRef(new Set()); // Track miners being intentionally stopped
   const notificationIdRef = useRef(0);
   const sendImmediateStatusUpdateRef = useRef(null); // Ref for latest status update function
@@ -170,6 +186,19 @@ function App() {
     });
     return JSON.stringify(obj);
   }, [miners]);
+
+  const authorityFingerprint = useMemo(
+    () =>
+      JSON.stringify(
+        Object.fromEntries(miners.map((m) => [m.id, m.assignedConfig])),
+      ),
+    [miners],
+  );
+  useEffect(() => {
+    try {
+      localStorage.setItem("minemaster-config-authority", authorityFingerprint);
+    } catch (_) {}
+  }, [authorityFingerprint]);
 
   const enabledFingerprint = useMemo(() => {
     const obj = {};
@@ -269,7 +298,12 @@ function App() {
 
         for (const minerId of resumeState.minerIds) {
           const miner = minersRef.current.find((m) => m.id === minerId);
-          if (miner && miner.enabled !== false && !miner.running) {
+          if (
+            miner &&
+            !resumeCanceledRef.current.has(minerId) &&
+            miner.enabled !== false &&
+            !miner.running
+          ) {
             await handleStartMiner(minerId);
           }
         }
@@ -428,6 +462,27 @@ function App() {
       getMiners: () => minersRef.current,
       start: (id) => controlRef.current.start(id, true),
       stop: (id) => controlRef.current.stop(id, true),
+      application: async (action, targetVersion, signal) => {
+        if (action === "app-update-check")
+          return window.electronAPI.checkForUpdate();
+        const status = await window.electronAPI.getUpdateStatus();
+        if (signal.aborted) return { success: false, error: "Update canceled" };
+        if (status.state !== "downloaded" || status.version !== targetVersion)
+          return {
+            success: false,
+            error:
+              "The requested update is no longer downloaded. Check update status again.",
+          };
+        const cancel = () => {
+          window.electronAPI.cancelUpdateInstall().catch(() => {});
+        };
+        signal.addEventListener("abort", cancel, { once: true });
+        try {
+          return await window.electronAPI.installUpdate();
+        } finally {
+          signal.removeEventListener("abort", cancel);
+        }
+      },
       maintenance: (id, action) =>
         controlRef.current.maintenance(id, action, true),
       enable: (id, enabled) => controlRef.current.patch(id, { enabled }),
@@ -477,32 +532,7 @@ function App() {
       const globalConfig = globalConfigs?.[miner.type];
       if (!globalConfig || (scope !== "ALL" && scope !== miner.deviceType))
         return miner;
-      const localKeys = ["password", "rigName", "customPath", "gpus"];
-      const local = Object.fromEntries(
-        localKeys
-          .filter(
-            (k) =>
-              miner.config[k] !== undefined &&
-              miner.config[k] !== "" &&
-              (!Array.isArray(miner.config[k]) || miner.config[k].length > 0),
-          )
-          .map((k) => [k, miner.config[k]]),
-      );
-      const config = {
-        ...miner.config,
-        ...globalConfig,
-        ...local,
-        ...(miner.type === "xmrig"
-          ? { engine: globalConfig.engine || "xmrig" }
-          : {}),
-      };
-      return {
-        ...miner,
-        config,
-        localOverrides: Object.keys(local).filter(
-          (k) => JSON.stringify(local[k]) !== JSON.stringify(globalConfig[k]),
-        ),
-      };
+      return mergeAssignment(miner, globalConfig);
     });
     minersRef.current = next;
     setMiners(next);
@@ -542,6 +572,7 @@ function App() {
               (g.vramTotal == null ? null : g.vramTotal * 1024 * 1024),
           })),
         },
+        appUpdate: updateStatusRef.current,
         processes: minersRef.current.map((m) => processSnapshot(m)),
         clientName: clientNameRef.current || "",
       });
@@ -756,6 +787,7 @@ function App() {
   };
 
   const handleStartMiner = async (minerId, remote = false) => {
+    resumeCanceledRef.current.add(minerId);
     if (!remote) commandRunnerRef.current?.cancelProcess(minerId);
     const miner = minersRef.current.find((m) => m.id === minerId);
     if (!miner) return { success: false, error: "Unknown miner" };
@@ -826,6 +858,7 @@ function App() {
   };
 
   const handleStopMiner = async (minerId, remote = false) => {
+    resumeCanceledRef.current.add(minerId);
     if (!remote) commandRunnerRef.current?.cancelProcess(minerId);
     const miner = minersRef.current.find((m) => m.id === minerId);
     if (!miner) return { success: false, error: "Unknown miner" };
@@ -964,6 +997,20 @@ function App() {
             <p className="subtitle">Crypto Mining Manager</p>
           </div>
           <div className="header-right">
+            <button
+              onClick={() =>
+                window.electronAPI
+                  ?.openDiagnosticFolder()
+                  .catch((error) =>
+                    addNotification(
+                      error.message || "Could not open diagnostic logs",
+                      "error",
+                    ),
+                  )
+              }
+            >
+              Diagnostic logs
+            </button>
             {updateStatus.state === "downloading" && (
               <div className="update-indicator downloading">
                 <span className="update-spinner"></span>

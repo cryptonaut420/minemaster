@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { createUpdateController } = require("./updateController");
 let mainWindow, controller, initialTimer, interval;
-function initAutoUpdater(win, stopMiners, releaseStarts) {
+function initAutoUpdater(win, stopMiners, releaseStarts, record = () => {}) {
   mainWindow = win;
   if (controller) return;
   controller = createUpdateController({
@@ -22,6 +22,7 @@ function initAutoUpdater(win, stopMiners, releaseStarts) {
           ),
         )),
     notify: (status) => {
+      record(status);
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send("update-status", status);
     },
@@ -40,5 +41,6 @@ module.exports = {
   checkForUpdates: () => controller?.checkForUpdates(),
   getUpdateState: () => controller?.getState() || { state: "idle" },
   installUpdate: () => controller?.install(),
+  cancelInstall: () => controller?.cancelInstall(),
   cleanup,
 };

@@ -10,6 +10,7 @@ const {
   checkForUpdates,
   getUpdateState,
   installUpdate,
+  cancelInstall,
   cleanup: cleanupAutoUpdater,
 } = require("./autoUpdater");
 
@@ -17,12 +18,19 @@ app.disableHardwareAcceleration();
 
 let mainWindow;
 let processManager;
+let diagnosticLog;
+let appImageBackup;
+const log = (event, details) => diagnosticLog?.record(event, details);
+process.on("uncaughtExceptionMonitor", (error) =>
+  log("uncaught-exception", { message: error.message, stack: error.stack }),
+);
 const { createRuntime } = require("./mining/runtime");
 const { createProcessManager } = require("./mining/processManager");
 const { targetName } = require("./mining/install");
 const MAX_RENDERER_IPC_BYTES = 512 * 1024;
 
 function sendToRenderer(channel, payload) {
+  if (["miner-error", "miner-closed"].includes(channel)) log(channel, payload);
   if (!mainWindow || !mainWindow.webContents) return;
 
   try {
@@ -56,40 +64,16 @@ let systemInfoCache = null;
 let systemInfoCachePath = null;
 let systemInfoRefreshPromise = null;
 const SYSTEM_INFO_CACHE_FILENAME = "system-info-cache.json";
-const UPDATE_RESUME_FILENAME = "update-resume-state.json";
-
-function getUpdateResumeFilePath() {
-  return path.join(app.getPath("userData"), UPDATE_RESUME_FILENAME);
-}
-
-function saveUpdateResumeState(runningMinerIds) {
-  const data = { minerIds: runningMinerIds, savedAt: Date.now() };
-  const file = getUpdateResumeFilePath();
-  fs.writeFileSync(`${file}.tmp`, JSON.stringify(data), "utf8");
-  fs.renameSync(`${file}.tmp`, file);
-}
-
-function loadAndClearUpdateResumeState() {
-  const filePath = getUpdateResumeFilePath();
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, "utf8");
-    fs.unlinkSync(filePath);
-    const data = JSON.parse(raw);
-    // Ignore stale resume files older than 10 minutes (something went wrong)
-    if (data.savedAt && Date.now() - data.savedAt > 10 * 60 * 1000) return null;
-    return data;
-  } catch (_) {
-    try {
-      fs.unlinkSync(filePath);
-    } catch (_e) {}
-    return null;
-  }
-}
+const { createResumeStore } = require("./updateResume");
+let resumeStore;
+const getResumeStore = () =>
+  (resumeStore ||= createResumeStore({
+    userData: app.getPath("userData"),
+    version: app.getVersion(),
+  }));
 
 const {
   integrated: isLikelyIntegratedGpu,
-  inventory: mapDiscreteGpus,
   identity: gpuIdentity,
   pci,
 } = require("./hardware");
@@ -182,28 +166,22 @@ async function refreshSystemInfoCache() {
   systemInfoRefreshPromise = (async () => {
     try {
       const baseInfo = systemInfoCache || buildBasicSystemInfo();
-      const [osInfo, graphics, cpuInfo] = await Promise.all([
+      const results = await Promise.allSettled([
         boundedProbe(si.osInfo()),
         boundedProbe(si.graphics()),
         boundedProbe(si.cpu()),
       ]);
-
-      const discreteGpus = mapDiscreteGpus(
-        (graphics && graphics.controllers) || [],
+      results.forEach((result, index) => {
+        if (result.status === "rejected")
+          log("system-probe-failed", {
+            provider: ["os", "graphics", "cpu"][index],
+            message: result.reason?.message,
+          });
+      });
+      const refreshedInfo = require("./systemSnapshot").mergeSystemSnapshot(
+        baseInfo,
+        results,
       );
-      const refreshedInfo = {
-        ...baseInfo,
-        os: {
-          platform: osInfo.platform,
-          distro: osInfo.distro,
-          release: osInfo.release,
-          arch: osInfo.arch,
-        },
-        cpu: { ...baseInfo.cpu, physicalCores: cpuInfo.physicalCores || null },
-        gpus: discreteGpus,
-        gpuDetectionStatus: "complete",
-        lastUpdatedAt: Date.now(),
-      };
 
       systemInfoCache = refreshedInfo;
       writeSystemInfoCacheToDisk(refreshedInfo);
@@ -236,7 +214,7 @@ function createWindow() {
   // Get icon path based on platform
   const iconPath = isDev
     ? path.join(__dirname, "../assets/icon.png")
-    : path.join(process.resourcesPath, "app/assets/icon.png");
+    : path.join(__dirname, "../assets/icon.png");
 
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -256,9 +234,14 @@ function createWindow() {
     ? "http://localhost:3000"
     : `file://${path.join(__dirname, "../build/index.html")}`;
 
-  mainWindow.loadURL(startURL);
+  if (isDev) mainWindow.loadURL(startURL);
+  else mainWindow.loadFile(path.join(__dirname, "../build/index.html"));
   let rendererRestarts = [];
+  mainWindow.webContents.on("did-fail-load", (_event, code, description) =>
+    log("renderer-load-failed", { code, description }),
+  );
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    log("renderer-gone", details);
     if (details.reason !== "crashed" || quitPending) return;
     rendererRestarts = rendererRestarts.filter(
       (at) => at > Date.now() - 300000,
@@ -276,13 +259,23 @@ function createWindow() {
   }
 
   // Initialize auto-updater (only runs checks in packaged builds)
-  initAutoUpdater(mainWindow, stopAllMinersForUpdate, () => {
-    processManager.allowStarts();
-    // A failed installer must not cause mining to resume on a later ordinary launch.
-    try {
-      fs.unlinkSync(getUpdateResumeFilePath());
-    } catch (_) {}
-  });
+  initAutoUpdater(
+    mainWindow,
+    stopAllMinersForUpdate,
+    () => {
+      processManager.allowStarts();
+      appImageBackup
+        ?.restore()
+        .catch((error) =>
+          log("appimage-restore-failed", { message: error.message }),
+        );
+      // A failed installer must not cause mining to resume on a later ordinary launch.
+      try {
+        getResumeStore().clear();
+      } catch (_) {}
+    },
+    (status) => log("application-update", status),
+  );
 
   mainWindow.on("close", (event) => {
     if (!quitConfirmed) {
@@ -324,6 +317,24 @@ else {
     mainWindow?.focus();
   });
   app.whenReady().then(async () => {
+    diagnosticLog = require("./diagnosticLog").createDiagnosticLog(
+      path.join(app.getPath("userData"), "logs"),
+    );
+    log("application-start", {
+      version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+    });
+    appImageBackup = require("./appImageBackup").createAppImageBackup({
+      userData: app.getPath("userData"),
+      appImage: process.platform === "linux" ? process.env.APPIMAGE : null,
+      version: app.getVersion(),
+    });
+    await appImageBackup
+      .complete()
+      .catch((error) =>
+        log("appimage-backup-cleanup-failed", { message: error.message }),
+      );
     initializeSystemInfoCache();
     const runtime = createRuntime({
       userData: app.getPath("userData"),
@@ -362,21 +373,29 @@ app.on("activate", () => {
   if (!mainWindow && processManager) createWindow();
 });
 
-async function stopAllMinersForUpdate() {
+async function stopAllMinersForUpdate(targetVersion) {
+  await appImageBackup?.prepare(targetVersion);
   const ids = await processManager.stopAll();
   try {
-    saveUpdateResumeState(ids);
+    getResumeStore().save(ids, targetVersion);
   } catch (error) {
     processManager.allowStarts();
     throw error;
   }
 }
+ipcMain.handle("open-diagnostic-folder", async () => {
+  await diagnosticLog?.flush();
+  const error = await shell.openPath(
+    path.join(app.getPath("userData"), "logs"),
+  );
+  if (error) throw Error(error);
+  return { success: true };
+});
 ipcMain.handle("check-for-update", () => checkForUpdates());
 ipcMain.handle("get-update-status", () => getUpdateState());
 ipcMain.handle("install-update", () => installUpdate());
-ipcMain.handle("get-update-resume-state", () =>
-  loadAndClearUpdateResumeState(),
-);
+ipcMain.handle("cancel-update-install", () => cancelInstall());
+ipcMain.handle("get-update-resume-state", () => getResumeStore().take());
 ipcMain.handle("start-miner", (_event, request) =>
   processManager.start(request),
 );

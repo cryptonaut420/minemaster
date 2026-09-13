@@ -67,3 +67,9 @@ Before rollout, test an older installed version on an operator-owned test rig: b
 Use **Check miner files** and expand the troubleshooting details. The diagnostic includes expected file identity and, when available, a read-only exact-path Defender history/signature check. Copy the diagnostic report and review the matching Windows Security entry. **Microsoft file review** opens the official submission page without uploading anything. A historical detection, unsigned file or missing history does not alone establish the current cause.
 
 A CPU-engine change is an explicit configuration choice. Nanominer RandomX may run on machines where XMRig is blocked, but that is not guaranteed by packaging or signing. Resolve applicable device policy/detection review before repairing blocked files. No broad exclusions, protection changes, renamed binaries or quarantine-repair loops are part of the release process. See [Windows troubleshooting](README.md#windows-cpu-mining-blocked).
+
+## 1.3.1 update verification
+
+Installation may also be requested from the admin with whole-rig scope. Its command remains running through installer handoff and requires a registration with the requested new version before success. Exercise this with two actual releases before fleet rollout; a fake updater cannot prove NSIS/AppImage installation, signing, feed availability or relaunch behavior.
+
+Resume state records source and target versions and expires after two hours. Old-app reloads cannot consume it. Linux AppImage updates first retain a sibling `.minemaster-backup`; failed replacement can restore a missing original, and successful target startup removes the recovery copy. Test writable/read-only install directories, low disk space, interrupted replacement and manual recovery. Portable/unpacked packages still cannot prove automatic installation. Application diagnostics are under user data in `logs/client.log` with one rotated predecessor.

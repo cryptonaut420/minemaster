@@ -9,6 +9,7 @@ test("CPU and GPU Nanominer use separate working directories and single-algorith
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const customPath = path.join(root, "fake-miner");
   await fs.writeFile(customPath, "This is a test fixture, never executed.");
+  await fs.chmod(customPath, 0o755);
   const runtime = createRuntime({
     userData: root,
     bundledRoot: root,
@@ -37,4 +38,35 @@ test("CPU and GPU Nanominer use separate working directories and single-algorith
   assert.match(await fs.readFile(cpu.args[0], "utf8"), /\[RandomX\]/);
   assert.doesNotMatch(await fs.readFile(cpu.args[0], "utf8"), /\[etchash\]/);
   assert.doesNotMatch(await fs.readFile(gpu.args[0], "utf8"), /\[RandomX\]/);
+});
+
+test("Linux checks executable permission and distinguishes missing-loader errors from quarantine", async (t) => {
+  const { describeError } = require("../electron/mining/runtime");
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "minemaster-linux-check-"),
+  );
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, "non-executable");
+  await fs.writeFile(file, "fixture");
+  await fs.chmod(file, 0o600);
+  const runtime = createRuntime({
+    userData: root,
+    bundledRoot: root,
+    hostname: "fixture",
+    platform: "linux",
+    arch: "x64",
+  });
+  assert.equal((await runtime.inspect("xmrig", file)).status, "unavailable");
+  assert.match(
+    describeError({ code: "ENOENT" }, file, "linux").message,
+    /dynamic loader/,
+  );
+  assert.match(
+    describeError({ code: "EACCES" }, file, "linux").message,
+    /noexec/,
+  );
+  assert.match(
+    describeError({ code: "EPERM" }, file, "win32").message,
+    /Protection History/,
+  );
 });

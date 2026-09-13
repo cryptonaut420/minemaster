@@ -35,6 +35,8 @@ function normalize(input = {}) {
       "config-update",
       "miner-diagnose",
       "miner-repair",
+      "app-update-check",
+      "app-update-install",
     ].includes(action)
   )
     throw problem("Unsupported action");
@@ -48,18 +50,24 @@ function normalize(input = {}) {
   const deviceType = String(scope).toUpperCase();
   if (!["CPU", "GPU", "ALL"].includes(deviceType))
     throw problem("deviceType must be CPU, GPU, or ALL");
+  if (action.startsWith("app-update-") && deviceType !== "ALL")
+    throw problem("Application updates require ALL scope");
   const timeoutSeconds =
     input.timeoutSeconds === undefined
-      ? action === "miner-repair"
-        ? 300
-        : 60
+      ? action === "app-update-install"
+        ? 600
+        : action === "miner-repair"
+          ? 300
+          : 60
       : Number(input.timeoutSeconds);
   if (
     !Number.isInteger(timeoutSeconds) ||
     timeoutSeconds < 5 ||
-    timeoutSeconds > 300
+    timeoutSeconds > (action === "app-update-install" ? 1800 : 300)
   )
-    throw problem("timeoutSeconds must be between 5 and 300");
+    throw problem(
+      "timeoutSeconds must be 5–300 (up to 1800 for app installation)",
+    );
   if (input.configType && !["xmrig", "nanominer"].includes(input.configType))
     throw problem("Invalid configuration type");
   if (input.configType && !["restart", "config-update"].includes(action))
@@ -120,6 +128,19 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
     !miner.capabilities?.minerMaintenance
   )
     throw problem("Upgrade this agent for miner diagnostics and repair", 422);
+  if (spec.action.startsWith("app-update-") && !miner.capabilities?.appUpdates)
+    throw problem("Upgrade this agent for application update controls", 422);
+  if (
+    spec.action === "app-update-install" &&
+    (!viewRig(miner).freshness.telemetryFresh ||
+      miner.appUpdate?.state !== "downloaded" ||
+      !miner.appUpdate?.supported ||
+      !miner.appUpdate?.version)
+  )
+    throw problem(
+      "A supported downloaded update and fresh rig status are required",
+      409,
+    );
   if (spec.deviceType === "GPU" && !miner.hardware?.gpus?.length)
     throw problem("No physical GPUs reported", 422);
   if (
@@ -157,6 +178,11 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       batchId: input.batchId || null,
       history: [{ status: "queued", at: now }],
     };
+  if (spec.action === "app-update-install") {
+    command.targetVersion = miner.appUpdate.version;
+    command.sourceVersion = miner.version;
+    command.sourceBootId = miner.bootId;
+  }
   if (idempotencyKey) command.idempotencyKey = storedKey;
   if (spec.action === "config-update" || spec.configType) {
     command.configs = await Config.getAll();
@@ -199,7 +225,7 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       .find({
         minerId,
         status: { $in: ACTIVE },
-        action: { $in: ["start", "restart"] },
+        action: { $in: ["start", "restart", "app-update-install"] },
         ...(command.deviceType === "ALL"
           ? {}
           : { deviceType: { $in: [command.deviceType, "ALL"] } }),
@@ -272,11 +298,20 @@ async function report(minerId, result) {
     )
   )
     throw problem("Invalid command result status");
+  // Installation success is confirmed by a new registration, never by dispatch/handoff alone.
+  const existing = await getDb()
+    .collection("commands")
+    .findOne({ id: result.id, minerId });
+  if (
+    existing?.action === "app-update-install" &&
+    result.status === "succeeded"
+  )
+    result = { ...result, status: "running" };
   const allowed =
     result.status === "received"
       ? ["sent"]
       : result.status === "running"
-        ? ["sent", "received"]
+        ? ["sent", "received", "running"]
         : ACTIVE;
   const now = new Date();
   const command = await getDb()
@@ -301,6 +336,48 @@ async function report(minerId, result) {
     );
   if (command) await changed(command);
   return command;
+}
+async function confirmAppVersion(miner) {
+  const version = String(miner.version || "").split("+")[0];
+  if (!version) return;
+  const rows = await getDb()
+    .collection("commands")
+    .find({
+      minerId: miner.id,
+      action: "app-update-install",
+      status: { $in: ACTIVE },
+      deadline: { $gt: new Date() },
+    })
+    .toArray();
+  for (const row of rows) {
+    if (String(row.targetVersion || "").split("+")[0] !== version) continue;
+    if (
+      String(row.sourceVersion || "").split("+")[0] === version ||
+      (row.sourceBootId && row.sourceBootId === miner.bootId)
+    )
+      continue;
+    const now = new Date();
+    const completed = await getDb()
+      .collection("commands")
+      .findOneAndUpdate(
+        { id: row.id, status: { $in: ACTIVE } },
+        {
+          $set: {
+            status: "succeeded",
+            updatedAt: now,
+            error: null,
+            result: {
+              phase: "version-confirmed",
+              version: miner.version,
+              bootId: miner.bootId,
+            },
+          },
+          $push: { history: { status: "succeeded", at: now } },
+        },
+        { returnDocument: "after" },
+      );
+    if (completed) await changed(completed);
+  }
 }
 async function cancel(id, reason = "Canceled by operator") {
   const now = new Date();
@@ -396,6 +473,7 @@ async function bulk(ids, spec, actor, key) {
 }
 module.exports = {
   configure,
+  confirmAppVersion,
   normalize,
   create,
   report,

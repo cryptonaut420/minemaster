@@ -111,9 +111,11 @@ const { ObjectId } = require("mongodb");
             systemId: `fixture-${i}`,
             clientName: `Workshop ${String(i + 1).padStart(2, "0")}`,
             protocolVersion: 2,
-            version: "1.3.0+audit-fixture",
+            version: "1.3.1+audit-fixture",
+            bootId: `fixture-boot-${i}`,
             capabilities: {
               commandResults: true,
+              appUpdates: true,
               cpuEngines: ["xmrig", "nanominer"],
             },
             systemInfo: {
@@ -132,6 +134,13 @@ const { ObjectId } = require("mongodb");
         JSON.stringify({
           type: "status-update",
           data: {
+            appUpdate: {
+              state: "downloaded",
+              supported: true,
+              version: "1.3.2",
+              percent: 100,
+              updatedAt: now,
+            },
             processes: processes.map((p) => ({
               ...p,
               hashrateObservedAt: now,

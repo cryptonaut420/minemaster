@@ -111,6 +111,8 @@ async function register(c, data) {
       cpu: info.cpu || null,
       gpus,
       memory: info.memory || info.mem || null,
+      gpuDetectionStatus: info.gpuDetectionStatus || null,
+      gpuObservedAt: info.gpuObservedAt || null,
     },
     connectionId: c.id,
     connectionLastSeen: new Date().toISOString(),
@@ -142,6 +144,7 @@ async function register(c, data) {
       connections.delete(previousId);
     }
   }
+  await commands.confirmAppVersion(miner);
   const configs = miner.desiredConfigs || (await Config.getAll());
   if (!miner.desiredConfigs)
     await Miner.update(miner.id, { desiredConfigs: configs });
@@ -230,7 +233,12 @@ async function status(c, data) {
       );
   const gpuInfo = data.systemInfo?.gpus;
   const hardware = gpuInfo
-    ? { ...miner.hardware, gpus: normalizeGpus(gpuInfo) }
+    ? {
+        ...miner.hardware,
+        gpus: normalizeGpus(gpuInfo),
+        gpuDetectionStatus: data.systemInfo.gpuDetectionStatus || null,
+        gpuObservedAt: data.systemInfo.gpuObservedAt || null,
+      }
     : miner.hardware;
   const stats = monitoring.sensors(payload);
   const devices = {
@@ -251,6 +259,7 @@ async function status(c, data) {
     miner.id,
     {
       processes,
+      appUpdate: require("../services/appUpdates").normalize(data.appUpdate),
       hardware,
       devices,
       stats,

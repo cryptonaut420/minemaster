@@ -1071,6 +1071,109 @@ test("CPU engine rollout gates old agents, delivers Nanominer to capable agents,
   await db.collection("configs").replaceOne({ _id: "global" }, stored);
 });
 
+test("admin app install waits for a new matching-version registration and rejects unsupported agents", async () => {
+  const ws = await socket();
+  const reg = {
+    ...registration("update-rig"),
+    version: "1.3.0+test",
+    bootId: "before",
+    capabilities: { ...registration("x").capabilities, appUpdates: true },
+  };
+  send(ws, "register", reg);
+  const bound = await waitFor(() =>
+    ws.messages.find((m) => m.type === "bound"),
+  );
+  const id = bound.data.minerId;
+  assert.equal(
+    (
+      await api("/v1/commands", "POST", {
+        minerId: id,
+        action: "app-update-install",
+        deviceType: "CPU",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await api("/v1/commands", "POST", {
+        minerId: id,
+        action: "app-update-install",
+        deviceType: "ALL",
+      })
+    ).status,
+    409,
+  );
+  send(ws, "status-update", {
+    processes: [],
+    appUpdate: {
+      state: "downloaded",
+      version: "1.3.1",
+      supported: true,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+  await waitFor(
+    async () =>
+      (await db.collection("miners").findOne({ id })).appUpdate?.state ===
+      "downloaded",
+  );
+  const created = await api("/v1/commands", "POST", {
+    minerId: id,
+    action: "app-update-install",
+    deviceType: "ALL",
+  });
+  assert.equal(created.status, 202);
+  const cmd = await waitFor(() =>
+    ws.messages.find(
+      (m) => m.type === "command" && m.data.action === "app-update-install",
+    ),
+  );
+  assert.equal(cmd.data.targetVersion, "1.3.1");
+  send(ws, "command-result", {
+    id: cmd.data.id,
+    status: "succeeded",
+    result: { phase: "installer-handoff" },
+  });
+  await waitFor(
+    async () =>
+      (await db.collection("commands").findOne({ id: cmd.data.id })).status ===
+      "running",
+  );
+  const same = await socket();
+  send(same, "register", { ...reg, bootId: "same-version-reboot" });
+  await waitFor(() => same.messages.some((m) => m.type === "bound"));
+  assert.equal(
+    (await db.collection("commands").findOne({ id: cmd.data.id })).status,
+    "running",
+  );
+  const updated = await socket();
+  send(updated, "register", {
+    ...reg,
+    version: "1.3.1+verified",
+    bootId: "after",
+  });
+  await waitFor(() => updated.messages.some((m) => m.type === "bound"));
+  const complete = await db.collection("commands").findOne({ id: cmd.data.id });
+  assert.equal(complete.status, "succeeded");
+  assert.equal(complete.result.phase, "version-confirmed");
+  const old = await socket();
+  send(old, "register", registration("old-update-rig"));
+  const oldBound = await waitFor(() =>
+    old.messages.find((m) => m.type === "bound"),
+  );
+  assert.equal(
+    (
+      await api("/v1/commands", "POST", {
+        minerId: oldBound.data.minerId,
+        action: "app-update-check",
+        deviceType: "ALL",
+      })
+    ).status,
+    422,
+  );
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

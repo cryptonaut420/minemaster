@@ -176,7 +176,10 @@ test("startup error is returned with a structured file diagnostic", async () => 
   const result = await f.manager.start(request);
   assert.equal(result.success, false);
   assert.equal(result.diagnostic.code, "EPERM");
-  assert.match(result.error, /Protection History/);
+  assert.match(
+    result.error,
+    process.platform === "linux" ? /Linux.*host policy/ : /Protection History/,
+  );
 });
 test("exit during launch fails; later unexpected exit is emitted with useful log tail", async () => {
   const f = fixture({
@@ -273,4 +276,22 @@ test("crash recovery is opt-in, uses a bounded budget, and Stop cancels a pendin
   assert.equal(tasks.size, 1);
   await g.manager.stop({ minerId: "cpu" });
   assert.equal(tasks.size, 0);
+});
+
+test("stop during the startup observation window cancels success and confirms exit", async () => {
+  let release, entered;
+  const started = new Promise((r) => (entered = r));
+  const f = fixture({
+    wait: async () => {
+      entered();
+      await new Promise((r) => (release = r));
+    },
+  });
+  const pending = f.manager.start(request);
+  await started;
+  const stopping = f.manager.stop({ minerId: "cpu" });
+  release();
+  assert.equal((await pending).success, false);
+  assert.equal((await stopping).success, true);
+  assert.equal(f.manager.snapshot("cpu").running, false);
 });

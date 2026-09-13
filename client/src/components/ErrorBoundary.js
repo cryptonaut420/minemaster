@@ -1,5 +1,5 @@
-import React from 'react';
-import './ErrorBoundary.css';
+import React from "react";
+import "./ErrorBoundary.css";
 
 /**
  * Error Boundary to catch React errors and show fallback UI
@@ -11,7 +11,7 @@ class ErrorBoundary extends React.Component {
     this.state = {
       hasError: false,
       error: null,
-      errorInfo: null
+      errorInfo: null,
     };
   }
 
@@ -20,12 +20,12 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('Error caught by boundary:', error, errorInfo);
+    console.error("Error caught by boundary:", error, errorInfo);
     this.setState({
       error,
-      errorInfo
+      errorInfo,
     });
-    
+
     // You could send to error reporting service here
   }
 
@@ -33,7 +33,7 @@ class ErrorBoundary extends React.Component {
     this.setState({
       hasError: false,
       error: null,
-      errorInfo: null
+      errorInfo: null,
     });
   };
 
@@ -45,10 +45,11 @@ class ErrorBoundary extends React.Component {
             <div className="error-icon">⚠️</div>
             <h2>Something Went Wrong</h2>
             <p className="error-message">
-              An unexpected error occurred. Don't worry, your mining configurations are safe.
+              This view failed. Native mining processes may still be running;
+              reload to reconnect to their current state.
             </p>
-            
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+
+            {process.env.NODE_ENV === "development" && this.state.error && (
               <details className="error-details">
                 <summary>Error Details (Development Only)</summary>
                 <pre className="error-stack">
@@ -57,18 +58,22 @@ class ErrorBoundary extends React.Component {
                 </pre>
               </details>
             )}
-            
+
             <div className="error-actions">
               <button className="btn btn-primary" onClick={this.handleReset}>
                 Try Again
               </button>
-              <button className="btn btn-secondary" onClick={() => window.location.reload()}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => window.location.reload()}
+              >
                 Reload App
               </button>
             </div>
-            
+
             <p className="error-help">
-              If this problem persists, try clearing your browser cache or checking the console for errors.
+              If this persists, use Diagnostic logs in the header. Clearing app
+              storage can erase saved settings.
             </p>
           </div>
         </div>

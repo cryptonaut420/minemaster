@@ -65,3 +65,10 @@ Applies to the whole repository. Read this file before making changes.
 - Nanominer CPU uses `[RandomX]` and `cpuThreads`; do not silently accept XMRig-only tuning. Keep thread conversion, fees and telemetry explicit.
 - Windows history checks are read-only, explicit, bounded and limited to exact miner paths. Missing history is not proof that an executable is allowed; never automatically switch engines in response to antivirus detection.
 - Extract only manifest runtime files from upstream archives, including in temporary directories. Keep optional drivers out of extraction as well as final packaging.
+
+## Desktop 1.3.1 follow-up
+- Read `docs/audits/client-2026-09-13/third-pass.md` for update/configuration repair history.
+- Keep `app-update-check`/`app-update-install` capability-gated and whole-rig scoped. Installer handoff is running, not success; confirm the requested version on a new registration. Preserve terminal timeout/cancellation outcomes.
+- Update preparation must recheck cancellation/errors after stopping processes. Keep resume intent version-bound and retain Linux AppImage recovery copies until the intended new version starts.
+- Preserve admin assignment ownership separately from effective local overrides. Engine changes must not inherit another engine's custom executable.
+- Persistent diagnostics must be bounded and failure-isolated; stale GPU inventory must retain its original observation timestamp. Never execute miners to validate packaging or updates.

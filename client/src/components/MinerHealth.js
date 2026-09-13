@@ -67,6 +67,7 @@ export default function MinerHealth({
           <span className="pending-config">Settings pending restart</span>
         )}
       </div>
+      {miner.configNotice && <p role="status">{miner.configNotice}</p>}
       {!compact && (
         <div className="health-facts">
           <span>
@@ -151,7 +152,7 @@ export default function MinerHealth({
       {copyMessage && <p role="status">{copyMessage}</p>}
       {(problem || !compact || diagnostic?.windows) && (
         <details className="repair-help">
-          <summary>Miner files and Windows troubleshooting</summary>
+          <summary>Miner files and troubleshooting</summary>
           <p>
             {diagnostic?.message ||
               "Use Check miner files to verify the executable."}

@@ -74,3 +74,7 @@ A practical first rollout is one affected Windows rig: install the new client, i
 - [XMRig command-line settings](https://xmrig.com/docs/miner/command-line-options).
 - [Nanominer 3.10 configuration and algorithms](https://github.com/nanopool/nanominer/blob/v3.10.0/README.md).
 - [Microsoft Protection History guidance](https://support.microsoft.com/en-us/windows/security/windows-security/protection-history-in-the-windows-security-app).
+
+## Third pass: desktop 1.3.1
+
+See [the third-pass report](third-pass.md) for Windows/Linux reliability, admin CPU assignment ownership, application update command confirmation, AppImage recovery and persistent diagnostics.

@@ -5,6 +5,7 @@ export function createCommandRunner({
   stop,
   enable,
   maintenance,
+  application,
   applyConfigs,
   report,
   storage,
@@ -45,7 +46,14 @@ export function createCommandRunner({
   };
   const check = (c, command) => {
     if (c.signal.aborted)
-      throw Object.assign(Error("Canceled or superseded"), { canceled: true });
+      throw Object.assign(
+        Error(
+          c.signal.reason?.deadline
+            ? "Command deadline expired"
+            : "Canceled or superseded",
+        ),
+        { canceled: !c.signal.reason?.deadline },
+      );
     if (Date.now() >= Date.parse(command.deadline))
       throw Error("Command deadline expired");
   };
@@ -68,6 +76,24 @@ export function createCommandRunner({
       throw Error(result?.error || "Process operation failed");
     return result;
   };
+  async function startCancelable(id, c, command) {
+    check(c, command);
+    let canceledStop;
+    const abort = () => {
+      // Reach native Stop immediately: waiting behind this Start would defeat preparation cancellation.
+      canceledStop = Promise.resolve().then(() => stop(id));
+      canceledStop.catch(() => {});
+    };
+    c.signal.addEventListener("abort", abort, { once: true });
+    try {
+      const result = await start(id);
+      if (canceledStop) ensure(await canceledStop);
+      check(c, command);
+      return ensure(result);
+    } finally {
+      c.signal.removeEventListener("abort", abort);
+    }
+  }
   async function execute(command) {
     if (!command?.id || !Number.isFinite(Date.parse(command.deadline)))
       throw Error("Command ID and deadline required");
@@ -88,6 +114,10 @@ export function createCommandRunner({
     publish({ id: command.id, status: "received" });
     const c = new AbortController();
     active.set(command.id, c);
+    const deadlineTimer = setTimeout(
+      () => c.abort({ deadline: true }),
+      Math.max(0, Date.parse(command.deadline) - Date.now()),
+    );
     try {
       const scope = String(command.deviceType || "ALL").toUpperCase();
       if (
@@ -106,9 +136,35 @@ export function createCommandRunner({
           "config-update",
           "miner-diagnose",
           "miner-repair",
+          "app-update-check",
+          "app-update-install",
         ].includes(command.action)
       )
         throw Error("Unsupported action");
+      if (command.action.startsWith("app-update-")) {
+        if (scope !== "ALL" || !application)
+          throw Error(
+            "Application updates require whole-rig scope and a supported agent",
+          );
+        check(c, command);
+        if (command.action === "app-update-install")
+          for (const miner of getMiners()) {
+            controllers.get(miner.id)?.abort();
+            controllers.set(miner.id, c);
+          }
+        publish({ id: command.id, status: "running" });
+        const result = ensure(
+          await application(command.action, command.targetVersion, c.signal),
+        );
+        check(c, command);
+        publish({
+          id: command.id,
+          status:
+            command.action === "app-update-install" ? "running" : "succeeded",
+          result: { update: result },
+        });
+        return;
+      }
       const targets = getMiners().filter(
         (m) => scope === "ALL" || m.deviceType === scope,
       );
@@ -167,11 +223,11 @@ export function createCommandRunner({
                 current = getMiners().find((m) => m.id === id);
                 if (current.enabled === false)
                   throw Error("Process is disabled");
-                ensure(await start(id));
+                await startCancelable(id, c, command);
               }
               if (command.action === "start") {
                 current = getMiners().find((m) => m.id === id);
-                ensure(await start(id));
+                await startCancelable(id, c, command);
               }
               check(c, command);
               current = getMiners().find((m) => m.id === id);
@@ -206,7 +262,7 @@ export function createCommandRunner({
       publish({
         id: command.id,
         status: errors.length
-          ? c.signal.aborted
+          ? c.signal.aborted && !c.signal.reason?.deadline
             ? "canceled"
             : "failed"
           : "succeeded",
@@ -222,6 +278,7 @@ export function createCommandRunner({
         error: error.message,
       });
     } finally {
+      clearTimeout(deadlineTimer);
       active.delete(command.id);
       for (const [id, controller] of controllers)
         if (controller === c) controllers.delete(id);
