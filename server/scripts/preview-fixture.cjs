@@ -111,7 +111,7 @@ const { ObjectId } = require("mongodb");
             systemId: `fixture-${i}`,
             clientName: `Workshop ${String(i + 1).padStart(2, "0")}`,
             protocolVersion: 2,
-            version: "1.3.1+audit-fixture",
+            version: "1.3.2+audit-fixture",
             bootId: `fixture-boot-${i}`,
             capabilities: {
               commandResults: true,
@@ -137,7 +137,7 @@ const { ObjectId } = require("mongodb");
             appUpdate: {
               state: "downloaded",
               supported: true,
-              version: "1.3.2",
+              version: "1.3.3",
               percent: 100,
               updatedAt: now,
             },
@@ -147,7 +147,13 @@ const { ObjectId } = require("mongodb");
             })),
             stats: {
               observedAt: now,
-              cpu: { usage: 96, temperature: i === 8 ? 92 : 64 },
+              cpu: {
+                usage: 96,
+                observedAt: now,
+                temperature: i === 0 ? 95 : i === 8 ? 92 : 64,
+                temperatureObservedAt:
+                  i === 0 ? new Date(Date.now() - 90000).toISOString() : now,
+              },
               memory: { usage: 42, total: 32e9, used: 13e9 },
               gpus: gpus.map((g) => ({
                 ...g,

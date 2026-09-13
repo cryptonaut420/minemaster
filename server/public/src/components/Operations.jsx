@@ -1,5 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
+const actionLabel = (action) =>
+  ({
+    start: "Start mining",
+    stop: "Stop mining",
+    restart: "Restart mining",
+    "device-enable": "Enable mining",
+    "device-disable": "Disable mining",
+    "miner-diagnose": "Check miner files",
+    "miner-repair": "Repair miner files",
+    "app-update-check": "Check app updates",
+    "app-update-install": "Install app update",
+  })[action] || action;
 export const requestId = () =>
   window.crypto?.randomUUID?.() ||
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
@@ -162,7 +174,7 @@ export function CommandHistory({ minerId, refresh = 0 }) {
           <li key={c.id}>
             <div className="op-row">
               <strong>
-                {c.action} · {c.deviceType}
+                {actionLabel(c.action)} · {c.deviceType}
               </strong>
               <Badge status={c.status} />
             </div>
@@ -462,7 +474,9 @@ export function ActionDialog({
               "app-update-check",
               "app-update-install",
             ].map((a) => (
-              <option key={a}>{a}</option>
+              <option key={a} value={a}>
+                {actionLabel(a)}
+              </option>
             ))}
           </select>
         </label>
@@ -556,7 +570,7 @@ export function ActionDialog({
           </button>
           {!results && (
             <button className="op-primary" disabled={pending} type="submit">
-              {pending ? "Sending…" : `Send ${action}`}
+              {pending ? "Sending…" : actionLabel(action)}
             </button>
           )}
         </div>

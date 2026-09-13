@@ -360,7 +360,7 @@ async function confirmAppVersion(miner) {
     const completed = await getDb()
       .collection("commands")
       .findOneAndUpdate(
-        { id: row.id, status: { $in: ACTIVE } },
+        { id: row.id, status: { $in: ACTIVE }, deadline: { $gt: now } },
         {
           $set: {
             status: "succeeded",

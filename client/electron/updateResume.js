@@ -32,19 +32,25 @@ function createResumeStore({ userData, version, now = Date.now }) {
     take() {
       try {
         const data = JSON.parse(fs.readFileSync(file, "utf8"));
-        // A renderer reload in the old app must not consume the new app's resume intent.
-        if (data.sourceVersion === version && data.targetVersion !== version)
-          return null;
-        clear();
         if (
-          data.targetVersion !== version ||
-          data.sourceVersion === version ||
           !Number.isFinite(data.savedAt) ||
           data.savedAt > now() + 5000 ||
           now() - data.savedAt > 2 * 60 * 60 * 1000 ||
+          typeof data.targetVersion !== "string" ||
+          !data.targetVersion ||
+          typeof data.sourceVersion !== "string" ||
+          !data.sourceVersion ||
           !Array.isArray(data.minerIds) ||
           data.minerIds.some((id) => !["xmrig-1", "nanominer-1"].includes(id))
-        )
+        ) {
+          clear();
+          return null;
+        }
+        // Only valid, unexpired intent survives a renderer reload of the old app.
+        if (data.sourceVersion === version && data.targetVersion !== version)
+          return null;
+        clear();
+        if (data.targetVersion !== version || data.sourceVersion === version)
           return null;
         return data;
       } catch (_) {

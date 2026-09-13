@@ -64,6 +64,34 @@ test("application installation handoff remains running for server version confir
   assert.equal(calls, 1);
   assert.equal(reports.at(-1).status, "running");
   assert.equal(reports.at(-1).result.update.phase, "installer-handoff");
+  c.replayResults();
+  assert.equal(
+    reports.at(-1).status,
+    "running",
+    "transport reconnect is not an installer failure",
+  );
+  await c.execute({
+    id: "update",
+    action: "app-update-install",
+    deadline: new Date(Date.now() + 5000).toISOString(),
+  });
+  assert.equal(
+    calls,
+    1,
+    "duplicate delivery must not invoke the installer twice",
+  );
+  assert.equal(reports.at(-1).status, "running");
+  const recovered = createCommandRunner({
+    getMiners: () => [],
+    report: (r) => reports.push(r),
+    storage: { getItem: () => JSON.stringify({ update: reports.at(-1) }) },
+  });
+  recovered.replayResults();
+  assert.equal(
+    reports.at(-1).status,
+    "running",
+    "persisted handoff remains eligible for server version confirmation",
+  );
 });
 
 test("admin Nanominer CPU revisions reach the isolated native config while GPU stays running", async (t) => {

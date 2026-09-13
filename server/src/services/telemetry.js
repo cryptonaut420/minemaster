@@ -6,7 +6,7 @@ const number = (v, min = 0, max = Number.MAX_VALUE) =>
     : null;
 const date = (v) => {
   const n = typeof v === "number" ? v : Date.parse(v);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && Math.abs(n) <= 8640000000000000 ? n : null;
 };
 const iso = (v) => (date(v) === null ? null : new Date(date(v)).toISOString());
 function normalizeDiagnostic(d) {
@@ -183,16 +183,147 @@ function normalizeProcesses(payload, now = Date.now()) {
       desiredConfigVersion: p.desiredConfigVersion || null,
       error: typeof p.error === "string" ? p.error.slice(0, 2000) : null,
       pid: number(p.pid),
-      minerVersion: p.minerVersion || null,
-      shares: p.shares || null,
-      pool: p.pool || null,
-      localOverrides: p.localOverrides || [],
+      minerVersion:
+        typeof p.minerVersion === "string"
+          ? p.minerVersion.slice(0, 100)
+          : null,
+      shares:
+        p.shares &&
+        Number.isSafeInteger(p.shares.accepted) &&
+        p.shares.accepted >= 0 &&
+        Number.isSafeInteger(p.shares.rejected) &&
+        p.shares.rejected >= 0
+          ? {
+              accepted: p.shares.accepted,
+              rejected: p.shares.rejected,
+              observedAt: iso(p.shares.observedAt),
+              source:
+                typeof p.shares.source === "string"
+                  ? p.shares.source.slice(0, 100)
+                  : null,
+            }
+          : null,
+      pool:
+        p.pool &&
+        typeof p.pool === "object" &&
+        ["connected", "connecting", "disconnected"].includes(p.pool.status)
+          ? {
+              status: p.pool.status,
+              address:
+                typeof p.pool.address === "string"
+                  ? p.pool.address.slice(0, 500)
+                  : null,
+              observedAt: iso(p.pool.observedAt),
+              source:
+                typeof p.pool.source === "string"
+                  ? p.pool.source.slice(0, 100)
+                  : null,
+            }
+          : null,
+      localOverrides: Array.isArray(p.localOverrides)
+        ? p.localOverrides
+            .filter((k) => typeof k === "string")
+            .slice(0, 32)
+            .map((k) => k.slice(0, 100))
+        : [],
       enabledDeviceIds: Array.isArray(p.enabledDeviceIds)
         ? p.enabledDeviceIds
         : null,
       source: protocol2 ? "observed" : "legacy-cached",
     };
   });
+}
+// Age each provider independently: a new envelope is not a new sensor observation.
+function ageSensors(stats, now = Date.now()) {
+  const fresh = (time) =>
+    date(time) !== null &&
+    date(time) <= now + 5000 &&
+    now - date(time) <= FRESH_MS;
+  const cpu = stats.cpu || {},
+    memory = stats.memory || {};
+  const cpuAt = Object.hasOwn(cpu, "observedAt")
+    ? cpu.observedAt
+    : stats.observedAt;
+  const tempAt = Object.hasOwn(cpu, "temperatureObservedAt")
+    ? cpu.temperatureObservedAt
+    : cpuAt;
+  const memoryAt = Object.hasOwn(memory, "observedAt")
+    ? memory.observedAt
+    : stats.observedAt;
+  return {
+    ...stats,
+    cpu: {
+      ...cpu,
+      observedAt: iso(cpuAt),
+      temperatureObservedAt: iso(tempAt),
+      usage: fresh(cpuAt) ? cpu.usage : null,
+      temperature: fresh(tempAt) ? cpu.temperature : null,
+    },
+    memory: {
+      ...memory,
+      observedAt: iso(memoryAt),
+      ...(!fresh(memoryAt) ? { total: null, used: null, usage: null } : {}),
+    },
+    gpus: (stats.gpus || []).map((g) => {
+      const at = Object.hasOwn(g, "observedAt")
+        ? g.observedAt
+        : stats.observedAt;
+      return {
+        ...g,
+        observedAt: iso(at),
+        ...(!fresh(at)
+          ? {
+              temperature: null,
+              usage: null,
+              powerWatts: null,
+              memoryUsed: null,
+              memoryTotal: null,
+            }
+          : {}),
+      };
+    }),
+  };
+}
+// Preserve observations only within the same launch and a continuous reporting session.
+function reconcileProcess(
+  process,
+  previous,
+  lastTelemetryAt,
+  now = Date.now(),
+) {
+  const continuous =
+    date(lastTelemetryAt) !== null && now - date(lastTelemetryAt) <= FRESH_MS;
+  const sameRun =
+    previous &&
+    previous.running === process.running &&
+    previous.startedAt === process.startedAt &&
+    previous.algorithm === process.algorithm &&
+    previous.pid === process.pid;
+  if (
+    continuous &&
+    sameRun &&
+    !process.paused &&
+    date(process.hashrateObservedAt) !== null &&
+    date(previous.hashrateObservedAt) !== null &&
+    date(process.hashrateObservedAt) < date(previous.hashrateObservedAt)
+  ) {
+    Object.assign(process, {
+      hashrate: previous.hashrate,
+      hashrateObservedAt: previous.hashrateObservedAt,
+      quality: previous.quality,
+    });
+  }
+  process.zeroSince =
+    process.running && !process.paused && process.quality === "zero"
+      ? continuous &&
+        sameRun &&
+        previous.quality === "zero" &&
+        date(previous.hashrateObservedAt) !== null &&
+        now - date(previous.hashrateObservedAt) <= FRESH_MS
+        ? previous.zeroSince || process.hashrateObservedAt
+        : process.hashrateObservedAt
+      : null;
+  return process;
 }
 function viewRig(rig, now = Date.now()) {
   const r = { ...rig };
@@ -215,6 +346,7 @@ function viewRig(rig, now = Date.now()) {
         ? Math.max(0, Math.floor((now - date(p.startedAt)) / 1000))
         : null,
   }));
+  if (r.stats) r.stats = ageSensors(r.stats, now);
   if (r.stats)
     r.stats = {
       ...r.stats,
@@ -326,7 +458,19 @@ function summary(rigs, now = Date.now()) {
     if (r.status === "online") counts.idle++;
     hardware.gpus += r.hardware?.gpus?.length || 0;
     if (r.stats?.quality === "observed") {
-      hardware.sensorReportingRigs++;
+      if (
+        [
+          r.stats.cpu?.usage,
+          r.stats.cpu?.temperature,
+          r.stats.memory?.usage,
+          ...(r.stats.gpus || []).flatMap((g) => [
+            g.temperature,
+            g.usage,
+            g.powerWatts,
+          ]),
+        ].some((value) => typeof value === "number" && Number.isFinite(value))
+      )
+        hardware.sensorReportingRigs++;
       const readings = (r.hardware?.gpus || [])
         .map((g) => r.stats.gpus?.find((s) => s.deviceId === g.deviceId))
         .filter(Boolean);
@@ -399,6 +543,8 @@ module.exports = {
   normalizeGpus,
   gpuIdentity,
   normalizeProcesses,
+  reconcileProcess,
+  ageSensors,
   viewRig,
   summary,
 };

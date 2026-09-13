@@ -170,3 +170,27 @@ test("Linux update keeps a recoverable AppImage when upstream replacement loses 
   });
   assert.ok(await fs.stat(appImage));
 });
+
+test("expired resume intent is discarded even when the old application restarts", async (t) => {
+  const fs = require("fs"),
+    os = require("os"),
+    path = require("path");
+  const { createResumeStore } = require("../electron/updateResume");
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "minemaster-expired-resume-"),
+  );
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let now = Date.now();
+  const store = createResumeStore({
+    userData: dir,
+    version: "1.3.1",
+    now: () => now,
+  });
+  store.save(["xmrig-1"], "1.3.2");
+  now += 3 * 60 * 60 * 1000;
+  assert.equal(store.take(), null);
+  assert.equal(
+    fs.existsSync(path.join(dir, "update-resume-state.json")),
+    false,
+  );
+});

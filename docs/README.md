@@ -38,3 +38,4 @@ The [implementation report](audits/backend-admin-2026-09-12/implementation.md) r
 - [Desktop 1.3 second pass](audits/client-2026-09-13/second-pass.md): CPU engine selection, shared-file lifecycle and Windows diagnostics
 
 - [Desktop 1.3.1 third audit](audits/client-2026-09-13/third-pass.md): Windows/Linux reliability, CPU configuration control and application updates.
+- [End-to-end 1.3.2 audit](audits/end-to-end-2026-09-13.md): recovery continuity, sensor accuracy, update replay and admin controls.

@@ -1,4 +1,7 @@
 const terminal = ["succeeded", "failed", "canceled"];
+const handedOff = (result) =>
+  result?.status === "running" &&
+  result.result?.update?.phase === "installer-handoff";
 export function createCommandRunner({
   getMiners,
   start,
@@ -101,7 +104,7 @@ export function createCommandRunner({
       if (active.has(command.id)) return report(journal[command.id]);
       const prior = journal[command.id];
       return publish(
-        terminal.includes(prior.status)
+        terminal.includes(prior.status) || handedOff(prior)
           ? prior
           : {
               id: command.id,
@@ -288,7 +291,11 @@ export function createCommandRunner({
     execute,
     replayResults: () => {
       for (const prior of Object.values(journal)) {
-        if (terminal.includes(prior.status) || active.has(prior.id))
+        if (
+          terminal.includes(prior.status) ||
+          handedOff(prior) ||
+          active.has(prior.id)
+        )
           report(prior);
         else
           publish({

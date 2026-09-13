@@ -114,3 +114,7 @@ Admin configuration ownership is persisted separately from effective local confi
 Nanominer documents a [2% RandomX fee](https://github.com/nanopool/nanominer/blob/v3.10.0/README.md) and no fee-disable setting. The shipped official XMRig build has a 1% minimum. [XMRig's GPL source explicitly permits a zero-donation build](https://github.com/xmrig/xmrig/blob/v6.26.0/src/donate.h), which would require maintaining and verifying a separate custom distribution. This release does not modify either upstream binary or ship a zero-fee build.
 
 See the [third audit](../docs/audits/client-2026-09-13/third-pass.md) for verification and outstanding Windows/Linux hardware checks.
+
+## Version 1.3.2 follow-up
+
+Installer handoff receipts now survive reconnect and duplicate command delivery without being mislabeled failed or invoking installation twice. Expired/malformed resume intent is cleared even when the old application launches. Backend/admin updates preserve native sensor observation times, so fresh reports cannot refresh cached readings; rig details expose those times. See the [end-to-end audit](../docs/audits/end-to-end-2026-09-13.md) for fixes, regression coverage and release limits.

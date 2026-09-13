@@ -3643,7 +3643,8 @@
             "type": "object"
           },
           "stats": {
-            "type": "object"
+            "type": "object",
+            "description": "Sensor snapshot. observedAt timestamps the envelope. cpu.observedAt, cpu.temperatureObservedAt, memory.observedAt and each gpus[].observedAt retain provider observation times. Numeric readings expire independently after 60 seconds; stale or invalid readings are null. Older agents without provider timestamps fall back to the envelope time."
           },
           "pendingCommands": {
             "type": "array",

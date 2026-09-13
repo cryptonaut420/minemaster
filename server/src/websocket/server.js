@@ -6,6 +6,7 @@ const { getDb } = require("../db/mongodb");
 const {
   normalizeGpus,
   normalizeProcesses,
+  reconcileProcess,
   viewRig,
   date,
 } = require("../services/telemetry");
@@ -186,26 +187,7 @@ async function status(c, data) {
       miner.desiredConfigs?.[process.type]?.version ||
       process.desiredConfigVersion;
     const previous = miner.processes?.find((p) => p.id === process.id);
-    process.zeroSince =
-      process.running && process.quality === "zero"
-        ? previous?.quality === "zero" &&
-          previous.startedAt === process.startedAt
-          ? previous.zeroSince || process.hashrateObservedAt
-          : process.hashrateObservedAt
-        : null;
-    // Out-of-order cached readings cannot replace a newer observation in this session.
-    if (
-      previous &&
-      date(process.hashrateObservedAt) !== null &&
-      date(process.hashrateObservedAt) < date(previous.hashrateObservedAt) &&
-      process.running === previous.running
-    ) {
-      Object.assign(process, {
-        hashrate: previous.hashrate,
-        hashrateObservedAt: previous.hashrateObservedAt,
-        quality: previous.quality,
-      });
-    }
+    reconcileProcess(process, previous, miner.telemetryReceivedAt);
     const closedInterval =
       previous?.running && !process.running
         ? {

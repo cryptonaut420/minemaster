@@ -221,8 +221,8 @@ function RigDetail({ id, close, onAction, onChanged }) {
                   </>
                 )}
                 <p className="op-muted">
-                  Use Control processes → app-update-check or app-update-install
-                  with whole-rig scope.
+                  Use Control processes → Check app updates or Install app
+                  update with whole-rig scope.
                 </p>
               </section>
               {r.processes.map((p) => (
@@ -261,7 +261,12 @@ function RigDetail({ id, close, onAction, onChanged }) {
                     <dt>Running version</dt>
                     <dd>{p.appliedConfigVersion || "Not reported"}</dd>
                     <dt>Local overrides</dt>
-                    <dd>{p.localOverrides?.join(", ") || "None reported"}</dd>
+                    <dd>
+                      {(Array.isArray(p.localOverrides)
+                        ? p.localOverrides
+                        : []
+                      ).join(", ") || "None reported"}
+                    </dd>
                     <dt>Miner version</dt>
                     <dd>
                       {p.engine || "Engine not reported"} ·{" "}
@@ -355,7 +360,9 @@ function RigDetail({ id, close, onAction, onChanged }) {
                   : `${r.stats.cpu.usage.toFixed(1)}% usage`}
               </p>
               <p className="op-muted">
-                Sensor observation {at(r.stats?.observedAt)}
+                Report time {at(r.stats?.observedAt)} · CPU usage{" "}
+                {at(r.stats?.cpu?.observedAt)} · CPU temperature{" "}
+                {at(r.stats?.cpu?.temperatureObservedAt)}
                 {r.stats?.quality !== "observed" && " · Last known readings"}
               </p>
               <ul className="op-feed">
@@ -377,7 +384,8 @@ function RigDetail({ id, close, onAction, onChanged }) {
                     <li key={g.deviceId}>
                       <strong>{g.model}</strong>
                       <small>
-                        {g.deviceId} · {g.identityQuality} identity
+                        {g.deviceId} · {g.identityQuality} identity · Sensor
+                        observed {at(s?.observedAt)}
                       </small>
                       <span>
                         {s?.temperature == null

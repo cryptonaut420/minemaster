@@ -1174,6 +1174,64 @@ test("admin app install waits for a new matching-version registration and reject
   );
 });
 
+test("reconnecting zero-rate rigs reset recovery continuity and API retains sensor observation times", async () => {
+  const ws = await socket();
+  send(ws, "register", registration("continuous-zero-fixture"));
+  await waitFor(() => ws.messages.find((m) => m.type === "bound"));
+  const rig = await db
+    .collection("miners")
+    .findOne({ systemId: "continuous-zero-fixture" });
+  const observed = new Date().toISOString();
+  const old = new Date(Date.now() - 120000).toISOString();
+  const process = {
+    id: "xmrig-1",
+    type: "xmrig",
+    deviceType: "CPU",
+    running: true,
+    enabled: true,
+    pid: 10,
+    algorithm: "rx/0",
+    hashrate: 0,
+    hashrateObservedAt: observed,
+    startedAt: old,
+  };
+  send(ws, "status-update", { processes: [process] });
+  await waitFor(
+    async () =>
+      (await db.collection("miners").findOne({ id: rig.id })).processes?.length,
+  );
+  await db
+    .collection("miners")
+    .updateOne({ id: rig.id }, { $set: { "processes.0.zeroSince": old } });
+  const next = await socket();
+  send(next, "register", registration("continuous-zero-fixture"));
+  await waitFor(() => next.messages.find((m) => m.type === "bound"));
+  send(next, "status-update", {
+    processes: [process],
+    stats: {
+      observedAt: observed,
+      cpu: {
+        usage: 30,
+        observedAt: observed,
+        temperature: 95,
+        temperatureObservedAt: old,
+      },
+    },
+  });
+  await waitFor(
+    async () =>
+      (await db.collection("miners").findOne({ id: rig.id }))
+        .telemetryReceivedAt,
+  );
+  const response = await api(`/v1/rigs/${rig.id}`);
+  assert.equal(response.status, 200);
+  const result = response.data.data;
+  assert.equal(result.processes[0].zeroSince, observed);
+  assert.equal(result.stats.cpu.usage, 30);
+  assert.equal(result.stats.cpu.temperature, null);
+  assert.equal(result.stats.cpu.temperatureObservedAt, old);
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

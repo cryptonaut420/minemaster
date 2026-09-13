@@ -78,3 +78,5 @@ A practical first rollout is one affected Windows rig: install the new client, i
 ## Third pass: desktop 1.3.1
 
 See [the third-pass report](third-pass.md) for Windows/Linux reliability, admin CPU assignment ownership, application update command confirmation, AppImage recovery and persistent diagnostics.
+
+The [end-to-end 1.3.2 follow-up](../end-to-end-2026-09-13.md) covers sensor aging, recovery continuity and update receipt replay across backend/admin/client.

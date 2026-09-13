@@ -469,7 +469,10 @@ test("automatic recovery is opt-in, sustained, bounded by maintenance and operat
     0,
   );
   assert.equal(
-    candidates({ ...raw, stats: { cpu: { temperature: 90 } } }, now).length,
+    candidates(
+      { ...raw, stats: { observedAt: timestamp, cpu: { temperature: 90 } } },
+      now,
+    ).length,
     0,
   );
 });
@@ -651,4 +654,157 @@ test("damaged saved command history cannot break later remote commands", async (
     assert.equal(starts, 1);
     assert.equal(reports.at(-1).status, "succeeded");
   }
+});
+
+test("invalid optional process metadata cannot break reporting or admin rendering", () => {
+  assert.equal(t.iso(1e30), null);
+  const p = t.normalizeProcesses(
+    {
+      protocolVersion: 2,
+      processes: [
+        {
+          id: "cpu",
+          deviceType: "CPU",
+          startedAt: 1e30,
+          localOverrides: { bad: true },
+          shares: { accepted: -1, rejected: "bad" },
+          pool: { status: { bad: true } },
+          minerVersion: { bad: true },
+        },
+      ],
+    },
+    now,
+  )[0];
+  assert.equal(p.startedAt, null);
+  assert.deepEqual(p.localOverrides, []);
+  assert.equal(p.shares, null);
+  assert.equal(p.pool, null);
+  assert.equal(p.minerVersion, null);
+});
+test("zero recovery requires continuous same-launch observations and cannot inherit an old run's rate", () => {
+  const prior = {
+    running: true,
+    paused: false,
+    quality: "zero",
+    hashrate: 0,
+    algorithm: "rx/0",
+    pid: 1,
+    startedAt: timestamp,
+    hashrateObservedAt: new Date(now - 1000).toISOString(),
+    zeroSince: new Date(now - 600000).toISOString(),
+  };
+  const fresh = { ...prior, hashrateObservedAt: timestamp };
+  assert.equal(
+    t.reconcileProcess({ ...fresh }, prior, timestamp, now).zeroSince,
+    prior.zeroSince,
+  );
+  assert.equal(
+    t.reconcileProcess({ ...fresh }, prior, null, now).zeroSince,
+    timestamp,
+  );
+  assert.equal(
+    t.reconcileProcess(
+      { ...fresh },
+      prior,
+      new Date(now - 61000).toISOString(),
+      now,
+    ).zeroSince,
+    timestamp,
+  );
+  const old = {
+    ...fresh,
+    quality: "valid",
+    hashrate: 100,
+    hashrateObservedAt: new Date(now - 2000).toISOString(),
+  };
+  const merged = t.reconcileProcess({ ...old }, prior, timestamp, now);
+  assert.equal(merged.hashrate, 0);
+  assert.equal(merged.zeroSince, prior.zeroSince);
+  assert.equal(
+    t.reconcileProcess({ ...old, pid: 2 }, prior, timestamp, now).hashrate,
+    100,
+  );
+  const paused = t.reconcileProcess(
+    { ...old, paused: true, hashrate: null, quality: "unavailable" },
+    prior,
+    timestamp,
+    now,
+  );
+  assert.equal(paused.hashrate, null);
+  assert.equal(paused.zeroSince, null);
+});
+test("cached sensor timestamps survive reporting and expire independently from envelope freshness", () => {
+  const old = new Date(now - 61000).toISOString();
+  const stats = monitoring.sensors(
+    {
+      protocolVersion: 2,
+      stats: {
+        observedAt: timestamp,
+        cpu: {
+          usage: 40,
+          observedAt: now,
+          temperature: 95,
+          temperatureObservedAt: old,
+        },
+        memory: { usage: 20 },
+        gpus: [
+          {
+            deviceId: "gpu",
+            powerWatts: 150,
+            temperature: 90,
+            observedAt: old,
+          },
+        ],
+      },
+    },
+    now,
+  );
+  assert.equal(stats.cpu.usage, 40);
+  assert.equal(stats.cpu.temperature, null);
+  assert.equal(stats.cpu.temperatureObservedAt, old);
+  assert.equal(stats.gpus[0].powerWatts, null);
+  assert.equal(stats.gpus[0].observedAt, old);
+  const aged = t.viewRig(
+    {
+      connectionId: "c",
+      connectionLastSeen: timestamp,
+      telemetryReceivedAt: timestamp,
+      processes: [],
+      stats,
+    },
+    now + 61000,
+  );
+  assert.equal(aged.stats.cpu.usage, null);
+  assert.equal(
+    stats.cpu.usage,
+    40,
+    "view normalization must not mutate stored observations",
+  );
+});
+
+test("empty fresh envelopes do not count as rigs reporting sensor measurements", () => {
+  const stats = monitoring.sensors(
+    {
+      protocolVersion: 2,
+      stats: {
+        observedAt: timestamp,
+        cpu: { observedAt: new Date(now - 90000).toISOString(), usage: 10 },
+      },
+    },
+    now,
+  );
+  const result = t.summary(
+    [
+      {
+        connectionId: "test",
+        connectionLastSeen: timestamp,
+        telemetryReceivedAt: timestamp,
+        processes: [],
+        stats,
+      },
+    ],
+    now,
+  );
+  assert.equal(result.hardware.sensorReportingRigs, 0);
+  assert.equal(result.hardware.maxTemperatureC, null);
 });

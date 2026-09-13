@@ -1,5 +1,11 @@
 const { getDb } = require("../db/mongodb");
-const { viewRig, number, date, normalizeGpus } = require("./telemetry");
+const {
+  viewRig,
+  number,
+  date,
+  normalizeGpus,
+  ageSensors,
+} = require("./telemetry");
 const DEFAULT_RULES = {
   offline: true,
   stale: true,
@@ -54,29 +60,42 @@ function sensors(payload, now = Date.now()) {
   const source = payload.protocolVersion >= 2 ? fresh : true;
   const cpu = s.cpu || {},
     memory = s.memory || {};
-  return {
-    observedAt: source ? new Date(observed ?? now).toISOString() : null,
-    quality: source ? "observed" : "unavailable",
-    cpu: {
-      usage: source ? number(cpu.usage, 0, 100) : null,
-      temperature: source ? number(cpu.temperature, -30, 150) : null,
+  return ageSensors(
+    {
+      observedAt: source ? new Date(observed ?? now).toISOString() : null,
+      quality: source ? "observed" : "unavailable",
+      cpu: {
+        ...(Object.hasOwn(cpu, "observedAt")
+          ? { observedAt: cpu.observedAt }
+          : {}),
+        ...(Object.hasOwn(cpu, "temperatureObservedAt")
+          ? { temperatureObservedAt: cpu.temperatureObservedAt }
+          : {}),
+        usage: source ? number(cpu.usage, 0, 100) : null,
+        temperature: source ? number(cpu.temperature, -30, 150) : null,
+      },
+      memory: {
+        ...(Object.hasOwn(memory, "observedAt")
+          ? { observedAt: memory.observedAt }
+          : {}),
+        total: source ? number(memory.total) : null,
+        used: source ? number(memory.used) : null,
+        usage: source ? number(memory.usage, 0, 100) : null,
+      },
+      gpus: normalizeGpus(s.gpus || []).map((g) => ({
+        deviceId: g.deviceId,
+        ...(Object.hasOwn(g, "observedAt") ? { observedAt: g.observedAt } : {}),
+        identityQuality: g.identityQuality,
+        model: g.model || null,
+        temperature: source ? number(g.temperature, -30, 150) : null,
+        usage: source ? number(g.usage, 0, 100) : null,
+        powerWatts: source ? number(g.powerWatts) : null,
+        memoryUsed: source ? number(g.memoryUsed) : null,
+        memoryTotal: source ? number(g.memoryTotal) : null,
+      })),
     },
-    memory: {
-      total: source ? number(memory.total) : null,
-      used: source ? number(memory.used) : null,
-      usage: source ? number(memory.usage, 0, 100) : null,
-    },
-    gpus: normalizeGpus(s.gpus || []).map((g) => ({
-      deviceId: g.deviceId,
-      identityQuality: g.identityQuality,
-      model: g.model || null,
-      temperature: source ? number(g.temperature, -30, 150) : null,
-      usage: source ? number(g.usage, 0, 100) : null,
-      powerWatts: source ? number(g.powerWatts) : null,
-      memoryUsed: source ? number(g.memoryUsed) : null,
-      memoryTotal: source ? number(g.memoryTotal) : null,
-    })),
-  };
+    now,
+  );
 }
 function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
   const r = viewRig(raw, now),
