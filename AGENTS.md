@@ -45,3 +45,12 @@ Applies to the whole repository. Read this file before making changes.
 - For UI changes, check a populated fixture, failure state, and narrow screen. Document whether real hardware was tested.
 - Update `docs/backend-admin.md` with route/protocol changes and update the audit status when fixing a finding.
 - Keep documentation links relative within the repository. Never document planned capabilities as available.
+
+## Desktop client 1.2
+- Read `client/README.md` and `docs/audits/client-2026-09-13/README.md` before changing miner distribution or lifecycle.
+- Native process ownership is in `client/electron/mining/processManager.js`; renderer and shutdown/update paths must use it. Preserve real PID exit checks, pending-start cancellation, crash-retry limits and Stop cancellation. Never use `ChildProcess.killed` as proof of exit or kill by process basename.
+- Pin releases in `client/electron/mining/releases.json`. Verify archive and installed-file hashes, preserve supplied license files, stage replacements, and package only the actual target platform/architecture. Never run mining binaries during tests or verification; use fake processes and `npm --prefix client test`.
+- Keep managed binaries/configs in writable user-data directories, with original filenames. Do not change antivirus settings or introduce automatic quarantine-repair loops. Default CPU mining is driver-free with MSR tuning disabled; document its throughput tradeoff.
+- Shared renderer/native configuration validation is `client/src/utils/miningConfig.js`. Keep backend `Config` validation and OpenAPI in agreement. Optional paused mining and file diagnostics must survive status normalization and remain visible through API/admin.
+- New `miner-diagnose`/`miner-repair` commands require `capabilities.minerMaintenance`; check the API-to-native result path. Repair does not start mining and must refuse running processes. Miner reporting still needs no key.
+- Client browser fixture: build the renderer, then run `node client/scripts/preview-fixture.cjs`. It simulates Electron and hardware, binds loopback only, and cannot prove Windows quarantine behavior or real miner performance.

@@ -1,17 +1,25 @@
-import React from 'react';
-import './MinerConfig.css';
-import { formatHashrate } from '../utils/formatters';
-import { useSystemInfo, useSystemStats } from '../hooks/useSystemInfo';
-import SystemInfoCard from './SystemInfoCard';
+import React from "react";
+import EngineOptions from "./EngineOptions";
+import "./MinerConfig.css";
+import { formatMinerRate } from "../utils/formatters";
+import { useSystemInfo, useSystemStats } from "../hooks/useSystemInfo";
+import SystemInfoCard from "./SystemInfoCard";
 
-function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster = false, defaultWorkerName = '' }) {
+function MinerConfig({
+  miner,
+  onConfigChange,
+  onStart,
+  onStop,
+  isBoundToMaster = false,
+  defaultWorkerName = "",
+}) {
   const systemInfo = useSystemInfo();
   const systemStats = useSystemStats();
-  
+
   const handleChange = (field, value) => {
     onConfigChange({
       ...miner.config,
-      [field]: value
+      [field]: value,
     });
   };
 
@@ -19,7 +27,7 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
   const isFieldDisabled = (field) => {
     if (!isBoundToMaster) return false;
     // Allow password to be edited even when bound
-    return field !== 'password';
+    return field !== "password";
   };
 
   return (
@@ -29,30 +37,35 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
           <h2>{miner.name}</h2>
           <span className="device-badge">{miner.deviceType}</span>
           {miner.running && (
-            miner.hashrate ? (
-              <span className="hashrate-badge">{formatHashrate(miner.hashrate)}</span>
-            ) : (
-              <span className="hashrate-badge calculating">Calculating...</span>
-            )
+            <span className="hashrate-badge">{formatMinerRate(miner)}</span>
           )}
         </div>
         <div className="control-buttons">
           {!miner.running ? (
-            <button 
+            <button
               className="btn btn-start"
               onClick={onStart}
-              disabled={miner.loading || !miner.config.pool || !miner.config.user}
-              title={!miner.config.pool || !miner.config.user ? 'Pool address and wallet address required' : 'Start Mining'}
+              disabled={
+                miner.loading ||
+                miner.enabled === false ||
+                !miner.config.pool ||
+                !miner.config.user
+              }
+              title={
+                !miner.config.pool || !miner.config.user
+                  ? "Pool address and wallet address required"
+                  : "Start Mining"
+              }
             >
-              {miner.loading ? '⏳ Starting...' : '▶ Start Mining'}
+              {miner.loading ? "⏳ Starting..." : "▶ Start Mining"}
             </button>
           ) : (
-            <button 
+            <button
               className="btn btn-stop"
               onClick={onStop}
               disabled={miner.loading}
             >
-              {miner.loading ? '⏳ Stopping...' : '⏹ Stop Mining'}
+              {miner.loading ? "⏳ Stopping..." : "⏹ Stop Mining"}
             </button>
           )}
         </div>
@@ -69,31 +82,44 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
         </div>
       )}
 
+      <EngineOptions
+        miner={miner}
+        onChange={onConfigChange}
+        bound={isBoundToMaster}
+      />
       <div className="config-form">
         {isBoundToMaster && (
           <div className="master-bound-notice">
-            🔗 Bound to Master Server - Most settings are controlled remotely. Only password can be changed locally.
+            🔗 Bound to Master Server - Most settings are controlled remotely.
+            Only password can be changed locally.
           </div>
         )}
 
         <div className="form-row">
           <div className="form-group">
-            <label>Coin / Currency</label>
+            <label htmlFor={`${miner.id}-coin-currency`}>
+              {" "}
+              Coin / Currency
+            </label>
             <input
+              id={`${miner.id}-coin-currency`}
               type="text"
               placeholder="XMR"
               value={miner.config.coin}
-              onChange={(e) => handleChange('coin', e.target.value.toUpperCase())}
-              disabled={miner.running || isFieldDisabled('coin')}
+              onChange={(e) =>
+                handleChange("coin", e.target.value.toUpperCase())
+              }
+              disabled={miner.running || isFieldDisabled("coin")}
             />
           </div>
 
           <div className="form-group">
-            <label>Algorithm</label>
+            <label htmlFor={`${miner.id}-algorithm`}> Algorithm</label>
             <select
+              id={`${miner.id}-algorithm`}
               value={miner.config.algorithm}
-              onChange={(e) => handleChange('algorithm', e.target.value)}
-              disabled={miner.running || isFieldDisabled('algorithm')}
+              onChange={(e) => handleChange("algorithm", e.target.value)}
+              disabled={miner.running || isFieldDisabled("algorithm")}
             >
               <option value="rx/0">RandomX (rx/0)</option>
               <option value="rx/wow">RandomWOW (rx/wow)</option>
@@ -106,61 +132,84 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
         </div>
 
         <div className="form-group">
-          <label>Pool Address</label>
+          <label htmlFor={`${miner.id}-pool-address`}> Pool Address</label>
           <input
+            id={`${miner.id}-pool-address`}
             type="text"
             placeholder="pool.example.com:3333"
             value={miner.config.pool}
-            onChange={(e) => handleChange('pool', e.target.value)}
-            disabled={miner.running || isFieldDisabled('pool')}
+            onChange={(e) => handleChange("pool", e.target.value)}
+            disabled={miner.running || isFieldDisabled("pool")}
           />
         </div>
 
         <div className="form-row">
-        <div className="form-group">
-          <label>Wallet Address / Username</label>
-          <input
-            type="text"
-            placeholder="Your wallet address"
-            value={miner.config.user}
-            onChange={(e) => handleChange('user', e.target.value)}
-            disabled={miner.running || isFieldDisabled('user')}
-          />
-        </div>
+          <div className="form-group">
+            <label htmlFor={`${miner.id}-wallet-address-username`}>
+              {" "}
+              Wallet Address / Username
+            </label>
+            <input
+              id={`${miner.id}-wallet-address-username`}
+              type="text"
+              placeholder="Your wallet address"
+              value={miner.config.user}
+              onChange={(e) => handleChange("user", e.target.value)}
+              disabled={miner.running || isFieldDisabled("user")}
+            />
+          </div>
 
           <div className="form-group">
-            <label>Password / Worker Name</label>
+            <label htmlFor={`${miner.id}-password-worker-name`}>
+              {" "}
+              Password / Worker Name
+            </label>
             <input
+              id={`${miner.id}-password-worker-name`}
               type="text"
-              placeholder={defaultWorkerName || 'x'}
+              placeholder={defaultWorkerName || "x"}
               value={miner.config.password}
-              onChange={(e) => handleChange('password', e.target.value)}
-              disabled={miner.running || isFieldDisabled('password')}
+              onChange={(e) => handleChange("password", e.target.value)}
+              disabled={miner.running || isFieldDisabled("password")}
             />
-            <span className="field-hint">Defaults to {defaultWorkerName ? `"${defaultWorkerName}"` : 'hostname'} if empty. Some pools use this as the worker name.</span>
+            <span className="field-hint">
+              Defaults to{" "}
+              {defaultWorkerName ? `"${defaultWorkerName}"` : "hostname"} if
+              empty. Some pools use this as the worker name.
+            </span>
           </div>
         </div>
 
         <div className="form-group">
-          <label>Worker Name / Rig ID (optional)</label>
+          <label htmlFor={`${miner.id}-worker-name-rig-id-optional`}>
+            {" "}
+            Worker Name / Rig ID (optional)
+          </label>
           <input
+            id={`${miner.id}-worker-name-rig-id-optional`}
             type="text"
-            placeholder={defaultWorkerName || 'worker1'}
-            value={miner.config.workerName || ''}
-            onChange={(e) => handleChange('workerName', e.target.value)}
-            disabled={miner.running || isFieldDisabled('workerName')}
+            placeholder={defaultWorkerName || "worker1"}
+            value={miner.config.workerName || ""}
+            onChange={(e) => handleChange("workerName", e.target.value)}
+            disabled={miner.running || isFieldDisabled("workerName")}
           />
-          <span className="field-hint">Identifies this machine on the pool. Defaults to {defaultWorkerName ? `"${defaultWorkerName}"` : 'hostname'} if empty.</span>
+          <span className="field-hint">
+            Identifies this machine on the pool. Defaults to{" "}
+            {defaultWorkerName ? `"${defaultWorkerName}"` : "hostname"} if
+            empty.
+          </span>
         </div>
 
         <div className="form-group thread-control">
           <label>
-            CPU Usage: <span className="thread-percentage">{miner.config.threadPercentage || 100}%</span>
-            {navigator.hardwareConcurrency && (
-              <span className="thread-count">
-                ({Math.max(1, Math.round(navigator.hardwareConcurrency * ((miner.config.threadPercentage || 100) / 100)))} / {navigator.hardwareConcurrency} threads)
-              </span>
-            )}
+            CPU thread budget:{" "}
+            <span className="thread-percentage">
+              {miner.config.threadPercentage ?? 100}%
+            </span>
+            <span className="field-hint">
+              XMRig chooses efficient threads within this budget; this is not a
+              measured CPU utilization limit.
+            </span>
           </label>
           <div className="slider-container">
             <input
@@ -169,8 +218,10 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
               max="100"
               step="10"
               value={miner.config.threadPercentage || 100}
-              onChange={(e) => handleChange('threadPercentage', parseInt(e.target.value))}
-              disabled={miner.running || isFieldDisabled('threadPercentage')}
+              onChange={(e) =>
+                handleChange("threadPercentage", parseInt(e.target.value))
+              }
+              disabled={miner.running || isFieldDisabled("threadPercentage")}
               className="thread-slider"
             />
             <div className="slider-ticks">
@@ -181,19 +232,71 @@ function MinerConfig({ miner, onConfigChange, onStart, onStop, isBoundToMaster =
           </div>
         </div>
 
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="cpu-priority">CPU priority</label>
+            <select
+              id="cpu-priority"
+              value={miner.config.cpuPriority ?? 0}
+              disabled={miner.running || isFieldDisabled("cpuPriority")}
+              onChange={(e) =>
+                handleChange("cpuPriority", Number(e.target.value))
+              }
+            >
+              <option value={0}>Idle (keep this PC responsive)</option>
+              <option value={1}>Below normal</option>
+              <option value={2}>Normal</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="pause-active">Pause while this PC is in use</label>
+            <select
+              id="pause-active"
+              value={miner.config.pauseOnActive ?? 0}
+              disabled={miner.running || isFieldDisabled("pauseOnActive")}
+              onChange={(e) =>
+                handleChange("pauseOnActive", Number(e.target.value))
+              }
+            >
+              <option value={0}>Never</option>
+              <option value={60}>Resume after 1 minute idle</option>
+              <option value={300}>Resume after 5 minutes idle</option>
+            </select>
+          </div>
+        </div>
+        <div className="form-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={miner.config.pauseOnBattery === true}
+              disabled={miner.running || isFieldDisabled("pauseOnBattery")}
+              onChange={(e) => handleChange("pauseOnBattery", e.target.checked)}
+            />{" "}
+            Pause CPU mining on battery
+          </label>
+        </div>
+        <p className="field-hint">
+          Huge pages are used when available. MSR driver tuning is disabled; no
+          kernel driver or administrator launch is required. The official XMRig
+          release has a minimum 1% developer donation.
+        </p>
         {/* System Info for CPU Miner */}
-        {miner.deviceType === 'CPU' && (
+        {miner.deviceType === "CPU" && (
           <SystemInfoCard systemInfo={systemInfo} systemStats={systemStats} />
         )}
 
         <div className="form-group">
-          <label>Additional Arguments (optional)</label>
+          <label htmlFor={`${miner.id}-additional-arguments-optional`}>
+            {" "}
+            Additional Arguments (optional)
+          </label>
           <input
+            id={`${miner.id}-additional-arguments-optional`}
             type="text"
             placeholder="--tls --keepalive"
             value={miner.config.additionalArgs}
-            onChange={(e) => handleChange('additionalArgs', e.target.value)}
-            disabled={miner.running || isFieldDisabled('additionalArgs')}
+            onChange={(e) => handleChange("additionalArgs", e.target.value)}
+            disabled={miner.running || isFieldDisabled("additionalArgs")}
           />
         </div>
       </div>

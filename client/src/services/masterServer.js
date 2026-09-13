@@ -3,8 +3,8 @@
  * Handles WebSocket connection and communication with the MineMaster server
  */
 
-import versionInfo from '../version.json';
-import { getSystemId } from '../utils/systemId';
+import versionInfo from "../version.json";
+import { getSystemId } from "../utils/systemId";
 
 class MasterServerService {
   constructor() {
@@ -28,7 +28,7 @@ class MasterServerService {
       configUpdate: [],
       command: [],
       commandCancel: [],
-      error: []
+      error: [],
     };
     this.bootId = window.crypto?.randomUUID?.() || String(Date.now());
     this.logQueue = [];
@@ -41,15 +41,15 @@ class MasterServerService {
    */
   async loadConfig() {
     if (!window.electron) {
-      throw new Error('Electron API not available');
+      throw new Error("Electron API not available");
     }
 
     try {
-      const config = await window.electron.invoke('load-master-config');
+      const config = await window.electron.invoke("load-master-config");
       this.config = config;
       return config;
     } catch (error) {
-      throw new Error('Failed to load master server config');
+      throw new Error("Failed to load master server config");
     }
   }
 
@@ -58,14 +58,14 @@ class MasterServerService {
    */
   async saveConfig(config) {
     if (!window.electron) {
-      throw new Error('Electron API not available');
+      throw new Error("Electron API not available");
     }
 
     try {
-      await window.electron.invoke('save-master-config', config);
+      await window.electron.invoke("save-master-config", config);
       this.config = config;
     } catch (error) {
-      throw new Error('Failed to save master server config');
+      throw new Error("Failed to save master server config");
     }
   }
 
@@ -78,7 +78,7 @@ class MasterServerService {
     }
 
     if (!this.config.enabled) {
-      throw new Error('Master server connection is disabled');
+      throw new Error("Master server connection is disabled");
     }
 
     // Don't create a new connection if already connected or connecting
@@ -93,7 +93,9 @@ class MasterServerService {
 
     // Clean up any previous dead socket
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      try {
+        this.ws.close();
+      } catch (e) {}
       this.ws = null;
     }
 
@@ -101,7 +103,7 @@ class MasterServerService {
 
     // Use wss:// for port 443 (HTTPS/TLS via nginx-proxy), ws:// for local dev
     const secure = Number(this.config.port) === 443;
-    const protocol = secure ? 'wss' : 'ws';
+    const protocol = secure ? "wss" : "ws";
     const url = secure
       ? `${protocol}://${this.config.host}`
       : `${protocol}://${this.config.host}:${this.config.port}`;
@@ -115,13 +117,21 @@ class MasterServerService {
 
         // Connection timeout — if we don't connect within 10 seconds, give up this attempt
         const connectTimeout = setTimeout(() => {
-          if (this.ws !== socket) { if (!resolved) { resolved = true; reject(new Error('Connection superseded')); } return; }
+          if (this.ws !== socket) {
+            if (!resolved) {
+              resolved = true;
+              reject(new Error("Connection superseded"));
+            }
+            return;
+          }
           if (!resolved) {
             resolved = true;
             this._connecting = false;
-            try { this.ws.close(); } catch (e) {}
-            const err = new Error('Connection timeout');
-            this.emit('error', err);
+            try {
+              this.ws.close();
+            } catch (e) {}
+            const err = new Error("Connection timeout");
+            this.emit("error", err);
             // Schedule reconnect on timeout
             if (this.config?.autoReconnect) {
               this.scheduleReconnect();
@@ -136,7 +146,9 @@ class MasterServerService {
           this._connecting = false;
           this.connected = true;
           this.reconnectAttempts = 0;
-          this.emit('connected');
+          this.cancelReconnect();
+          this.lastServerMessage = Date.now();
+          this.emit("connected");
           this.startHeartbeat();
           if (!resolved) {
             resolved = true;
@@ -146,7 +158,13 @@ class MasterServerService {
 
         socket.onclose = () => {
           clearTimeout(connectTimeout);
-          if (this.ws !== socket) { if (!resolved) { resolved = true; reject(new Error('Connection superseded')); } return; }
+          if (this.ws !== socket) {
+            if (!resolved) {
+              resolved = true;
+              reject(new Error("Connection superseded"));
+            }
+            return;
+          }
           this._connecting = false;
           const wasConnected = this.connected;
           this.connected = false;
@@ -154,7 +172,7 @@ class MasterServerService {
           this.stopHeartbeat();
 
           if (wasConnected) {
-            this.emit('disconnected');
+            this.emit("disconnected");
           }
 
           if (this.config?.enabled && this.config?.autoReconnect) {
@@ -164,22 +182,28 @@ class MasterServerService {
           // Reject the initial connect promise if it hasn't resolved yet
           if (!resolved) {
             resolved = true;
-            reject(new Error('Connection closed'));
+            reject(new Error("Connection closed"));
           }
         };
 
         socket.onerror = (error) => {
           if (this.ws !== socket) return;
-          clearTimeout(connectTimeout);
-          this.emit('error', error);
+          this.emit("error", error);
         };
 
         socket.onmessage = (event) => {
           if (this.ws !== socket) return;
-          this.handleMessage(event.data);
+          this.lastServerMessage = Date.now();
+          if (
+            typeof event.data === "string" &&
+            event.data.length <= this.maxMessageBytes
+          )
+            this.handleMessage(event.data);
         };
       } catch (error) {
         this._connecting = false;
+        if (this.config?.enabled && this.config?.autoReconnect)
+          this.scheduleReconnect();
         if (!resolved) {
           resolved = true;
           reject(error);
@@ -196,16 +220,19 @@ class MasterServerService {
     if (this.config) {
       this.config.enabled = false;
     }
-    
+
     this.stopHeartbeat();
     this.cancelReconnect();
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      try {
+        this.ws.close();
+      } catch (e) {}
       this.ws = null;
     }
     this.connected = false;
     this.bound = false;
     this._connecting = false;
+    this.emit("disconnected");
     this.reconnectAttempts = 0;
   }
 
@@ -228,11 +255,11 @@ class MasterServerService {
     // Exponential backoff: 2s, 4s, 8s, 16s, 30s (capped)
     const delay = Math.min(
       this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      this.maxReconnectDelay
+      this.maxReconnectDelay,
     );
     // Add jitter (±25%) to prevent thundering herd
     const jitter = delay * (0.75 + Math.random() * 0.5);
-    
+
     this.reconnectAttempts++;
 
     this.reconnectTimer = setTimeout(async () => {
@@ -250,13 +277,21 @@ class MasterServerService {
    */
   startHeartbeat() {
     this.stopHeartbeat();
-    const interval = this.config?.heartbeatInterval || 30000;
-    
+    const interval = Math.max(
+      5000,
+      Math.min(30000, Number(this.config?.heartbeatInterval) || 30000),
+    );
+
     this.heartbeatTimer = setInterval(() => {
-      if (!this.send({ type: 'heartbeat' })) {
+      if (
+        Date.now() - this.lastServerMessage > 90000 ||
+        !this.send({ type: "heartbeat" })
+      ) {
         this.stopHeartbeat();
         if (this.ws) {
-          try { this.ws.close(); } catch (e) {}
+          try {
+            this.ws.close();
+          } catch (e) {}
         }
       }
     }, interval);
@@ -276,7 +311,11 @@ class MasterServerService {
    * Send message to server
    */
   send(message) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      this.ws.bufferedAmount > this.maxMessageBytes
+    ) {
       return false;
     }
 
@@ -284,7 +323,10 @@ class MasterServerService {
       const serialized = JSON.stringify(message);
       const messageBytes = new TextEncoder().encode(serialized).byteLength;
       if (messageBytes > this.maxMessageBytes) {
-        this.emit('error', new Error(`Outbound message too large: ${messageBytes} bytes`));
+        this.emit(
+          "error",
+          new Error(`Outbound message too large: ${messageBytes} bytes`),
+        );
         return false;
       }
 
@@ -303,36 +345,36 @@ class MasterServerService {
       const message = JSON.parse(data);
 
       switch (message.type) {
-        case 'connected':
+        case "connected":
           // Server sends connection confirmation with connectionId
           break;
-        case 'bound':
+        case "bound":
           this.bound = true;
-          this.emit('bound', message.data);
+          this.emit("bound", message.data);
           break;
-        case 'registered':
+        case "registered":
           // Silent registration acknowledgment (reconnect)
           this.bound = true;
-          this.emit('registered', message.data);
+          this.emit("registered", message.data);
           break;
-        case 'unbound':
+        case "unbound":
           this.bound = false;
-          this.emit('unbound');
+          this.emit("unbound");
           break;
-        case 'config-update':
-          this.emit('configUpdate', message.data);
+        case "config-update":
+          this.emit("configUpdate", message.data);
           break;
-        case 'command-cancel':
-          this.emit('commandCancel', message.data);
+        case "command-cancel":
+          this.emit("commandCancel", message.data);
           break;
-        case 'command':
-          this.emit('command', message.data);
+        case "command":
+          this.emit("command", message.data);
           break;
-        case 'error':
-          this.emit('error', new Error(message.error));
+        case "error":
+          this.emit("error", new Error(message.error));
           break;
-        case 'pong':
-        case 'miner_status_update':
+        case "pong":
+        case "miner_status_update":
           // Heartbeat response / status broadcast - ignore
           break;
         default:
@@ -353,45 +395,54 @@ class MasterServerService {
       if (!this.config) {
         await this.loadConfig();
       }
-      
+
       if (!this.config.enabled) {
         // Enable connection
         this.config.enabled = true;
         await this.saveConfig(this.config);
       }
-      
+
       // Connect to server
       await this.connect();
     }
-    
+
     // Now register/bind
     const systemId = await this.getCachedSystemId();
-    
+
     const registrationData = {
       systemId,
       protocolVersion: 2,
       version: versionInfo.displayVersion,
       bootId: this.bootId,
-      capabilities: { commandResults: true, processHashrate: true, logs: true, sensorHistory: true, perGpuControl: false },
+      capabilities: {
+        commandResults: true,
+        processHashrate: true,
+        logs: true,
+        sensorHistory: true,
+        perGpuControl: false,
+        minerMaintenance: true,
+      },
       systemInfo,
       silent, // For silent re-registration on reconnect
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    
+
     // Include device states if provided (so server knows current enabled states)
     if (devices) {
       registrationData.devices = devices;
     }
-    
+
     // Include custom client name (overrides hostname on server, empty string = use hostname)
     if (clientName !== null && clientName !== undefined) {
       registrationData.clientName = clientName;
     }
-    
-    if (!this.send({ type: 'register', data: registrationData })) {
-      throw new Error('Failed to send registration — connection may have dropped');
+
+    if (!this.send({ type: "register", data: registrationData })) {
+      throw new Error(
+        "Failed to send registration — connection may have dropped",
+      );
     }
-    
+
     // Note: bound event will be emitted when server responds
   }
 
@@ -402,21 +453,21 @@ class MasterServerService {
     // First unregister if bound
     if (this.bound) {
       const systemId = await this.getCachedSystemId();
-      
+
       this.send({
-        type: 'unbound',
+        type: "unbound",
         data: {
-          systemId
-        }
+          systemId,
+        },
       });
     }
-    
+
     // Then disconnect
     this.disconnect();
-    
+
     // Emit unbound event
     this.bound = false;
-    this.emit('unbound');
+    this.emit("unbound");
   }
 
   /**
@@ -424,7 +475,7 @@ class MasterServerService {
    */
   requestConfigs() {
     this.send({
-      type: 'request-configs'
+      type: "request-configs",
     });
   }
 
@@ -434,7 +485,7 @@ class MasterServerService {
   async getCachedSystemId() {
     if (this._cachedSystemId) return this._cachedSystemId;
     const id = await getSystemId();
-    if (id && id !== 'unknown-mac') {
+    if (id && id !== "unknown-mac") {
       this._cachedSystemId = id;
     }
     return id;
@@ -445,15 +496,15 @@ class MasterServerService {
    */
   async sendStatusUpdate(status) {
     const systemId = await this.getCachedSystemId();
-    
+
     this.send({
-      type: 'status-update',
+      type: "status-update",
       data: {
         systemId,
         ...status,
         protocolVersion: 2,
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
   }
 
@@ -462,30 +513,50 @@ class MasterServerService {
    */
   async sendHashrateUpdate(hashrate) {
     const systemId = await this.getCachedSystemId();
-    
+
     this.send({
-      type: 'hashrate-update',
+      type: "hashrate-update",
       data: {
         systemId,
         hashrate,
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     });
   }
 
-  queueLog(processId, message, level = 'info') {
-    if (this.logQueue.length >= 500) { this.logQueue.shift(); this.droppedLogs = (this.droppedLogs || 0) + 1; }
-    this.logQueue.push({ processId, message: String(message).slice(0, 4000), level, observedAt: new Date().toISOString(), sequence: ++this.logSequence });
+  queueLog(processId, message, level = "info") {
+    if (this.logQueue.length >= 500) {
+      this.logQueue.shift();
+      this.droppedLogs = (this.droppedLogs || 0) + 1;
+    }
+    this.logQueue.push({
+      processId,
+      message: String(message).slice(0, 4000),
+      level,
+      observedAt: new Date().toISOString(),
+      sequence: ++this.logSequence,
+    });
   }
 
   flushLogs() {
     if (!this.bound) return;
-    if (this.droppedLogs) { const dropped = this.droppedLogs; this.droppedLogs = 0; this.queueLog('agent', `${dropped} log lines dropped while the buffer was full`, 'warning'); }
+    if (this.droppedLogs) {
+      const dropped = this.droppedLogs;
+      this.droppedLogs = 0;
+      this.queueLog(
+        "agent",
+        `${dropped} log lines dropped while the buffer was full`,
+        "warning",
+      );
+    }
     const entries = this.logQueue.slice(0, 100);
-    if (entries.length && this.send({ type: 'logs', data: { entries } })) this.logQueue.splice(0, entries.length);
+    if (entries.length && this.send({ type: "logs", data: { entries } }))
+      this.logQueue.splice(0, entries.length);
   }
 
-  reportEvent(kind, details) { if (this.bound) this.send({ type: 'event', data: { kind, details } }); }
+  reportEvent(kind, details) {
+    if (this.bound) this.send({ type: "event", data: { kind, details } });
+  }
 
   /**
    * Add event listener
@@ -501,7 +572,9 @@ class MasterServerService {
    */
   off(event, callback) {
     if (this.listeners[event]) {
-      this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
+      this.listeners[event] = this.listeners[event].filter(
+        (cb) => cb !== callback,
+      );
     }
   }
 
@@ -510,9 +583,11 @@ class MasterServerService {
    */
   emit(event, data) {
     if (this.listeners[event]) {
-      this.listeners[event].forEach(callback => {
+      this.listeners[event].forEach((callback) => {
         try {
-          Promise.resolve(callback(data)).catch(error => { if (event !== 'error') this.emit('error', error); });
+          Promise.resolve(callback(data)).catch((error) => {
+            if (event !== "error") this.emit("error", error);
+          });
         } catch (error) {
           // Silent fail - listener errors should not break the service
         }

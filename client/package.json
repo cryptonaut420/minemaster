@@ -1,6 +1,6 @@
 {
   "name": "minemaster-client",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cross-platform GUI wrapper for crypto mining software",
   "author": "MineMaster",
   "main": "electron/main.js",
@@ -33,7 +33,8 @@
     "publish:linux": "npm run build && electron-builder --linux AppImage --publish always",
     "publish:windows": "npm run build && electron-builder --windows nsis --publish always",
     "publish:all": "npm run build && electron-builder --linux AppImage --windows nsis --publish always",
-    "release": "bash build-all.sh"
+    "release": "bash build-all.sh",
+    "test": "node --test test/*.test.cjs"
   },
   "build": {
     "appId": "com.minemaster.client",
@@ -53,7 +54,8 @@
       "build/**/*",
       "electron/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "src/utils/miningConfig.js"
     ],
     "asar": true,
     "asarUnpack": [
@@ -61,11 +63,12 @@
     ],
     "extraResources": [
       {
-        "from": "miners",
+        "from": "miners/${os}-${arch}",
         "to": "miners",
         "filter": [
           "**/*",
-          "!**/.gitkeep"
+          "!**/*.staging-*/**",
+          "!**/*.previous-*/**"
         ]
       },
       {
@@ -135,7 +138,8 @@
       ],
       "icon": "assets/icon.png",
       "category": "public.app-category.utilities"
-    }
+    },
+    "beforePack": "scripts/prepare-miners.js"
   },
   "dependencies": {
     "electron-is-dev": "^2.0.0",

@@ -30,6 +30,7 @@ function candidates(raw, now = Date.now()) {
   return r.processes.filter(
     (p) =>
       p.running &&
+      !p.paused &&
       p.enabled &&
       p.quality === "zero" &&
       date(p.zeroSince) !== null &&

@@ -90,3 +90,17 @@ test("desktop registration reports real build metadata and log buffering stays b
   assert.equal(service.logQueue.length, 400);
   assert.equal(service.droppedLogs, 1);
 });
+test("a socket error keeps the connection deadline armed and send applies backpressure", async () => {
+  const { service, sockets, timers } = setup();
+  const pending = service.connect().catch((e) => e.message);
+  sockets[0].onerror(Error("network failure"));
+  assert.equal(timers.size, 1);
+  [...timers.values()][0]();
+  assert.equal(await pending, "Connection timeout");
+  const next = service.connect();
+  sockets[1].readyState = 1;
+  sockets[1].onopen();
+  await next;
+  sockets[1].bufferedAmount = 2 * 1024 * 1024;
+  assert.equal(service.send({ type: "heartbeat" }), false);
+});

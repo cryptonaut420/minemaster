@@ -9,25 +9,55 @@ const DEFAULTS = {
     password: "x",
     threadPercentage: 100,
     additionalArgs: "",
+    restartOnCrash: false,
+    crashRestartDelaySeconds: 30,
+    maxCrashRestartsPerHour: 2,
+    threads: 0,
+    cpuPriority: 0,
+    pauseOnBattery: false,
+    pauseOnActive: 0,
+    hugePages: true,
+    tls: false,
+    keepAlive: false,
+    backupPools: [],
   },
-  nanominer: { coin: "", algorithm: "kawpow", pool: "", user: "", rigName: "" },
+  nanominer: {
+    coin: "",
+    algorithm: "kawpow",
+    pool: "",
+    user: "",
+    rigName: "",
+    backupPools: [],
+    restartOnCrash: false,
+    crashRestartDelaySeconds: 30,
+    maxCrashRestartsPerHour: 2,
+  },
 };
 const ALGORITHMS = {
   xmrig: ["rx/0", "rx/wow", "rx/arq", "cn/r", "cn/half", "ghostrider"],
   nanominer: [
     "ethash",
     "etchash",
+    "ethashb3",
+    "fishhash",
+    "karlsenhashv2",
+    "ubqhash",
+    "firopow",
     "kawpow",
-    "autolykos",
-    "autolykos2",
     "octopus",
+    "autolykos",
+    "verthash",
     "conflux",
-    "ton",
-    "kaspa",
-    "karlsenhash",
-    "nexa",
+    "autolykos2",
   ],
 };
+function validPool(value) {
+  if (typeof value !== "string" || /\s/.test(value)) return false;
+  const match = value.match(
+    /^(?:(?:stratum\+(?:tcp|ssl|tls)):\/\/)?(\[[0-9a-f:]+\]|[\w.-]+):(\d+)$/i,
+  );
+  return !!match && Number(match[2]) > 0 && Number(match[2]) <= 65535;
+}
 function validate(type, config, { partial = true } = {}) {
   const errors = {};
   if (!DEFAULTS[type])
@@ -40,7 +70,43 @@ function validate(type, config, { partial = true } = {}) {
       errors[key] = "Unsupported field";
       continue;
     }
-    if (key === "threadPercentage") {
+    if (
+      [
+        "cpuPriority",
+        "pauseOnActive",
+        "threads",
+        "crashRestartDelaySeconds",
+        "maxCrashRestartsPerHour",
+      ].includes(key)
+    ) {
+      const max = {
+        cpuPriority: 5,
+        pauseOnActive: 3600,
+        threads: 1024,
+        crashRestartDelaySeconds: 600,
+        maxCrashRestartsPerHour: 5,
+      }[key];
+      const min = key === "crashRestartDelaySeconds" ? 10 : 0;
+      if (!Number.isInteger(value) || value < min || value > max)
+        errors[key] = `Use an integer from 0 to ${max}`;
+    } else if (
+      [
+        "pauseOnBattery",
+        "hugePages",
+        "tls",
+        "keepAlive",
+        "restartOnCrash",
+      ].includes(key)
+    ) {
+      if (typeof value !== "boolean") errors[key] = "Use true or false";
+    } else if (key === "backupPools") {
+      if (
+        !Array.isArray(value) ||
+        value.length > 3 ||
+        value.some((v) => !validPool(v))
+      )
+        errors[key] = "Use up to three valid host:port pool addresses";
+    } else if (key === "threadPercentage") {
       if (!Number.isInteger(value) || value < 10 || value > 100)
         errors[key] = "Use an integer from 10 to 100";
     } else if (
@@ -58,14 +124,17 @@ function validate(type, config, { partial = true } = {}) {
   if (
     config.pool !== undefined &&
     config.pool !== "" &&
-    !/^(?:[a-z]+:\/\/)?[^\s]+:\d{1,5}(?:\/[^\s]*)?$/i.test(config.pool)
+    !validPool(config.pool)
   )
-    errors.pool = "Use hostname:port";
-  if (config.pool) {
-    const port = config.pool.match(/:(\d{1,5})(?:\/|$)/)?.[1];
-    if (!port || Number(port) < 1 || Number(port) > 65535)
-      errors.pool = "Use a port from 1 to 65535";
-  }
+    errors.pool = "Use host:port with a port from 1 to 65535";
+  if (
+    type === "nanominer" &&
+    [
+      config.pool,
+      ...(Array.isArray(config.backupPools) ? config.backupPools : []),
+    ].some((v) => typeof v === "string" && v.includes("://"))
+  )
+    errors.pool = "Nanominer requires host:port without a URL scheme";
   if (!partial)
     for (const key of ["pool", "user", "algorithm"])
       if (!config[key]?.trim()) errors[key] = "Required before applying";

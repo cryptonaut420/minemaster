@@ -336,7 +336,7 @@ test("a newer stop cancels a delayed restart and duplicate IDs never execute twi
     deadline,
   });
   await restart;
-  assert.deepEqual(calls, ["stop"]);
+  assert.deepEqual(calls, ["stop", "stop"]); // Each distinct stop confirms native state; duplicate command IDs still do not repeat it.
   assert.equal(state[0].running, false);
   assert.equal(reports.findLast((r) => r.id === "restart").status, "canceled");
   await runner.execute({
@@ -345,7 +345,7 @@ test("a newer stop cancels a delayed restart and duplicate IDs never execute twi
     deviceType: "CPU",
     deadline,
   });
-  assert.deepEqual(calls, ["stop"]);
+  assert.deepEqual(calls, ["stop", "stop"]); // Each distinct stop confirms native state; duplicate command IDs still do not repeat it.
 });
 test("failed stop fails restart, retains running state, and never starts again", async () => {
   const { createCommandRunner } = await esm("commandRunner.js");
@@ -437,4 +437,162 @@ test("broadcast cost depends on observers, not fleet size squared", () => {
   assert.equal(observerMessages, 3000);
   assert.equal(agentMessages, 0);
   ws.connections.clear();
+});
+
+test("intentional CPU pauses preserve diagnostics but do not inflate totals, trigger zero alerts or automatic recovery", () => {
+  const paused = t.normalizeProcesses(
+    {
+      protocolVersion: 2,
+      processes: [
+        {
+          ...p,
+          paused: true,
+          pauseReason: "battery",
+          diagnostic: {
+            status: "ready",
+            version: "6.26.0",
+            path: "C:\\Miner\\xmrig.exe",
+            observedAt: timestamp,
+          },
+        },
+      ],
+    },
+    now,
+  )[0];
+  assert.equal(paused.hashrate, null);
+  assert.equal(paused.diagnostic.version, "6.26.0");
+  const r = {
+    ...rig,
+    protocolVersion: 2,
+    processes: [
+      {
+        ...paused,
+        hashrate: 0,
+        quality: "zero",
+        zeroSince: new Date(now - 600000).toISOString(),
+      },
+    ],
+    recovery: { enabled: true },
+  };
+  assert.equal(t.summary([r], now).algorithms[0].pausedProcesses, 1);
+  assert.equal(t.viewRig(r, now).attention, false);
+  assert.equal(
+    monitoring.evaluate(r, undefined, now).some((i) => i.rule === "zero"),
+    false,
+  );
+  assert.equal(
+    require("../src/services/recovery").candidates(r, now).length,
+    0,
+  );
+});
+test("new admin CPU controls and backup pools validate consistently", () => {
+  assert.doesNotThrow(() =>
+    Config.validate("xmrig", {
+      pauseOnBattery: true,
+      cpuPriority: 0,
+      threads: 0,
+      backupPools: ["stratum+ssl://[::1]:443"],
+      restartOnCrash: true,
+    }),
+  );
+  for (const patch of [
+    { cpuPriority: 6 },
+    { pauseOnBattery: "true" },
+    { backupPools: ["pool:0"] },
+    { crashRestartDelaySeconds: 0 },
+  ])
+    assert.throws(() => Config.validate("xmrig", patch));
+  assert.throws(() => Config.validate("nanominer", { algorithm: "alephium" }));
+});
+test("maintenance command results include diagnostics and duplicate IDs do not repeat repair", async () => {
+  const { createCommandRunner } = await esm("commandRunner.js");
+  let calls = 0;
+  const reports = [];
+  const runner = createCommandRunner({
+    getMiners: () => [{ id: "cpu", deviceType: "CPU" }],
+    maintenance: async () => {
+      calls++;
+      return { success: true, diagnostic: { status: "ready" } };
+    },
+    report: (r) => reports.push(r),
+  });
+  const command = {
+    id: "repair",
+    action: "miner-repair",
+    deviceType: "CPU",
+    deadline: new Date(Date.now() + 60000).toISOString(),
+  };
+  await runner.execute(command);
+  await runner.execute(command);
+  assert.equal(calls, 1);
+  assert.equal(reports.at(-1).status, "succeeded");
+  assert.equal(reports.at(-1).result.processes[0].diagnostic.status, "ready");
+});
+test("explicit start confirms native state even if the renderer still thinks a process is running", async () => {
+  const { createCommandRunner } = await esm("commandRunner.js");
+  let starts = 0;
+  const runner = createCommandRunner({
+    getMiners: () => [{ id: "cpu", deviceType: "CPU", running: true }],
+    start: async () => {
+      starts++;
+      return { success: true };
+    },
+    report: () => {},
+  });
+  await runner.execute({
+    id: "confirm-start",
+    action: "start",
+    deviceType: "CPU",
+    deadline: new Date(Date.now() + 60000).toISOString(),
+  });
+  assert.equal(starts, 1);
+});
+test("a reconnect resends completed command receipts without re-executing a mining action", async () => {
+  const { createCommandRunner } = await esm("commandRunner.js");
+  let starts = 0;
+  const reports = [];
+  const runner = createCommandRunner({
+    getMiners: () => [{ id: "cpu", deviceType: "CPU", running: false }],
+    start: async () => {
+      starts++;
+      return { success: true };
+    },
+    report: (r) => reports.push(r),
+  });
+  await runner.execute({
+    id: "lost-receipt",
+    action: "start",
+    deviceType: "CPU",
+    deadline: new Date(Date.now() + 60000).toISOString(),
+  });
+  const before = reports.length;
+  runner.replayResults();
+  assert.equal(reports.length, before + 1);
+  assert.equal(reports.at(-1).status, "succeeded");
+  assert.equal(starts, 1);
+});
+test("damaged saved command history cannot break later remote commands", async () => {
+  const { createCommandRunner } = await esm("commandRunner.js");
+  for (const saved of ["null", "42", "[]", "broken json", '{"bad":null}']) {
+    const reports = [];
+    let starts = 0;
+    const runner = createCommandRunner({
+      getMiners: () => [{ id: "cpu", deviceType: "CPU", running: false }],
+      start: async () => {
+        starts++;
+        return { success: true };
+      },
+      report: (result) => reports.push(result),
+      storage: { getItem: () => saved, setItem: () => {} },
+    });
+    runner.replayResults();
+    await runner.execute({
+      id: "after-corruption",
+      action: "start",
+      deviceType: "CPU",
+      deadline: new Date(Date.now() + 60000).toISOString(),
+    });
+    assert.equal(starts, 1);
+    assert.equal(reports.at(-1).status, "succeeded");
+  }
 });

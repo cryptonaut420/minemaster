@@ -4,6 +4,7 @@ export function createCommandRunner({
   start,
   stop,
   enable,
+  maintenance,
   applyConfigs,
   report,
   storage,
@@ -14,9 +15,21 @@ export function createCommandRunner({
     active = new Map();
   let journal = {};
   try {
-    journal = JSON.parse(
+    const saved = JSON.parse(
       storage?.getItem("minemaster-command-results") || "{}",
     );
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+      journal = Object.fromEntries(
+        Object.entries(saved)
+          .filter(
+            ([id, result]) =>
+              result &&
+              result.id === id &&
+              [...terminal, "received", "running"].includes(result.status),
+          )
+          .slice(-100),
+      );
+    }
   } catch (_) {}
   const save = () => {
     const entries = Object.entries(journal).slice(-100);
@@ -91,6 +104,8 @@ export function createCommandRunner({
           "device-enable",
           "device-disable",
           "config-update",
+          "miner-diagnose",
+          "miner-repair",
         ].includes(command.action)
       )
         throw Error("Unsupported action");
@@ -114,6 +129,11 @@ export function createCommandRunner({
             .then(async () => {
               check(c, command);
               let current = getMiners().find((m) => m.id === id);
+              if (["miner-diagnose", "miner-repair"].includes(command.action)) {
+                const result = ensure(await maintenance(id, command.action));
+                check(c, command);
+                return { id, diagnostic: result.diagnostic };
+              }
               if (command.action === "config-update")
                 return {
                   id,
@@ -134,7 +154,7 @@ export function createCommandRunner({
               if (
                 ["stop", "restart", "device-disable"].includes(command.action)
               ) {
-                if (wasRunning) ensure(await stop(id));
+                ensure(await stop(id));
                 check(c, command);
               }
               if (command.action === "device-disable") enable(id, false);
@@ -151,7 +171,7 @@ export function createCommandRunner({
               }
               if (command.action === "start") {
                 current = getMiners().find((m) => m.id === id);
-                if (!current.running) ensure(await start(id));
+                ensure(await start(id));
               }
               check(c, command);
               current = getMiners().find((m) => m.id === id);
@@ -204,6 +224,19 @@ export function createCommandRunner({
   }
   return {
     execute,
+    replayResults: () => {
+      for (const prior of Object.values(journal)) {
+        if (terminal.includes(prior.status) || active.has(prior.id))
+          report(prior);
+        else
+          publish({
+            id: prior.id,
+            status: "failed",
+            error:
+              "Agent restarted during execution; outcome unknown. Inspect the process before retrying.",
+          });
+      }
+    },
     cancel: (id) => active.get(id)?.abort(),
     cancelProcess: (id) => controllers.get(id)?.abort(),
     dispose: () => {

@@ -148,3 +148,9 @@ Add an exclusion for the MineMaster install directory in Windows Security settin
 
 **Build fails with "Cannot find module 'electron-updater'":**
 Run `npm install` to ensure dependencies are installed. `electron-updater` is a production dependency.
+
+## Version 1.2 miner packaging
+
+Miner setup now uses `electron/mining/releases.json` and separate platform/architecture directories. `beforePack` verifies/downloads the actual target's files even when cross compiling. Existing unversioned binaries do not satisfy setup. Any requested build that cannot run or verify its miners fails instead of claiming release success.
+
+See [the client guide](README.md) for the pinned versions, stable user-data paths, driver-free CPU configuration and explicit application-update installation. Runtime repair only replaces a stopped miner's verified engine files; it does not install a new MineMaster application release. Verify Windows quarantine behavior and Linux/macOS launch/stop on a small operator-owned test rig before wider rollout. Signing/publishing/installing releases is separate from local tests and was not performed in the client audit.

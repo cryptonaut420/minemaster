@@ -1,25 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { masterServer } from '../services/masterServer';
-import './MasterServerPanel.css';
+import React, { useState, useEffect, useRef } from "react";
+import { masterServer } from "../services/masterServer";
+import "./MasterServerPanel.css";
 
 // MasterServerPanel is a UI-only component for bind/unbind actions and settings.
 // All connection lifecycle management (connect, auto-reconnect, re-register, status updates)
 // is handled in App.js so it persists across route/view changes.
-function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }) {
+function MasterServerPanel({
+  isBound,
+  onUnbind,
+  systemInfo,
+  miners,
+  clientName,
+}) {
+  const [connected, setConnected] = useState(masterServer.isBound());
+  useEffect(() => {
+    const update = () => setConnected(masterServer.isBound());
+    const events = ["bound", "registered", "disconnected", "unbound"];
+    events.forEach((event) => masterServer.on(event, update));
+    return () => events.forEach((event) => masterServer.off(event, update));
+  }, []);
   const [config, setConfig] = useState(null);
   const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
   const bindTimeoutRef = useRef(null);
-  
+
   // Use refs to get current data in async handlers
   const minersRef = useRef(miners);
   const systemInfoRef = useRef(systemInfo);
-  
+
   useEffect(() => {
     minersRef.current = miners;
   }, [miners]);
-  
+
   useEffect(() => {
     systemInfoRef.current = systemInfo;
   }, [systemInfo]);
@@ -44,29 +57,31 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
   const getDeviceStatesFromMiners = () => {
     const currentMiners = minersRef.current;
     const currentSystemInfo = systemInfoRef.current;
-    
+
     if (!currentMiners || currentMiners.length === 0) return null;
-    
-    const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-    const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-    
+
+    const cpuMiner = currentMiners.find((m) => m.deviceType === "CPU");
+    const gpuMiner = currentMiners.find((m) => m.deviceType === "GPU");
+
     return {
       cpu: {
         enabled: cpuMiner?.enabled !== false,
         running: cpuMiner?.running || false,
-        hashrate: cpuMiner?.hashrate || null,
-        algorithm: cpuMiner?.config?.algorithm || null
+        hashrate: cpuMiner?.hashrate ?? null,
+        algorithm: cpuMiner?.config?.algorithm || null,
       },
-      gpus: currentSystemInfo?.gpus && Array.isArray(currentSystemInfo.gpus)
-        ? currentSystemInfo.gpus.map((gpu, idx) => ({
-            id: idx,
-            model: gpu.model || `GPU ${idx}`,
-            enabled: gpuMiner?.enabled !== false,
-            running: gpuMiner?.running || false,
-            hashrate: gpuMiner?.hashrate || null,
-            algorithm: gpuMiner?.config?.algorithm || null
-          }))
-        : []
+      gpus:
+        currentSystemInfo?.gpus && Array.isArray(currentSystemInfo.gpus)
+          ? currentSystemInfo.gpus.map((gpu, idx) => ({
+              id: idx,
+              model: gpu.model || `GPU ${idx}`,
+              enabled: gpuMiner?.enabled !== false,
+              running: gpuMiner?.running || false,
+              hashrate: null,
+              deviceId: gpu.deviceId,
+              algorithm: gpuMiner?.config?.algorithm || null,
+            }))
+          : [],
     };
   };
 
@@ -76,14 +91,24 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
       setConfig(cfg);
       return cfg;
     } catch (error) {
-      setError('Failed to load configuration');
+      setConfig({
+        enabled: false,
+        host: "",
+        port: 443,
+        autoReconnect: true,
+        heartbeatInterval: 30000,
+      });
+      setShowSettings(true);
+      setError(
+        "Saved connection settings could not be read. Enter the server details to replace them.",
+      );
       return null;
     }
   };
 
   const handleBind = async () => {
     if (!config || !config.host || !config.port) {
-      setError('Please configure host and port in settings first');
+      setError("Please configure host and port in settings first");
       return;
     }
 
@@ -94,38 +119,40 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
 
     setIsBinding(true);
     setError(null);
-    
+
     // Set a timeout to prevent infinite "Binding..." state
     bindTimeoutRef.current = setTimeout(() => {
-      setIsBinding(prev => {
+      setIsBinding((prev) => {
         if (prev) {
-          setError('Bind timeout - server did not respond. Please check your connection and try again.');
+          setError(
+            "Bind timeout - server did not respond. Please check your connection and try again.",
+          );
           return false;
         }
         return prev;
       });
       bindTimeoutRef.current = null;
     }, 10000); // 10 second timeout
-    
+
     try {
       // Get fresh system info if not available
       let sysInfo = systemInfoRef.current;
       if (!sysInfo && window.electronAPI) {
         sysInfo = await window.electronAPI.getSystemInfo();
       }
-      
+
       // Get current device states from miners
       const devices = getDeviceStatesFromMiners();
-      
+
       if (!config.enabled) {
         const updatedConfig = { ...config, enabled: true };
         setConfig(updatedConfig);
         await masterServer.saveConfig(updatedConfig);
       }
-      
+
       // Connect and bind - App.js will catch the 'bound' event
       await masterServer.bind(sysInfo, false, devices, clientName || null);
-      
+
       if (bindTimeoutRef.current) {
         clearTimeout(bindTimeoutRef.current);
         bindTimeoutRef.current = null;
@@ -136,7 +163,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
         clearTimeout(bindTimeoutRef.current);
         bindTimeoutRef.current = null;
       }
-      setError(err.message || 'Failed to bind to master server');
+      setError(err.message || "Failed to bind to master server");
       setIsBinding(false);
     }
   };
@@ -144,7 +171,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
   const handleUnbind = async () => {
     setIsBinding(true);
     setError(null);
-    
+
     try {
       // Call the unbind handler from App.js
       if (onUnbind) {
@@ -152,7 +179,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
       }
       setIsBinding(false);
     } catch (err) {
-      setError(err.message || 'Failed to unbind');
+      setError(err.message || "Failed to unbind");
       setIsBinding(false);
     }
   };
@@ -163,7 +190,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
       setShowSettings(false);
       setError(null);
     } catch (err) {
-      setError('Failed to save settings');
+      setError("Failed to save settings");
     }
   };
 
@@ -172,19 +199,25 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
   }
 
   return (
-    <div className={`master-server-panel ${isBound ? 'bound' : ''}`}>
+    <div className={`master-server-panel ${isBound ? "bound" : ""}`}>
       <div className="panel-header">
         <div className="panel-title">
           <span className="panel-icon">🔗</span>
           <h3>Master Server</h3>
-          <div className={`status-indicator ${isBound ? 'bound' : 'unbound'}`}>
-            {isBound ? '● Bound' : '○ Unbound'}
+          <div className={`status-indicator ${isBound ? "bound" : "unbound"}`}>
+            {isBound
+              ? connected
+                ? "● Connected to admin"
+                : "○ Admin connection lost"
+              : "○ Not bound"}
           </div>
         </div>
-        <button 
-          className="settings-btn" 
+        <button
+          className="settings-btn"
           onClick={() => setShowSettings(!showSettings)}
           title="Settings"
+          aria-label="Master server settings"
+          aria-expanded={showSettings}
         >
           ⚙️
         </button>
@@ -213,7 +246,9 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
             <input
               type="number"
               value={config.port}
-              onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) || 0 })}
+              onChange={(e) =>
+                setConfig({ ...config, port: parseInt(e.target.value) || 0 })
+              }
               placeholder="3001"
             />
           </div>
@@ -222,7 +257,9 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
               <input
                 type="checkbox"
                 checked={config.autoReconnect}
-                onChange={(e) => setConfig({ ...config, autoReconnect: e.target.checked })}
+                onChange={(e) =>
+                  setConfig({ ...config, autoReconnect: e.target.checked })
+                }
               />
               Auto-reconnect
             </label>
@@ -231,7 +268,10 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
             <button onClick={handleSaveSettings} className="btn btn-primary">
               Save
             </button>
-            <button onClick={() => setShowSettings(false)} className="btn btn-secondary">
+            <button
+              onClick={() => setShowSettings(false)}
+              className="btn btn-secondary"
+            >
               Cancel
             </button>
           </div>
@@ -246,12 +286,14 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
                   <span>Bound to Master</span>
                 </div>
                 <p className="bind-info">
-                  This client is managed by the master server. Most settings are controlled remotely.
+                  This client is managed by the master server. Most settings are
+                  controlled remotely.
                 </p>
               </>
             ) : (
               <p className="bind-info">
-                Bind to allow remote management and monitoring from the master server.
+                Bind to allow remote management and monitoring from the master
+                server.
               </p>
             )}
           </div>
@@ -263,7 +305,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
                 onClick={handleBind}
                 disabled={isBinding || !config?.host || !config?.port}
               >
-                {isBinding ? '⏳ Binding...' : '🔗 Bind to Master'}
+                {isBinding ? "⏳ Binding..." : "🔗 Bind to Master"}
               </button>
             ) : (
               <button
@@ -271,7 +313,7 @@ function MasterServerPanel({ isBound, onUnbind, systemInfo, miners, clientName }
                 onClick={handleUnbind}
                 disabled={isBinding}
               >
-                {isBinding ? '⏳ Unbinding...' : '🔓 Unbind'}
+                {isBinding ? "⏳ Unbinding..." : "🔓 Unbind"}
               </button>
             )}
           </div>

@@ -1,240 +1,88 @@
-# MineMaster Client
+# MineMaster desktop client 1.2
 
-Cross-platform GUI wrapper for crypto mining software. Currently supports XMRig with an architecture designed to support multiple miners simultaneously.
+MineMaster manages an XMRig CPU process and a Nanominer GPU process, reports their actual state to the admin, and accepts acknowledged remote commands. Miner registration and reporting do not need an API key. Reading/managing the fleet through REST requires a read/manage key or admin session; see [the backend contract](../docs/backend-admin.md).
 
-## Features
+## Install and build
 
-- 🖥️ Cross-Platform (Linux/Windows/Mac)
-- 📊 Integrated Console - View miner output directly in the GUI
-- ⚙️ Easy Configuration - User-friendly interface for miner settings
-- 🔄 Multi-Miner Support - Architecture supports running multiple miners simultaneously
-- 🎯 XMRig Integration - Full support for XMRig configuration options
-
-## Quick Start
+Use Node 20 or later for development and the checked-in dependency lockfile.
 
 ```bash
-cd /var/www/Ironclad/minemaster/client
-npm install --legacy-peer-deps
+cd client
+npm ci --legacy-peer-deps
 npm start
 ```
 
-That's it! The XMRig miner will be downloaded automatically.
+Dependency installation runs verified miner setup for the host platform. To fetch explicitly:
 
-## Installation Details
-
-### Prerequisites
-
-- Node.js (v16 or higher)
-- npm
-
-### Install
-
-```bash
-npm install --legacy-peer-deps
-```
-
-This will:
-- Install all dependencies
-- Automatically download XMRig v6.25.0 for your platform
-- Set up miners in `miners/xmrig/`
-
-### Development
-
-```bash
-npm start
-```
-
-Starts the React dev server and launches the Electron app.
-
-### Build for Production
-
-**Quick Build (current platform):**
-```bash
-npm run build:electron    # Build for current platform
-```
-
-**Platform-Specific Builds:**
-```bash
-npm run build:linux       # Linux AppImage (single portable file)
-npm run build:windows     # Windows portable .exe (single file)
-npm run build:mac         # macOS DMG
-```
-
-**Full Release Build:**
-```bash
-npm run dist              # Build Linux + Windows with all outputs
-npm run dist -- --linux   # Linux only
-npm run dist -- --windows # Windows only
-npm run dist -- --clean   # Clean dist folder first
-```
-
-**Output files** are placed in `dist/`:
-- `MineMaster-1.0.0-Linux.AppImage` - Linux portable (run directly, no install)
-- `MineMaster-1.0.0-Windows-Portable.exe` - Windows portable (single file)
-- `MineMaster-1.0.0-Windows-Setup.exe` - Windows installer (optional)
-
-**Docker Build (recommended for cross-compilation):**
-```bash
-npm run dist:docker          # Linux + Windows (requires Docker)
-npm run dist:docker:linux    # Linux AppImage only
-npm run dist:docker:windows  # Windows only
-```
-
-Docker uses the `electronuserland/builder:wine` image which has all dependencies pre-configured - no need to install wine32 on your system.
-
-**Cross-Compilation Notes:**
-- **Recommended**: Use Docker for cross-compilation (no system deps needed)
-- Building Windows from Linux natively requires wine32 (often has dependency issues)
-- Building Linux from Windows requires WSL2 or a Linux VM
-- Native builds on each platform produce the most reliable results
-
-## Usage
-
-1. **Configure Miner**:
-   - Pool address (e.g., `pool.supportxmr.com:3333`)
-   - Wallet address
-   - Algorithm (default: RandomX for Monero)
-   - Threads (0 = auto)
-
-2. **Start Mining**: Click "▶ Start Mining"
-
-3. **Stop Mining**: Click "⏹ Stop Mining"
-
-## Configuration Options
-
-- **Pool Address**: Mining pool URL and port
-- **Wallet Address**: Your cryptocurrency wallet address
-- **Algorithm**: rx/0, rx/wow, cn/r, ghostrider, etc.
-- **Threads**: CPU threads (0 = auto-detect)
-- **Custom Path**: Override default XMRig path if needed
-- **Additional Arguments**: Extra XMRig command-line arguments
-
-## Project Structure
-
-```
-client/
-├── electron/           # Electron main process & miner management
-├── src/               # React UI
-│   ├── components/    # MinerConfig, MinerConsole
-│   └── App.js        # Main application
-├── miners/           # Miner binaries (downloaded, not committed)
-├── scripts/          # download-miners.js
-└── package.json
-```
-
-## Adding More Miners
-
-To add nanominer or other mining software:
-
-1. Edit `scripts/download-miners.js` - Add new miner definition
-2. Update `electron/main.js` - Add miner process spawning logic
-3. Update UI components - Add miner-specific config options
-
-## Miner Download Script
-
-Miners are downloaded via `scripts/download-miners.js` (runs automatically on install).
-
-To manually re-download:
 ```bash
 npm run setup
+npm run setup -- --all                         # Linux x64 and Windows x64
+npm run setup -- --platform darwin --arch arm64
+npm test                                      # Fake processes, no mining
+npm run build                                 # Renderer only
+npm run build:linux                           # AppImage
+npm run build:windows-installer                # NSIS
+npm run build:windows                         # Portable Windows
+npm run build:mac                             # macOS x64 and arm64
 ```
 
-Binaries are **not committed to git** - only the download script is tracked.
+Packaging runs `scripts/prepare-miners.js` for the actual target platform and architecture, including cross builds. Missing downloads, failed checksums, unsupported targets and extraction failures stop the build. Windows extraction requires the native `tar.exe` present on supported Windows 10/11 systems. Unix hosts use `tar` and `unzip`. Windows packaging on Linux still needs the existing Wine/container build environment. macOS packaging needs a macOS builder.
 
-## Troubleshooting
+Current pinned releases, verified September 13, 2026:
 
-### Permission Errors (Linux/macOS)
-```bash
-sudo chown -R $USER:$USER /var/www/Ironclad/minemaster/client
-```
+- [XMRig 6.26.0](https://github.com/xmrig/xmrig/releases/tag/v6.26.0): Linux static x64, Windows x64, macOS x64 and arm64. The static Linux build avoids depending on Ubuntu Noble's particular glibc version.
+- [Nanominer 3.10.0](https://github.com/nanopool/nanominer/releases/tag/v3.10.0): Linux x64 and Windows x64. Nanominer does not ship a macOS build in this release.
 
-### XMRig Not Starting
-- Check pool address format
-- Verify wallet address is correct
-- On Linux: `chmod +x miners/xmrig/xmrig`
-- On Windows: Run as Administrator for best performance
+Versions, official URLs, archive SHA-256 and extracted runtime-file SHA-256 values live in `electron/mining/releases.json`. XMRig executable hashes were derived from the checksum-verified upstream archives; Nanominer publishes executable hashes too. Upstream license files included in the archives are retained. [XMRig's source and license](https://github.com/xmrig/xmrig/tree/v6.26.0) accompany its release.
 
-### Platform-Specific Notes
+Binaries stay outside Git under `miners/linux-x64`, `miners/win-x64`, `miners/mac-x64` or `miners/mac-arm64`. Old unversioned `miners/xmrig` and `miners/nanominer` directories are no longer packaged or executed automatically.
 
-#### Windows
+## Daily operation
 
-**System Monitoring**:
-- CPU temperature supports multiple methods:
-  - `systeminformation` library (works with Open Hardware Monitor / LibreHardwareMonitor)
-  - WMI ThermalZone (may require admin privileges)
-  - PowerShell CIM queries (modern Windows 10/11)
-- NVIDIA GPU stats: Detected via `nvidia-smi` (included with NVIDIA drivers)
-- AMD GPU stats: Detected via `systeminformation` (requires Adrenalin drivers)
-- Integrated graphics (Intel UHD, AMD Vega) are automatically filtered out
+- Start/stop CPU and GPU independently from the overview. Disabling a process stops it first; a failed stop leaves it enabled and tracked.
+- Each process shows fresh, zero, missing, stale or intentionally paused hashrate, its engine version, uptime, file diagnostics and pending settings. CPU and GPU rates are never added together.
+- The detail view shows active algorithm, pool connectivity observations, accepted/rejected XMRig share counters and configuration differences. Logs support filtering, pausing the view and saving the displayed text.
+- `Check miner files` reads and verifies files. `Repair` restores the pinned upstream files while the process is stopped, using the bundled copy when possible and downloading the pinned official release when necessary. Repair cancels pending crash recovery and does not start mining. Clear a custom executable selection before repairing the managed engine.
+- Closing MineMaster stops its owned processes first. If the operating system refuses the stop, the app stays open with the failure. Only one MineMaster instance may run for each user-data profile.
 
-**Running Miners**:
-- For best performance, run MineMaster as Administrator
-- Windows Defender may flag mining software - add exceptions for:
-  - `miners/xmrig/xmrig.exe`
-  - `miners/nanominer/nanominer.exe`
-- Ensure GPU drivers are up to date
-- Nanominer config files use Windows line endings for compatibility
+The process controller tracks PIDs and process generations, waits for confirmed exits, owns POSIX process groups/Windows child trees, and serializes start/stop/repair. It does not kill unrelated miners by executable name. A stop also cancels a pending automatic crash restart.
 
-**Miner Downloads**:
-- ZIP files: PowerShell `Expand-Archive`
-- TAR.GZ files: Native `tar` (Windows 10 1803+) with PowerShell fallback
-- If download fails, manually download from releases pages
+## Configuration and performance
 
-**Stopping Miners**:
-- Uses `taskkill /T /F` for reliable process tree termination
-- Handles orphaned child processes automatically
-- May require administrator privileges for some operations
+Admin revisions supply the desired configuration. A running process keeps the immutable configuration used at launch; restart it to apply changes. Nonempty local pool-password/rig-name/custom-path selections and explicit legacy GPU-index selections remain visible as overrides. The global GPU configuration applies to the whole Nanominer process.
 
-**Nanominer on Windows**:
-- Ensure CUDA drivers are installed for NVIDIA GPUs
-- OpenCL runtime required for AMD GPUs
-- Config uses `noColor = true` to avoid ANSI escape code issues
+Available CPU fields include `threadPercentage` (10–100), `threads` (0 = automatic), `cpuPriority` (0–5), `hugePages`, `pauseOnBattery`, `pauseOnActive` (idle seconds, 0 disables), `tls`, `keepAlive` and up to three `backupPools`. Explicit `threads` takes precedence over the automatic thread budget. XMRig's thread budget is a tuning hint, not a guarantee that Windows Task Manager reports that CPU percentage. Priority defaults to idle and yielding remains enabled to keep the machine responsive.
 
-#### Linux
+Huge pages are used when available. **MSR read/write tuning is disabled and the optional kernel drivers are not installed by MineMaster.** This reduces driver dependencies and avoids making normal CPU mining depend on a blocked driver. It can lower peak RandomX throughput compared with a successfully tuned MSR setup. MineMaster does not change OS huge-page allocation, drivers, protection settings, or administrator privileges. The old `enable-msr.sh` helper is not part of this workflow and should not be used as a repair step. The official XMRig build enforces at least a 1% developer donation.
 
-**System Monitoring**:
-- CPU temperature read from `/sys/class/thermal/` or `/sys/class/hwmon/`
-- AMD GPU stats read from `/sys/class/drm/cardX/device/`
-- NVIDIA GPU stats require `nvidia-smi` command
+Both engines support a primary pool plus up to three backup pool addresses with the same wallet/user credentials. Nanominer addresses must use host:port without URL schemes; its upstream default negotiates SSL with plaintext fallback. The CPU form retains additional arguments for compatible upstream options; process-detaching, config/pool/algorithm/CPU-limit overrides, alternative GPU backends and background web APIs are rejected because they break tracked configuration or process ownership.
 
-**Running Miners**:
-- May need to add miner binaries to exceptions for antivirus
-- Use `chmod +x` to make downloaded binaries executable
+Nanominer receives an explicit algorithm section and cannot replace itself, reboot the rig, enable its watchdog or write duplicate disk logs. Supported GPU algorithms follow 3.10: Ethash, Etchash, EthashB3, FishHash, Karlsenhashv2, Ubqhash, FiroPow, KawPow, Octopus, Autolykos and Verthash. Existing `conflux`/`autolykos2` aliases map to Octopus/Autolykos. Removed/unsupported algorithms require an explicit configuration change. Sensor array positions are not mining device indices; old explicit `gpus` selections remain usable but must be reviewed against Nanominer's own device listing when hardware changes. Per-physical-GPU remote control is still unavailable.
 
-**Stopping Miners**:
-- Uses `SIGTERM` for graceful shutdown, `SIGKILL` as fallback
-- Uses `pgrep`/`pkill` to find related processes
+Optional crash recovery is controlled by `restartOnCrash` (default false), `crashRestartDelaySeconds` (10–600, default 30), and `maxCrashRestartsPerHour` (0–5, default 2). It only retries an unexpected exit after a confirmed successful launch, using that launch's configuration. It stops at the budget, never retries failed preparation/blocked launches, and is canceled by Stop or application shutdown. The budget is held in the current app session. Server maintenance suppresses server monitoring/recovery; explicitly Stop the process to cancel local crash recovery during maintenance. The server's separate sustained-zero recovery remains opt-in. Intentional battery/activity pauses are reported and excluded from zero alerts/recovery.
 
-#### macOS
+## Windows CPU mining blocked
 
-- NVIDIA support limited (no recent NVIDIA drivers for macOS)
-- AMD GPU detection uses `systeminformation` library
-- CPU temperature via SMC requires additional permissions
+A missing/blocked `xmrig.exe` and a blocked `WinRing0x64.sys` are different problems. The default driver-free launch removes the dependency on the latter; it cannot override an executable quarantine.
 
-### Common Windows Issues
+1. Use **Check miner files**, then copy the exact executable path from the app. Record the diagnostic and Windows Security threat name.
+2. Open **Windows Security → Virus & threat protection → Protection history** and match the entry to that exact path. Determine whether it is the executable, optional driver, a PUA policy, or another detection.
+3. Review the intentionally installed miner and its provenance with the device administrator. Microsoft explains how to inspect and act on detections in [Protection History](https://support.microsoft.com/en-us/windows/security/windows-security/protection-history-in-the-windows-security-app). An upstream checksum establishes file identity; it does not prove every security detection is a false positive. Respect managed device policy and use Microsoft's file-submission process when a detection needs review.
+4. After the detection/policy is resolved, stop the affected miner and choose **Repair**. Verify that the file check reports the pinned version, then start CPU mining and confirm fresh pool/share/hashrate observations in the app and admin.
 
-**"Miner not starting"**:
-1. Check Windows Defender hasn't quarantined the miner
-2. Run MineMaster as Administrator
-3. Ensure the miner binary exists in `miners/xmrig/` or `miners/nanominer/`
+No blanket antivirus exclusions, renamed payloads, protection disabling, driver installation or quarantine retry loops are performed. If Windows continues blocking the verified executable, the OS/device policy needs review; redownloading it repeatedly is not a fix.
 
-**"No GPU detected"**:
-1. Update GPU drivers (NVIDIA: nvidia-smi must work, AMD: Adrenalin drivers)
-2. Check Device Manager for GPU status
-3. Integrated graphics are intentionally filtered out
+Installed miner files use a stable writable location under Electron `app.getPath('userData')/miners/<type>/<version>/`, under `%APPDATA%` on Windows. The app displays the actual path, which is authoritative. Configurations live in `userData/processes/<process-id>/`; packaged Program Files/AppImage resources are never used as a writable working directory. Replacing an installation stages and verifies new files before swapping directories. A marker outside the version directory remembers installation, so a subsequently removed/quarantined directory is not recreated automatically on every start.
 
-**"CPU temperature not showing"**:
-- Install Open Hardware Monitor or LibreHardwareMonitor
-- Or run as Administrator (WMI access)
+## Application updates
 
-**"Miner won't stop"**:
-1. Open Task Manager
-2. End task for `xmrig.exe` or `nanominer.exe`
-3. Check for orphaned `conhost.exe` processes
+Installed Windows, macOS and Linux AppImage builds can check/download app updates. Portable Windows and development builds show that automatic app installation is unavailable. Downloading does not interrupt mining: choose **Install and restart** when ready. Installation requires confirmed process stops and saved resume state. A failed stop pauses installation. Miners that were running before a successful update are eligible to resume after restart if still enabled; ordinary app startup does not start mining automatically.
 
-### TypeScript Errors
-Already fixed - package.json uses TypeScript 4.9.5 compatible with react-scripts.
+## Validation and maintenance
 
-## License
+- `npm test` exercises fake native processes, configuration generation, pinned releases, corrupt downloads, update failures and telemetry formatting. It never runs a mining binary.
+- `node scripts/preview-fixture.cjs` serves the built desktop UI on loopback port 4319 with simulated hardware, blocked CPU files and fake start/stop/repair/update actions. It does not connect to production. Use `CLIENT_PREVIEW_PORT` to choose another port.
+- Backend compatibility: `npm --prefix ../server test` from `client/`, or `npm --prefix server test` from the repository root; disposable MongoDB only.
+- The [client audit](../docs/audits/client-2026-09-13/README.md) records fixes and remaining hardware validation.
 
-XMRig is GPL-3.0 licensed. Downloaded from official releases: https://github.com/xmrig/xmrig
+To update an engine, pin a specific official release and checksum, verify the extracted runtime files without executing them, update the manifest and supported algorithms, run the tests and verify every requested package target. Do not replace a running executable, follow an unpinned `latest` URL at runtime, or restore old unversioned binaries as a fallback.

@@ -1,0 +1,97 @@
+{
+  "xmrig": {
+    "linux-x64": {
+      "version": "6.26.0",
+      "platform": "linux",
+      "arch": "x64",
+      "archive": "xmrig-6.26.0-linux-static-x64.tar.gz",
+      "url": "https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-linux-static-x64.tar.gz",
+      "sha256": "fc6f8ae5f64e4f17481f7e3be29a1c56949f216a998414188003eae1db20c9e5",
+      "binary": "xmrig",
+      "files": {
+        "xmrig": "b20f39fc00d242e706b6c30367ad811c676e0575050a4ec2f30104b696944b49"
+      }
+    },
+    "win32-x64": {
+      "version": "6.26.0",
+      "platform": "win32",
+      "arch": "x64",
+      "archive": "xmrig-6.26.0-windows-x64.zip",
+      "url": "https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-windows-x64.zip",
+      "sha256": "bba8097cb37d9b458a1cb1137876b27cde6740d17fe4ccbc086ba07d87d9e147",
+      "binary": "xmrig.exe",
+      "files": {
+        "xmrig.exe": "6fa80698d7268f6e88aa88c06fb27ee99e1bcee747c2e76911e6206a5b1aeeb3"
+      },
+      "optionalFiles": {
+        "WinRing0x64.sys": "11bd2c9f9e2397c9a16e0990e4ed2cf0679498fe0fd418a3dfdac60b5c160ee5"
+      }
+    },
+    "darwin-x64": {
+      "version": "6.26.0",
+      "platform": "darwin",
+      "arch": "x64",
+      "archive": "xmrig-6.26.0-macos-x64.tar.gz",
+      "url": "https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-macos-x64.tar.gz",
+      "sha256": "1da924b358c0089e361540c4a9e6f8b09538b29efeafa2379590e0f6db358ff4",
+      "binary": "xmrig",
+      "files": {
+        "xmrig": "3bf7a353daa4af0f4d2aa4c5a0294fd14d3a330b0abf2e2e4dd23e14650aa527"
+      }
+    },
+    "darwin-arm64": {
+      "version": "6.26.0",
+      "platform": "darwin",
+      "arch": "arm64",
+      "archive": "xmrig-6.26.0-macos-arm64.tar.gz",
+      "url": "https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-macos-arm64.tar.gz",
+      "sha256": "6ae4eb4216e99a201ae9a3d2c3a7c275207c5165cfc25da1f3d735d6c4829c18",
+      "binary": "xmrig",
+      "files": {
+        "xmrig": "c66f9881bed79a550e18d54b9ae5cf03b91a0e881efdbf7962db2e58de0b4f7b"
+      }
+    }
+  },
+  "nanominer": {
+    "linux-x64": {
+      "version": "3.10.0",
+      "platform": "linux",
+      "arch": "x64",
+      "archive": "nanominer-linux-3.10.0.tar.gz",
+      "url": "https://github.com/nanopool/nanominer/releases/download/v3.10.0/nanominer-linux-3.10.0.tar.gz",
+      "sha256": "9de50220ae44c7359e6e93bc62346134bbc095b422b75329077c0a05e3854db0",
+      "binary": "nanominer",
+      "files": {
+        "nanominer": "22b1c5ae9b0d6d6f45b4589548fc625221e541abac641a1648b4e8c419e373dc",
+        "licenses/Bitcoin-license.txt": "0eba7f4cc4b5cecfe4d489f16e4cf3eb8441897ea2459b4785351b6eb8a3f1e4",
+        "licenses/HashLib4CPP-license.txt": "c51324ffce56a7a358f30ac69e0734df04406d53a6c66f4d3a0944389adbb567",
+        "licenses/RandomX-license.txt": "d3df5b66cecc3d275df45d600dc6d229f7cebb4a8c565867843ee1e778621204",
+        "licenses/Terms of Use Nanominer.pdf": "afe2a0d2f30d81c9d32bfcc48cac9059720d354146bf90a8c4f82ae21f58e022",
+        "licenses/amdmemorytweak-license.txt": "8b1ba204bb69a0ade2bfcf65ef294a920f6bb361b317dba43c7ef29d96332b9b"
+      }
+    },
+    "win32-x64": {
+      "version": "3.10.0",
+      "platform": "win32",
+      "arch": "x64",
+      "archive": "nanominer-windows-3.10.0.zip",
+      "url": "https://github.com/nanopool/nanominer/releases/download/v3.10.0/nanominer-windows-3.10.0.zip",
+      "sha256": "f886b42d5e913e6c74fcda3fa4fe0b3854d803401a55246c1d082229a6429b80",
+      "binary": "nanominer.exe",
+      "files": {
+        "nanominer.exe": "8d082f1d60b2a879cbbec17ec00daf14aa30b4385303eaa591454deda1e4ff3f",
+        "service.dll": "dc6b949ade8e4e1a66cbebf41ecf0ad1c6ca5e086f803bebef7d17a361eaccd5",
+        "licenses/amdmemorytweak-license.txt": "81cbae84a29ce7e770bf2bc7b178e50bda0ce8de6067aba661b0bc7b05b562f8",
+        "licenses/Bitcoin-license.txt": "0eba7f4cc4b5cecfe4d489f16e4cf3eb8441897ea2459b4785351b6eb8a3f1e4",
+        "licenses/HashLib4CPP-license.txt": "c51324ffce56a7a358f30ac69e0734df04406d53a6c66f4d3a0944389adbb567",
+        "licenses/RandomX-license.txt": "459fa63b36937ed72d7d041ff7aa3c6557403f92255fa4eea2052be17f9ef4f1",
+        "licenses/Terms of Use Nanominer.pdf": "afe2a0d2f30d81c9d32bfcc48cac9059720d354146bf90a8c4f82ae21f58e022"
+      },
+      "optionalFiles": {
+        "WinAMDTweak/EIO.dll": "287e44f5067a4e770e8a0605f5720d3d1477ecc4aa4f3a26ce5d3a489ae79780",
+        "WinAMDTweak/IOMap.sys": "8738825a034b93a39f59d348cb4137a97a86a826b76d21d2aa74475143acf183",
+        "WinAMDTweak/IOMap64.sys": "ad20e44954960278ad965b05e8c67d9d314c200809b99b1b5a219a916ce06b21"
+      }
+    }
+  }
+}

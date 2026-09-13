@@ -40,3 +40,8 @@ wallet-*.json
 
 # System info cache
 .system-info-cache.json
+
+# Verified platform-specific bundles (downloaded at setup/build time)
+/miners/linux-*/
+/miners/win-*/
+/miners/mac-*/

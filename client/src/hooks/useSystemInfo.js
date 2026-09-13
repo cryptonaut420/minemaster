@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 
 // Cache keys
 const CACHE_KEYS = {
-  SYSTEM_INFO: 'minemaster-system-info',
-  SYSTEM_STATS: 'minemaster-system-stats-last',
-  GPU_LIST: 'minemaster-gpu-list'
+  SYSTEM_INFO: "minemaster-system-info",
+  SYSTEM_STATS: "minemaster-system-stats-last",
+  GPU_LIST: "minemaster-gpu-list",
 };
 
 export function useSystemInfo() {
@@ -15,7 +15,10 @@ export function useSystemInfo() {
       if (cached) {
         const parsed = JSON.parse(cached);
         // Check if cache is less than 24 hours old
-        if (parsed.timestamp && Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
+        if (
+          parsed.timestamp &&
+          Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000
+        ) {
           return parsed.data;
         }
       }
@@ -31,18 +34,21 @@ export function useSystemInfo() {
 
     const loadSystemInfo = async () => {
       if (!window.electronAPI) return;
-      
+
       try {
         const info = await window.electronAPI.getSystemInfo();
-        
+
         if (mounted && info) {
           setSystemInfo(info);
-          
+
           try {
-            localStorage.setItem(CACHE_KEYS.SYSTEM_INFO, JSON.stringify({
-              data: info,
-              timestamp: Date.now()
-            }));
+            localStorage.setItem(
+              CACHE_KEYS.SYSTEM_INFO,
+              JSON.stringify({
+                data: info,
+                timestamp: Date.now(),
+              }),
+            );
           } catch (e) {
             // Silent fail on cache save
           }
@@ -56,10 +62,12 @@ export function useSystemInfo() {
 
     // Re-fetch once after 3s to pick up completed GPU detection
     const refetchTimeout = setTimeout(loadSystemInfo, 3000);
-    
+    const refreshInterval = setInterval(loadSystemInfo, 30000);
+
     return () => {
       mounted = false;
       clearTimeout(refetchTimeout);
+      clearInterval(refreshInterval);
     };
   }, []);
 
@@ -85,34 +93,40 @@ export function useSystemStats() {
   });
 
   useEffect(() => {
-    let mounted = true;
+    let mounted = true,
+      busy = false;
 
     const updateStats = async () => {
-      if (!mounted || !window.electronAPI) return;
-
+      if (!mounted || busy || !window.electronAPI) return;
+      busy = true;
       try {
         const [cpu, memory, gpu] = await Promise.all([
           window.electronAPI.getCpuStats(),
           window.electronAPI.getMemoryStats(),
-          window.electronAPI.getGpuStats()
+          window.electronAPI.getGpuStats(),
         ]);
 
         if (mounted) {
           const newStats = { cpu, memory, gpu };
           setSystemStats(newStats);
-          
+
           // Cache the stats
           try {
-            localStorage.setItem(CACHE_KEYS.SYSTEM_STATS, JSON.stringify({
-              data: newStats,
-              timestamp: Date.now()
-            }));
+            localStorage.setItem(
+              CACHE_KEYS.SYSTEM_STATS,
+              JSON.stringify({
+                data: newStats,
+                timestamp: Date.now(),
+              }),
+            );
           } catch (e) {
             // Silent fail on cache save
           }
         }
       } catch (e) {
-        // Silent fail - will retry on interval
+        if (mounted) setSystemStats(null);
+      } finally {
+        busy = false;
       }
     };
 
@@ -132,7 +146,7 @@ export function useSystemStats() {
 export function useGpuList() {
   const systemStats = useSystemStats();
   const systemInfo = useSystemInfo();
-  
+
   const [gpuList, setGpuList] = useState(() => {
     // Load GPU list from cache
     try {
@@ -151,12 +165,20 @@ export function useGpuList() {
     if (systemStats?.gpu && Array.isArray(systemStats.gpu)) {
       const enrichedList = systemStats.gpu.map((gpu, idx) => ({
         ...gpu,
-        model: systemInfo?.gpus?.[idx]?.model || `GPU ${idx}`,
-        vramTotal: gpu.vramTotal || systemInfo?.gpus?.[idx]?.vram || null
+        model:
+          systemInfo?.gpus?.find((item) => item.deviceId === gpu.deviceId)
+            ?.model ||
+          gpu.model ||
+          `GPU ${idx}`,
+        vramTotal:
+          gpu.vramTotal ??
+          systemInfo?.gpus?.find((item) => item.deviceId === gpu.deviceId)
+            ?.vram ??
+          null,
       }));
-      
+
       setGpuList(enrichedList);
-      
+
       // Cache the GPU list
       try {
         localStorage.setItem(CACHE_KEYS.GPU_LIST, JSON.stringify(enrichedList));
@@ -168,4 +190,3 @@ export function useGpuList() {
 
   return gpuList;
 }
-

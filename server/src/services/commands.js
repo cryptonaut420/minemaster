@@ -33,6 +33,8 @@ function normalize(input = {}) {
       "device-enable",
       "device-disable",
       "config-update",
+      "miner-diagnose",
+      "miner-repair",
     ].includes(action)
   )
     throw problem("Unsupported action");
@@ -47,7 +49,11 @@ function normalize(input = {}) {
   if (!["CPU", "GPU", "ALL"].includes(deviceType))
     throw problem("deviceType must be CPU, GPU, or ALL");
   const timeoutSeconds =
-    input.timeoutSeconds === undefined ? 60 : Number(input.timeoutSeconds);
+    input.timeoutSeconds === undefined
+      ? action === "miner-repair"
+        ? 300
+        : 60
+      : Number(input.timeoutSeconds);
   if (
     !Number.isInteger(timeoutSeconds) ||
     timeoutSeconds < 5 ||
@@ -109,6 +115,11 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
     throw problem("Rig must be active, bound, and connected", 409);
   if (miner.protocolVersion < 2 || !miner.capabilities?.commandResults)
     throw problem("Upgrade this agent for acknowledged remote control", 422);
+  if (
+    ["miner-diagnose", "miner-repair"].includes(spec.action) &&
+    !miner.capabilities?.minerMaintenance
+  )
+    throw problem("Upgrade this agent for miner diagnostics and repair", 422);
   if (spec.deviceType === "GPU" && !miner.hardware?.gpus?.length)
     throw problem("No physical GPUs reported", 422);
   if (

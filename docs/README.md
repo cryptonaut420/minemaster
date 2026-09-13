@@ -33,3 +33,5 @@ An independent desktop client keeps its settings and console locally. When bound
 ## Known work
 
 The [implementation report](audits/backend-admin-2026-09-12/implementation.md) records the completed operational repairs and the hardware/deployment checks still needed. The [second pass](audits/backend-admin-2026-09-12/second-pass.md) adds [API keys](api-access.md) and gated observer access while keeping miner reporting public. Broader authentication changes remain outside scope. [FUTURE_UPGRADES.md](../FUTURE_UPGRADES.md) contains older desktop ideas.
+
+- [Desktop client audit and validation](audits/client-2026-09-13/README.md)

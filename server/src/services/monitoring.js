@@ -92,6 +92,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
     for (const p of r.processes) {
       if (
         p.running &&
+        !p.paused &&
         p.quality === "zero" &&
         date(p.startedAt) !== null &&
         now - date(p.startedAt) > rules.zeroGraceSeconds * 1000
@@ -101,6 +102,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
         (number(p.shares?.accepted) || 0) + (number(p.shares?.rejected) || 0);
       if (
         p.running &&
+        !p.paused &&
         total >= 20 &&
         (p.shares.rejected / total) * 100 > rules.rejectPercent
       )

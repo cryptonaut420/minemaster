@@ -456,11 +456,20 @@ export function ActionDialog({
               "restart",
               "device-enable",
               "device-disable",
+              "miner-diagnose",
+              "miner-repair",
             ].map((a) => (
               <option key={a}>{a}</option>
             ))}
           </select>
         </label>
+        {action === "miner-repair" && (
+          <p className="op-warning">
+            Stop the selected processes first. Repair restores verified upstream
+            files and leaves mining stopped. It does not change Windows
+            protection policies. Requires MineMaster 1.2 or later.
+          </p>
+        )}
         <label>
           Process scope
           <select

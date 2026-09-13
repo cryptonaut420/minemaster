@@ -1,35 +1,44 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
-const path = require('path');
-const isDev = require('electron-is-dev');
-const { spawn, exec } = require('child_process');
-const { promisify } = require('util');
-const si = require('systeminformation');
-const os = require('os');
-const fs = require('fs');
-const { initAutoUpdater, checkForUpdates, getUpdateState, cleanup: cleanupAutoUpdater } = require('./autoUpdater');
-
-const execAsync = promisify(exec);
+const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const path = require("path");
+const isDev = require("electron-is-dev");
+const { exec } = require("child_process");
+const si = require("systeminformation");
+const os = require("os");
+const fs = require("fs");
+const {
+  initAutoUpdater,
+  checkForUpdates,
+  getUpdateState,
+  installUpdate,
+  cleanup: cleanupAutoUpdater,
+} = require("./autoUpdater");
 
 app.disableHardwareAcceleration();
 
 let mainWindow;
-let miners = {}; // Store active miner processes { minerId: { process, configPath, executable } }
+let processManager;
+const { createRuntime } = require("./mining/runtime");
+const { createProcessManager } = require("./mining/processManager");
+const { targetName } = require("./mining/install");
 const MAX_RENDERER_IPC_BYTES = 512 * 1024;
-const MAX_LOG_READ_BYTES = 256 * 1024;
 
 function sendToRenderer(channel, payload) {
   if (!mainWindow || !mainWindow.webContents) return;
 
   try {
     // Prevent oversized IPC frames by chunking very large miner output strings.
-    if (channel === 'miner-output' && payload && typeof payload.data === 'string') {
-      const totalBytes = Buffer.byteLength(payload.data, 'utf8');
+    if (
+      channel === "miner-output" &&
+      payload &&
+      typeof payload.data === "string"
+    ) {
+      const totalBytes = Buffer.byteLength(payload.data, "utf8");
       if (totalBytes > MAX_RENDERER_IPC_BYTES) {
         const chunkSizeChars = Math.floor(MAX_RENDERER_IPC_BYTES / 2);
         for (let i = 0; i < payload.data.length; i += chunkSizeChars) {
           mainWindow.webContents.send(channel, {
             ...payload,
-            data: payload.data.slice(i, i + chunkSizeChars)
+            data: payload.data.slice(i, i + chunkSizeChars),
           });
         }
         return;
@@ -46,38 +55,42 @@ function sendToRenderer(channel, payload) {
 let systemInfoCache = null;
 let systemInfoCachePath = null;
 let systemInfoRefreshPromise = null;
-const SYSTEM_INFO_CACHE_FILENAME = 'system-info-cache.json';
-const UPDATE_RESUME_FILENAME = 'update-resume-state.json';
+const SYSTEM_INFO_CACHE_FILENAME = "system-info-cache.json";
+const UPDATE_RESUME_FILENAME = "update-resume-state.json";
 
 function getUpdateResumeFilePath() {
-  return path.join(app.getPath('userData'), UPDATE_RESUME_FILENAME);
+  return path.join(app.getPath("userData"), UPDATE_RESUME_FILENAME);
 }
 
 function saveUpdateResumeState(runningMinerIds) {
-  try {
-    const data = { minerIds: runningMinerIds, savedAt: Date.now() };
-    fs.writeFileSync(getUpdateResumeFilePath(), JSON.stringify(data), 'utf8');
-  } catch (_) {}
+  const data = { minerIds: runningMinerIds, savedAt: Date.now() };
+  fs.writeFileSync(getUpdateResumeFilePath(), JSON.stringify(data), "utf8");
 }
 
 function loadAndClearUpdateResumeState() {
   const filePath = getUpdateResumeFilePath();
   try {
     if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf8');
+    const raw = fs.readFileSync(filePath, "utf8");
     fs.unlinkSync(filePath);
     const data = JSON.parse(raw);
     // Ignore stale resume files older than 10 minutes (something went wrong)
-    if (data.savedAt && (Date.now() - data.savedAt) > 10 * 60 * 1000) return null;
+    if (data.savedAt && Date.now() - data.savedAt > 10 * 60 * 1000) return null;
     return data;
   } catch (_) {
-    try { fs.unlinkSync(filePath); } catch (_e) {}
+    try {
+      fs.unlinkSync(filePath);
+    } catch (_e) {}
     return null;
   }
 }
 
-const { integrated: isLikelyIntegratedGpu, inventory: mapDiscreteGpus, identity: gpuIdentity, pci } = require('./hardware');
-const processOperations = new Set();
+const {
+  integrated: isLikelyIntegratedGpu,
+  inventory: mapDiscreteGpus,
+  identity: gpuIdentity,
+  pci,
+} = require("./hardware");
 
 function buildBasicSystemInfo() {
   const cpus = os.cpus();
@@ -91,23 +104,23 @@ function buildBasicSystemInfo() {
       distro: os.type(),
       release: os.release(),
       arch: os.arch(),
-      hostname: os.hostname()
+      hostname: os.hostname(),
     },
     cpu: {
-      manufacturer: '',
-      brand: cpuInfo.model || 'Unknown CPU',
+      manufacturer: "",
+      brand: cpuInfo.model || "Unknown CPU",
       cores: cpus.length,
-      physicalCores: cpus.length,
-      speed: cpuInfo.speed || 0
+      physicalCores: null,
+      speed: cpuInfo.speed || 0,
     },
     memory: {
       total: os.totalmem(),
       available: os.freemem(),
-      used: os.totalmem() - os.freemem()
+      used: os.totalmem() - os.freemem(),
     },
     gpus: null,
-    gpuDetectionStatus: 'pending',
-    lastUpdatedAt: Date.now()
+    gpuDetectionStatus: "pending",
+    lastUpdatedAt: Date.now(),
   };
 }
 
@@ -117,16 +130,16 @@ function readSystemInfoCacheFromDisk() {
   }
 
   try {
-    const fileData = fs.readFileSync(systemInfoCachePath, 'utf8');
+    const fileData = fs.readFileSync(systemInfoCachePath, "utf8");
     const parsed = JSON.parse(fileData);
-    if (!parsed || typeof parsed !== 'object') {
+    if (!parsed || typeof parsed !== "object") {
       return null;
     }
 
     return {
       ...buildBasicSystemInfo(),
       ...parsed,
-      gpuDetectionStatus: parsed.gpuDetectionStatus || 'complete'
+      gpuDetectionStatus: parsed.gpuDetectionStatus || "complete",
     };
   } catch (error) {
     return null;
@@ -137,12 +150,28 @@ function writeSystemInfoCacheToDisk(cacheData) {
   if (!systemInfoCachePath || !cacheData) return;
 
   try {
-    fs.writeFileSync(systemInfoCachePath, JSON.stringify(cacheData, null, 2), 'utf8');
+    fs.writeFileSync(
+      systemInfoCachePath,
+      JSON.stringify(cacheData, null, 2),
+      "utf8",
+    );
   } catch (error) {
     // Silent fail - in-memory cache still works
   }
 }
 
+function boundedProbe(promise, timeoutMs = 15000) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(Error("Sensor probe timed out")),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 async function refreshSystemInfoCache() {
   if (systemInfoRefreshPromise) {
     return systemInfoRefreshPromise;
@@ -151,23 +180,27 @@ async function refreshSystemInfoCache() {
   systemInfoRefreshPromise = (async () => {
     try {
       const baseInfo = systemInfoCache || buildBasicSystemInfo();
-      const [osInfo, graphics] = await Promise.all([
-        si.osInfo(),
-        si.graphics()
+      const [osInfo, graphics, cpuInfo] = await Promise.all([
+        boundedProbe(si.osInfo()),
+        boundedProbe(si.graphics()),
+        boundedProbe(si.cpu()),
       ]);
 
-      const discreteGpus = mapDiscreteGpus((graphics && graphics.controllers) || []);
+      const discreteGpus = mapDiscreteGpus(
+        (graphics && graphics.controllers) || [],
+      );
       const refreshedInfo = {
         ...baseInfo,
         os: {
           platform: osInfo.platform,
           distro: osInfo.distro,
           release: osInfo.release,
-          arch: osInfo.arch
+          arch: osInfo.arch,
         },
+        cpu: { ...baseInfo.cpu, physicalCores: cpuInfo.physicalCores || null },
         gpus: discreteGpus,
-        gpuDetectionStatus: 'complete',
-        lastUpdatedAt: Date.now()
+        gpuDetectionStatus: "complete",
+        lastUpdatedAt: Date.now(),
       };
 
       systemInfoCache = refreshedInfo;
@@ -185,7 +218,10 @@ async function refreshSystemInfoCache() {
 }
 
 function initializeSystemInfoCache() {
-  systemInfoCachePath = path.join(app.getPath('userData'), SYSTEM_INFO_CACHE_FILENAME);
+  systemInfoCachePath = path.join(
+    app.getPath("userData"),
+    SYSTEM_INFO_CACHE_FILENAME,
+  );
   systemInfoCache = readSystemInfoCacheFromDisk() || buildBasicSystemInfo();
 
   // Refresh once on startup in the background.
@@ -194,730 +230,177 @@ function initializeSystemInfoCache() {
   }, 1500);
 }
 
-
 function createWindow() {
   // Get icon path based on platform
   const iconPath = isDev
-    ? path.join(__dirname, '../assets/icon.png')
-    : path.join(process.resourcesPath, 'app/assets/icon.png');
-  
+    ? path.join(__dirname, "../assets/icon.png")
+    : path.join(process.resourcesPath, "app/assets/icon.png");
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
+      backgroundThrottling: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, "preload.js"),
     },
     autoHideMenuBar: true,
-    title: 'MineMaster'
+    title: "MineMaster",
   });
 
   const startURL = isDev
-    ? 'http://localhost:3000'
-    : `file://${path.join(__dirname, '../build/index.html')}`;
+    ? "http://localhost:3000"
+    : `file://${path.join(__dirname, "../build/index.html")}`;
 
   mainWindow.loadURL(startURL);
+  let rendererRestarts = [];
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason !== "crashed" || quitPending) return;
+    rendererRestarts = rendererRestarts.filter(
+      (at) => at > Date.now() - 300000,
+    );
+    if (rendererRestarts.length >= 2) return;
+    rendererRestarts.push(Date.now());
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && !quitPending)
+        mainWindow.reload();
+    }, 1000);
+  });
 
-  if (isDev && process.env.MINEMASTER_OPEN_DEVTOOLS === '1') {
+  if (isDev && process.env.MINEMASTER_OPEN_DEVTOOLS === "1") {
     mainWindow.webContents.openDevTools();
   }
 
   // Initialize auto-updater (only runs checks in packaged builds)
-  initAutoUpdater(mainWindow, stopAllMinersForUpdate);
+  initAutoUpdater(mainWindow, stopAllMinersForUpdate, () =>
+    processManager.allowStarts(),
+  );
 
-  mainWindow.on('closed', () => {
-    // Kill all running miners when window closes
-    Object.entries(miners).forEach(([minerId, minerData]) => {
-      const minerProcess = minerData.process;
-      if (minerProcess && !minerProcess.killed) {
-        const pid = minerProcess.pid;
-        
-        if (minerProcess._logSetupTimeout) {
-          clearTimeout(minerProcess._logSetupTimeout);
-        }
-        if (minerProcess._logWatcher) {
-          try { minerProcess._logWatcher.close(); } catch (e) {}
-        }
-        if (minerProcess._logPollInterval) {
-          clearInterval(minerProcess._logPollInterval);
-        }
-        
-        if (process.platform === 'win32') {
-          // Windows: Use taskkill for reliable termination
-          exec(`taskkill /PID ${pid} /T /F`, () => {});
-        } else {
-          // Linux/macOS: Use signals
-          try {
-            minerProcess.kill('SIGTERM'); // Graceful shutdown
-          } catch (e) {}
-          
-          // Force kill after 3 seconds if still running
-          setTimeout(() => {
-            if (!minerProcess.killed) {
-              try {
-                minerProcess.kill('SIGKILL');
-              } catch (e) {}
-            }
-          }, 3000);
-        }
-      }
-    });
+  mainWindow.on("close", (event) => {
+    if (!quitConfirmed) {
+      event.preventDefault();
+      requestQuit();
+    }
+  });
+  mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
 
-app.on('ready', () => {
-  initializeSystemInfoCache();
-  createWindow();
-});
-
-app.on('window-all-closed', () => {
-  // Kill all miners before quitting
-  Object.values(miners).forEach(minerData => {
-    const minerProcess = minerData.process;
-    if (minerProcess && !minerProcess.killed) {
-      const pid = minerProcess.pid;
-      if (process.platform === 'win32') {
-        exec(`taskkill /PID ${pid} /T /F`, () => {});
-      } else {
-        try { minerProcess.kill('SIGKILL'); } catch (e) {}
-      }
-    }
-  });
-  
-  if (process.platform !== 'darwin') {
+let quitConfirmed = false,
+  quitPending = false;
+async function requestQuit() {
+  if (quitPending) return;
+  quitPending = true;
+  try {
+    await processManager.stopAll();
+    quitConfirmed = true;
+    cleanupAutoUpdater();
     app.quit();
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, {
+      type: "error",
+      title: "Mining is still running",
+      message: error.message,
+      detail: "MineMaster will stay open so you can retry Stop.",
+    });
+  } finally {
+    quitPending = false;
   }
-});
-
-app.on('before-quit', () => {
-  // Clean up auto-updater intervals
-  cleanupAutoUpdater();
-
-  // Clear background intervals to prevent work after quit
-  if (bgUpdateInterval) { clearInterval(bgUpdateInterval); bgUpdateInterval = null; }
-  if (bgUpdateInitTimeout) { clearTimeout(bgUpdateInitTimeout); bgUpdateInitTimeout = null; }
-  if (cpuSampleInterval) { clearInterval(cpuSampleInterval); cpuSampleInterval = null; }
-  if (cpuSampleInitTimeout) { clearTimeout(cpuSampleInitTimeout); cpuSampleInitTimeout = null; }
-
-  // Ensure all miners are stopped before app quits
-  Object.values(miners).forEach(minerData => {
-    if (!!(minerData?.process && isProcessRunning(minerData.process.pid))) {
-      const pid = minerData.process.pid;
-      try {
-        if (process.platform === 'win32') {
-          // taskkill /T kills the entire process tree (child workers, etc.)
-          exec(`taskkill /PID ${pid} /T /F`, () => {});
-        } else {
-          minerData.process.kill('SIGKILL');
-        }
-      } catch (_) {}
-    }
+}
+// Multiple windows must never launch duplicate mining processes for the same rig.
+if (!app.requestSingleInstanceLock()) app.quit();
+else {
+  app.on("second-instance", () => {
+    mainWindow?.show();
+    mainWindow?.focus();
   });
-});
-
-app.on('activate', () => {
-  if (mainWindow === null) {
+  app.whenReady().then(async () => {
+    initializeSystemInfoCache();
+    const runtime = createRuntime({
+      userData: app.getPath("userData"),
+      hostname: os.hostname(),
+      bundledRoot: isDev
+        ? path.join(
+            __dirname,
+            "..",
+            "miners",
+            targetName(process.platform, process.arch),
+          )
+        : path.join(process.resourcesPath, "miners"),
+    });
+    processManager = createProcessManager({ runtime, emit: sendToRenderer });
     createWindow();
+    // First installation copies verified bundled files only; it never launches a miner or downloads in a loop.
+    for (const [id, type] of [
+      ["xmrig-1", "xmrig"],
+      ["nanominer-1", "nanominer"],
+    ]) {
+      try {
+        await runtime.prepare(type);
+      } catch (_) {}
+      await processManager.diagnose(id, type);
+    }
+  });
+}
+app.on("before-quit", (event) => {
+  if (!quitConfirmed && processManager) {
+    event.preventDefault();
+    requestQuit();
   }
 });
+app.on("window-all-closed", () => app.quit());
+app.on("activate", () => {
+  if (!mainWindow && processManager) createWindow();
+});
 
-// ============================================
-// AUTO-UPDATE HELPERS
-// ============================================
-
-/**
- * Gracefully stop all running miners before an auto-update restart.
- * Reuses the existing stop-miner IPC logic.
- */
 async function stopAllMinersForUpdate() {
-  const minerIds = Object.keys(miners);
-
-  // Persist which miners are currently running so we can resume after update restart
-  const runningIds = minerIds.filter(id => {
-    const d = miners[id];
-    return d && d.process && !d.process.killed;
-  });
-  if (runningIds.length > 0) {
-    saveUpdateResumeState(runningIds);
-  }
-
-  if (minerIds.length === 0) return;
-
-  const stopPromises = minerIds.map(async (minerId) => {
-    const minerData = miners[minerId];
-    if (!minerData || !minerData.process || minerData.process.killed) {
-      delete miners[minerId];
-      return;
-    }
-
-    const minerProcess = minerData.process;
-    const pid = minerProcess.pid;
-
-    // Clean up log file watchers / poll intervals before killing
-    if (minerProcess._logSetupTimeout) {
-      clearTimeout(minerProcess._logSetupTimeout);
-    }
-    if (minerProcess._logWatcher) {
-      try { minerProcess._logWatcher.close(); } catch (_) {}
-    }
-    if (minerProcess._logPollInterval) {
-      clearInterval(minerProcess._logPollInterval);
-    }
-
-    try {
-      if (process.platform === 'win32') {
-        await execAsync(`taskkill /PID ${pid} /T /F`, { timeout: 5000 }).catch(() => {});
-      } else {
-        try { minerProcess.kill('SIGTERM'); } catch (_) {}
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        if (!minerProcess.killed) {
-          try { minerProcess.kill('SIGKILL'); } catch (_) {}
-        }
-      }
-    } catch (_) {}
-    delete miners[minerId];
-  });
-
-  await Promise.allSettled(stopPromises);
-}
-
-// Auto-update IPC handlers
-ipcMain.handle('check-for-update', () => {
-  checkForUpdates();
-  return { success: true };
-});
-
-ipcMain.handle('get-update-status', () => {
-  return { state: getUpdateState() };
-});
-
-ipcMain.handle('get-update-resume-state', () => {
-  return loadAndClearUpdateResumeState();
-});
-
-// IPC Handlers for miner control
-
-ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
-  if (processOperations.has(minerId)) return { success: false, error: 'Process operation already pending' };
-  processOperations.add(minerId);
+  const ids = await processManager.stopAll();
   try {
-    // Check if miner is already tracked and running
-    const existingMiner = miners[minerId];
-    if (existingMiner && existingMiner.process) {
-      const existingPid = existingMiner.process.pid;
-      // Check if process is actually still alive
-      if (isProcessRunning(existingPid)) {
-        return { success: true, pid: existingPid, startedAt: existingMiner.startedAt, activeConfig: existingMiner.activeConfig, message: 'Already running' };
-      } else {
-        delete miners[minerId];
-      }
-    }
-
-    let minerProcess;
-
-    // Function to strip ANSI color codes
-    const stripAnsi = (str) => {
-      return str.replace(/\x1B\[[0-9;]*[JKmsu]/g, '');
-    };
-
-    if (minerType === 'xmrig') {
-      // Determine xmrig executable path based on platform (throws if not found)
-      const xmrigPath = getXmrigPath(config.customPath);
-      
-      // Build xmrig arguments from config
-      const args = buildXmrigArgs(config);
-
-      // cwd must be the xmrig directory so it can find WinRing0x64.sys (MSR mod) on Windows
-      minerProcess = spawn(xmrigPath, args, {
-        cwd: path.dirname(xmrigPath),
-        detached: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
-      });
-
-      // Check if spawn succeeded (pid will be undefined if binary not executable)
-      if (!minerProcess.pid) {
-        const errorMsg = await new Promise((resolve) => {
-          minerProcess.on('error', (err) => resolve(err.message));
-          setTimeout(() => resolve('Failed to start miner - binary may be blocked by antivirus'), 1000);
-        });
-        return { success: false, error: `Failed to start xmrig: ${errorMsg}\nPath: ${xmrigPath}` };
-      }
-
-      minerProcess.stdout.on('data', (data) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        sendToRenderer('miner-output', {
-          minerId,
-          data: stripAnsi(data.toString())
-        });
-      });
-
-      minerProcess.stderr.on('data', (data) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        sendToRenderer('miner-output', {
-          minerId,
-          data: stripAnsi(data.toString())
-        });
-      });
-
-      minerProcess.on('error', (error) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        sendToRenderer('miner-error', {
-          minerId,
-          error: error.message
-        });
-        delete miners[minerId];
-      });
-
-      minerProcess.on('close', (code, signal) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        sendToRenderer('miner-closed', {
-          minerId,
-          code, signal, expected: minerProcess._expectedStop === true
-        });
-        delete miners[minerId];
-      });
-
-      miners[minerId] = {
-        process: minerProcess,
-        executable: xmrigPath,
-        startedAt: Date.now(), activeConfig: { ...config },
-        type: 'xmrig'
-      };
-
-      // Wait briefly for spawn errors (e.g. ENOENT) before reporting success
-      const spawnOk = await new Promise((resolve) => {
-        const onError = () => resolve(false);
-        minerProcess.once('error', onError);
-        setTimeout(() => {
-          minerProcess.removeListener('error', onError);
-          resolve(true);
-        }, 200);
-      });
-
-      if (!spawnOk || !isProcessRunning(minerProcess.pid) || miners[minerId]?.process !== minerProcess) {
-        return { success: false, error: `Failed to launch ${xmrigPath}` };
-      }
-
-      return { success: true, pid: minerProcess.pid, startedAt: miners[minerId].startedAt, activeConfig: miners[minerId].activeConfig };
-    } else if (minerType === 'nanominer') {
-      // Determine nanominer executable path (throws if not found)
-      const nanominerPath = getNanominerPath(config.customPath);
-      
-      // Create config file for nanominer
-      const configPath = createNanominerConfig(minerId, config);
-      
-      // Get nanominer directory
-      const nanominerDir = path.dirname(nanominerPath);
-      
-      minerProcess = spawn(nanominerPath, [configPath], {
-        cwd: nanominerDir,
-        env: { ...process.env },
-        detached: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
-      });
-
-      // Check if spawn succeeded
-      if (!minerProcess.pid) {
-        const errorMsg = await new Promise((resolve) => {
-          minerProcess.on('error', (err) => resolve(err.message));
-          setTimeout(() => resolve('Failed to start miner - binary may be blocked by antivirus'), 1000);
-        });
-        return { success: false, error: `Failed to start nanominer: ${errorMsg}\nPath: ${nanominerPath}` };
-      }
-
-      minerProcess.stdout.on('data', (data) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        sendToRenderer('miner-output', {
-          minerId,
-          data: stripAnsi(data.toString())
-        });
-      });
-
-      minerProcess.stderr.on('data', (data) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        sendToRenderer('miner-output', {
-          minerId,
-          data: stripAnsi(data.toString())
-        });
-      });
-
-      const logDir = path.join(nanominerDir, 'logs');
-      
-      // Wait for nanominer to create log file; store timeout handle for cleanup
-      const logSetupTimeout = setTimeout(() => {
-        try {
-          // Find the most recent log file
-          if (!fs.existsSync(logDir)) {
-            return;
-          }
-          
-          const logFiles = fs.readdirSync(logDir)
-            .filter(f => f.startsWith('log_'))
-            .map(f => ({
-              name: f,
-              path: path.join(logDir, f),
-              mtime: fs.statSync(path.join(logDir, f)).mtime
-            }))
-            .sort((a, b) => b.mtime - a.mtime);
-          
-          if (logFiles.length > 0) {
-            const latestLog = logFiles[0].path;
-            
-            // Cross-platform log file watching
-            let lastSize = 0;
-            try {
-              lastSize = fs.statSync(latestLog).size;
-            } catch (e) {}
-            
-            // Read new content from log file
-            const readNewContent = () => {
-              let fd = -1;
-              try {
-                const stats = fs.statSync(latestLog);
-                if (stats.size > lastSize) {
-                  fd = fs.openSync(latestLog, 'r');
-                  const bytesToRead = Math.min(stats.size - lastSize, MAX_LOG_READ_BYTES);
-                  const buffer = Buffer.alloc(bytesToRead);
-                  fs.readSync(fd, buffer, 0, buffer.length, lastSize);
-                  
-                  const output = stripAnsi(buffer.toString('utf8'));
-                  if (output.trim()) {
-                    sendToRenderer('miner-output', {
-                      minerId,
-                      data: output
-                    });
-                  }
-                  lastSize += bytesToRead;
-                }
-              } catch (e) {
-                // File might be locked or rotated
-              } finally {
-                if (fd >= 0) {
-                  try { fs.closeSync(fd); } catch (_) {}
-                }
-              }
-            };
-            
-            // Poll the log file every 500ms (more reliable than fs.watch on Windows)
-            const logPollInterval = setInterval(readNewContent, 500);
-            
-            // Also try fs.watch for faster updates on Linux/macOS
-            let logWatcher = null;
-            try {
-              logWatcher = fs.watch(latestLog, (eventType) => {
-                if (eventType === 'change') {
-                  readNewContent();
-                }
-              });
-            } catch (e) {
-              // fs.watch not available, using polling only
-            }
-            
-            // Store watcher and interval so we can clean up later
-            minerProcess._logWatcher = logWatcher;
-            minerProcess._logPollInterval = logPollInterval;
-          }
-        } catch (e) {
-          // Silent fail - log watching is optional
-        }
-      }, 2000);
-      minerProcess._logSetupTimeout = logSetupTimeout;
-
-      minerProcess.on('error', (error) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        clearTimeout(logSetupTimeout);
-        sendToRenderer('miner-error', {
-          minerId,
-          error: error.message
-        });
-        delete miners[minerId];
-      });
-
-      minerProcess.on('close', (code, signal) => {
-        if (miners[minerId]?.process !== minerProcess) return;
-        clearTimeout(logSetupTimeout);
-        if (minerProcess._logWatcher) {
-          try { minerProcess._logWatcher.close(); } catch (e) {}
-        }
-        if (minerProcess._logPollInterval) {
-          clearInterval(minerProcess._logPollInterval);
-        }
-        
-        sendToRenderer('miner-closed', {
-          minerId,
-          code, signal, expected: minerProcess._expectedStop === true
-        });
-        delete miners[minerId];
-      });
-
-      miners[minerId] = {
-        process: minerProcess,
-        configPath: configPath,
-        executable: nanominerPath,
-        startedAt: Date.now(), activeConfig: { ...config },
-        type: 'nanominer'
-      };
-
-      // Wait briefly for spawn errors before reporting success
-      const spawnOk = await new Promise((resolve) => {
-        const onError = () => resolve(false);
-        minerProcess.once('error', onError);
-        setTimeout(() => {
-          minerProcess.removeListener('error', onError);
-          resolve(true);
-        }, 200);
-      });
-
-      if (!spawnOk || !isProcessRunning(minerProcess.pid) || miners[minerId]?.process !== minerProcess) {
-        return { success: false, error: `Failed to launch ${nanominerPath}` };
-      }
-
-      return { success: true, pid: minerProcess.pid, startedAt: miners[minerId].startedAt, activeConfig: miners[minerId].activeConfig };
-    } else {
-      throw new Error(`Unsupported miner type: ${minerType}`);
-    }
+    saveUpdateResumeState(ids);
   } catch (error) {
-    return { success: false, error: error.message };
-  } finally { processOperations.delete(minerId); }
-});
-
-// Check if process is still running
-function isProcessRunning(pid) {
-  if (!Number.isInteger(pid) || pid <= 1) return false;
-  try {
-    process.kill(pid, 0); // Signal 0 checks if process exists without killing it
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
+    processManager.allowStarts();
+    throw error;
   }
 }
+ipcMain.handle("check-for-update", () => checkForUpdates());
+ipcMain.handle("get-update-status", () => getUpdateState());
+ipcMain.handle("install-update", () => installUpdate());
+ipcMain.handle("get-update-resume-state", () =>
+  loadAndClearUpdateResumeState(),
+);
+ipcMain.handle("start-miner", (_event, request) =>
+  processManager.start(request),
+);
+ipcMain.handle("stop-miner", (_event, request) => processManager.stop(request));
+ipcMain.handle("get-miner-status", (_event, { minerId }) =>
+  processManager.snapshot(minerId),
+);
+ipcMain.handle("get-all-miners-status", () => processManager.snapshots());
+ipcMain.handle("diagnose-miner", (_event, { minerId, minerType, customPath }) =>
+  processManager.diagnose(minerId, minerType, customPath),
+);
+ipcMain.handle("repair-miner", (_event, { minerId, minerType, customPath }) =>
+  processManager.repair(minerId, minerType, customPath),
+);
+ipcMain.handle("open-protection-history", () =>
+  shell.openExternal(
+    "https://support.microsoft.com/en-us/windows/security/windows-security/protection-history-in-the-windows-security-app",
+  ),
+);
 
-// Find all PIDs matching a process name and config path
-async function findProcessPIDs(processName, configPath) {
-  try {
-    if (process.platform === 'win32') {
-      // Windows: use tasklist (wmic is deprecated on modern Windows)
-      const exeName = processName.endsWith('.exe') ? processName : `${processName}.exe`;
-      const { stdout } = await execAsync(`tasklist /FI "IMAGENAME eq ${exeName}" /FO CSV /NH`, { timeout: 5000 });
-      return stdout.split('\n')
-        .map(line => {
-          const parts = line.split(',');
-          return parts.length >= 2 ? parseInt(parts[1].replace(/"/g, '').trim()) : NaN;
-        })
-        .filter(pid => !isNaN(pid) && pid > 0);
-    } else {
-      // Unix approach - find by command line containing config path
-      try {
-        const { stdout } = await execAsync(`pgrep -f "${configPath}"`);
-        return stdout.split('\n')
-          .map(line => line.trim())
-          .filter(line => line && !isNaN(line))
-          .map(Number);
-      } catch (e) {
-        // pgrep returns exit code 1 if no processes found
-        return [];
-      }
-    }
-  } catch (error) {
-    return [];
-  }
-}
-
-// Aggressive kill with multiple strategies
-async function killMinerProcess(pid, signal = 'SIGTERM') {
-  if (!pid || pid <= 0) return false;
-  try {
-    if (process.platform === 'win32') {
-      if (signal === 'SIGKILL') {
-        await execAsync(`taskkill /PID ${pid} /T /F`);
-      } else {
-        // Graceful: try WM_CLOSE via taskkill without /F, fall back to /F if it fails
-        try {
-          await execAsync(`taskkill /PID ${pid} /T`);
-        } catch (e) {
-          await execAsync(`taskkill /PID ${pid} /T /F`);
-        }
-      }
-    } else {
-      // Unix - try multiple approaches
-      try {
-        // Try process group kill first (pid must be positive for group kill)
-        if (pid > 1) process.kill(-pid, signal);
-      } catch (e1) {
-        try {
-          // Fallback to regular kill
-          process.kill(pid, signal);
-        } catch (e2) {
-          // Last resort - use kill command
-          await execAsync(`kill -${signal === 'SIGKILL' ? 9 : 15} ${pid}`);
-        }
-      }
-    }
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
-ipcMain.handle('stop-miner', async (event, { minerId }) => {
-  if (processOperations.has(minerId)) return { success: false, error: 'Process operation already pending' };
-  processOperations.add(minerId);
-  try {
-    const minerData = miners[minerId];
-    
-    if (!minerData) {
-      return { success: true, message: 'No tracked process' };
-    }
-    
-    const minerProcess = minerData.process;
-    const configPath = minerData.configPath;
-    const executable = minerData.executable;
-    const minerType = minerData.type;
-    
-    if (!isProcessRunning(minerProcess.pid)) {
-      delete miners[minerId];
-      return { success: true, message: 'Miner was already stopped' };
-    }
-    
-    minerProcess._expectedStop = true;
-    const mainPID = minerProcess.pid;
-    
-    // Clean up log watcher and poll interval (for nanominer)
-    if (minerProcess._logWatcher) {
-      try {
-        minerProcess._logWatcher.close();
-      } catch (e) {}
-    }
-    if (minerProcess._logPollInterval) {
-      clearInterval(minerProcess._logPollInterval);
-    }
-    
-    // Find ALL related PIDs (in case of orphaned processes)
-    const relatedPIDs = []; // Process-tree termination is scoped to the tracked PID.
-    const allPIDs = [mainPID, ...relatedPIDs].filter((pid, index, self) => self.indexOf(pid) === index);
-    
-    // Step 1: Try graceful shutdown with SIGTERM
-    for (const pid of allPIDs) {
-      if (isProcessRunning(pid)) {
-        await killMinerProcess(pid, 'SIGTERM');
-      }
-    }
-    
-    // Wait up to 5 seconds for graceful shutdown
-    const gracefulTimeout = 5000;
-    const checkInterval = 200;
-    let waited = 0;
-    
-    while (waited < gracefulTimeout) {
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
-      waited += checkInterval;
-      
-      const stillRunning = allPIDs.filter(pid => isProcessRunning(pid));
-      if (stillRunning.length === 0) {
-        delete miners[minerId];
-        return { success: true, message: 'Miner stopped successfully' };
-      }
-    }
-    
-    // Step 2: Force kill with SIGKILL
-    const stillAlive = allPIDs.filter(pid => isProcessRunning(pid));
-    
-    for (const pid of stillAlive) {
-      await killMinerProcess(pid, 'SIGKILL');
-    }
-    
-    // Wait up to 2 seconds for force kill
-    const forceTimeout = 2000;
-    waited = 0;
-    
-    while (waited < forceTimeout) {
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
-      waited += checkInterval;
-      
-      const stillRunning = allPIDs.filter(pid => isProcessRunning(pid));
-      if (stillRunning.length === 0) {
-        delete miners[minerId];
-        return { success: true, message: 'Miner stopped (force killed)' };
-      }
-    }
-    
-    // Step 3: Last resort - force-kill remaining known PIDs directly
-    try {
-      const remaining = allPIDs.filter(pid => isProcessRunning(pid));
-      if (process.platform === 'win32') {
-        for (const pid of remaining) {
-          await execAsync(`taskkill /PID ${pid} /T /F 2>nul`).catch(() => {});
-        }
-      } else {
-        for (const pid of remaining) {
-          await execAsync(`kill -9 ${pid}`).catch(() => {});
-        }
-      }
-    } catch (e) {
-      // kill commands will error if no processes found
-    }
-    
-    // Final check
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const finalCheck = allPIDs.filter(pid => isProcessRunning(pid));
-    
-    if (finalCheck.length === 0) {
-      delete miners[minerId];
-      return { success: true, message: 'Miner stopped (pkill)' };
-    }
-    
-    // Keep tracking a process whose exit could not be confirmed.
-    minerProcess._expectedStop = false;
-    const killCmd = process.platform === 'win32' 
-      ? `taskkill /F /PID ${finalCheck.join(' /PID ')}`
-      : `kill -9 ${finalCheck.join(' ')}`;
-    return { 
-      success: false, 
-      error: `Some processes still running (PIDs: ${finalCheck.join(', ')}). Try: ${killCmd}` 
-    };
-    
-  } catch (error) {
-    if (miners[minerId]?.process) miners[minerId].process._expectedStop = false;
-    return { success: false, error: error.message };
-  } finally { processOperations.delete(minerId); }
-});
-
-ipcMain.handle('get-miner-status', async (event, { minerId }) => {
-  const minerData = miners[minerId];
-  const isRunning = !!(minerData?.process && isProcessRunning(minerData.process.pid));
-  return { 
-    running: isRunning,
-    pid: isRunning ? minerData.process.pid : null,
-      startedAt: isRunning ? minerData.startedAt : null, activeConfig: isRunning ? minerData.activeConfig : null
-  };
-});
-
-ipcMain.handle('get-all-miners-status', async () => {
-  const statuses = {};
-  Object.keys(miners).forEach(minerId => {
-    const minerData = miners[minerId];
-    const isRunning = !!(minerData?.process && isProcessRunning(minerData.process.pid));
-    statuses[minerId] = {
-      running: isRunning,
-      pid: isRunning ? minerData.process.pid : null,
-      startedAt: isRunning ? minerData.startedAt : null, activeConfig: isRunning ? minerData.activeConfig : null
-    };
-  });
-  return statuses;
-});
-
-ipcMain.handle('get-system-info', async () => {
+ipcMain.handle("get-system-info", async () => {
   if (!systemInfoCache) {
     systemInfoCache = buildBasicSystemInfo();
   }
 
   // Ensure one startup refresh is in progress if detection is still pending.
-  if (systemInfoCache.gpuDetectionStatus !== 'complete' || Date.now() - (systemInfoCache.lastUpdatedAt || 0) > 60000) {
+  if (
+    systemInfoCache.gpuDetectionStatus !== "complete" ||
+    Date.now() - (systemInfoCache.lastUpdatedAt || 0) > 60000
+  ) {
     refreshSystemInfoCache();
   }
 
@@ -926,7 +409,9 @@ ipcMain.handle('get-system-info', async () => {
 
 // Cache for slow-changing stats (updated in background)
 let cachedCpuTemp = null;
-let cpuTempObservedAt = null, gpuObservedAt = null, cpuUsageObservedAt = null;
+let cpuTempObservedAt = null,
+  gpuObservedAt = null,
+  cpuUsageObservedAt = null;
 let cachedGpuStats = []; // Array to support multiple GPUs
 let tempUpdateInProgress = false;
 let gpuUpdateInProgress = false;
@@ -938,21 +423,34 @@ function updateCpuTempAsync() {
   (async () => {
     let temperature = null;
     try {
-      if (process.platform === 'linux') {
+      if (process.platform === "linux") {
         const values = [];
-        for (const name of fs.readdirSync('/sys/class/hwmon')) {
+        for (const name of fs.readdirSync("/sys/class/hwmon")) {
           const dir = `/sys/class/hwmon/${name}`;
-          let driver = ''; try { driver = fs.readFileSync(`${dir}/name`, 'utf8').trim(); } catch (_) {}
-          if (!['coretemp', 'k10temp', 'zenpower'].includes(driver)) continue;
-          for (const file of fs.readdirSync(dir).filter(f => /^temp\d+_input$/.test(f))) {
-            const value = Number(fs.readFileSync(`${dir}/${file}`, 'utf8')) / 1000;
-            if (Number.isFinite(value) && value > 0 && value < 150) values.push(value);
+          let driver = "";
+          try {
+            driver = fs.readFileSync(`${dir}/name`, "utf8").trim();
+          } catch (_) {}
+          if (!["coretemp", "k10temp", "zenpower"].includes(driver)) continue;
+          for (const file of fs
+            .readdirSync(dir)
+            .filter((f) => /^temp\d+_input$/.test(f))) {
+            const value =
+              Number(fs.readFileSync(`${dir}/${file}`, "utf8")) / 1000;
+            if (Number.isFinite(value) && value > 0 && value < 150)
+              values.push(value);
           }
         }
         if (values.length) temperature = Math.max(...values);
-      } else { const value = (await si.cpuTemperature()).main; if (Number.isFinite(value) && value > 0 && value < 150) temperature = value; }
+      } else {
+        const value = (await boundedProbe(si.cpuTemperature())).main;
+        if (Number.isFinite(value) && value > 0 && value < 150)
+          temperature = value;
+      }
     } catch (_) {}
-    cachedCpuTemp = temperature; cpuTempObservedAt = Date.now(); tempUpdateInProgress = false;
+    cachedCpuTemp = temperature;
+    cpuTempObservedAt = Date.now();
+    tempUpdateInProgress = false;
   })();
 }
 
@@ -960,19 +458,33 @@ function updateCpuTempAsync() {
 function updateGpuInfoAsync() {
   if (gpuUpdateInProgress) return;
   gpuUpdateInProgress = true;
-  
+
   setTimeout(async () => {
     try {
       const detectedGpus = [];
-      
-      if (process.platform === 'linux') {
+
+      if (process.platform === "linux") {
         // Linux: Read AMD GPUs from sysfs
-        for (const card of fs.readdirSync('/sys/class/drm').filter(name => /^card\d+$/.test(name))) {
+        for (const card of fs
+          .readdirSync("/sys/class/drm")
+          .filter((name) => /^card\d+$/.test(name))) {
           const cardNum = Number(card.slice(4));
           const amdPath = `/sys/class/drm/card${cardNum}/device`;
-          if (fs.existsSync(amdPath) && fs.readFileSync(`${amdPath}/vendor`, 'utf8').trim() === '0x1002') {
-            const gpuInfo = { deviceId: `pci:${pci(path.basename(fs.realpathSync(amdPath)))}`, observedAt: new Date().toISOString(), id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
-            
+          if (
+            fs.existsSync(amdPath) &&
+            fs.readFileSync(`${amdPath}/vendor`, "utf8").trim() === "0x1002"
+          ) {
+            const gpuInfo = {
+              deviceId: `pci:${pci(path.basename(fs.realpathSync(amdPath)))}`,
+              observedAt: new Date().toISOString(),
+              id: cardNum,
+              usage: null,
+              temperature: null,
+              vramUsed: null,
+              vramTotal: null,
+              type: "AMD",
+            };
+
             // Try to read temp
             try {
               const hwmonPath = `${amdPath}/hwmon`;
@@ -980,66 +492,76 @@ function updateGpuInfoAsync() {
                 const hwmons = fs.readdirSync(hwmonPath);
                 if (hwmons.length > 0) {
                   const powerFile = `${hwmonPath}/${hwmons[0]}/power1_average`;
-                  if (fs.existsSync(powerFile)) gpuInfo.powerWatts = Number(fs.readFileSync(powerFile, 'utf8')) / 1000000;
+                  if (fs.existsSync(powerFile))
+                    gpuInfo.powerWatts =
+                      Number(fs.readFileSync(powerFile, "utf8")) / 1000000;
                   const tempFile = `${hwmonPath}/${hwmons[0]}/temp1_input`;
                   if (fs.existsSync(tempFile)) {
-                    gpuInfo.temperature = parseInt(fs.readFileSync(tempFile, 'utf8')) / 1000;
+                    gpuInfo.temperature =
+                      parseInt(fs.readFileSync(tempFile, "utf8")) / 1000;
                   }
                 }
               }
             } catch (e) {}
-            
+
             // Try to read usage
             try {
               const usageFile = `${amdPath}/gpu_busy_percent`;
               if (fs.existsSync(usageFile)) {
-                gpuInfo.usage = parseInt(fs.readFileSync(usageFile, 'utf8'));
+                gpuInfo.usage = parseInt(fs.readFileSync(usageFile, "utf8"));
               }
             } catch (e) {}
-            
+
             // Try to read VRAM info
             try {
               const vramUsedFile = `${amdPath}/mem_info_vram_used`;
               const vramTotalFile = `${amdPath}/mem_info_vram_total`;
               if (fs.existsSync(vramUsedFile) && fs.existsSync(vramTotalFile)) {
-                gpuInfo.vramUsed = parseInt(fs.readFileSync(vramUsedFile, 'utf8')) / (1024 * 1024); // bytes to MB
-                gpuInfo.vramTotal = parseInt(fs.readFileSync(vramTotalFile, 'utf8')) / (1024 * 1024); // bytes to MB
+                gpuInfo.vramUsed =
+                  parseInt(fs.readFileSync(vramUsedFile, "utf8")) /
+                  (1024 * 1024); // bytes to MB
+                gpuInfo.vramTotal =
+                  parseInt(fs.readFileSync(vramTotalFile, "utf8")) /
+                  (1024 * 1024); // bytes to MB
               }
             } catch (e) {}
-            
+
             // Only add if it has valid stats AND isn't integrated graphics (> 1GB VRAM or no VRAM info)
-            const hasValidStats = gpuInfo.temperature !== null || gpuInfo.usage !== null;
-            const isNotIntegrated = gpuInfo.vramTotal === null || gpuInfo.vramTotal > 1024; // > 1GB
-            
+            const hasValidStats =
+              gpuInfo.temperature !== null || gpuInfo.usage !== null;
+            const isNotIntegrated =
+              gpuInfo.vramTotal === null || gpuInfo.vramTotal > 1024; // > 1GB
+
             if (hasValidStats && isNotIntegrated) {
               detectedGpus.push(gpuInfo);
             }
           }
         }
-      } else if (process.platform === 'win32') {
+      } else if (process.platform === "win32") {
         // Windows: Use systeminformation for GPU detection
         try {
-          const graphics = await si.graphics();
+          const graphics = await boundedProbe(si.graphics());
           if (graphics && graphics.controllers) {
             let gpuIndex = 0;
             graphics.controllers.forEach((gpu) => {
               if (isLikelyIntegratedGpu(gpu)) {
                 return;
               }
-              
+
               // Discrete GPU detected
-              const vendor = (gpu.vendor || '').toLowerCase();
+              const vendor = (gpu.vendor || "").toLowerCase();
               const gpuInfo = {
-                deviceId: gpuIdentity(gpu, gpuIndex), observedAt: new Date().toISOString(),
+                deviceId: gpuIdentity(gpu, gpuIndex),
+                observedAt: new Date().toISOString(),
                 id: gpuIndex++,
                 temperature: gpu.temperatureGpu ?? null,
                 usage: gpu.utilizationGpu ?? null,
                 vramUsed: gpu.memoryUsed ?? null,
                 vramTotal: gpu.vram ?? null,
-                type: vendor.includes('nvidia') ? 'NVIDIA' : 'AMD',
-                model: gpu.model || 'Unknown GPU'
+                type: vendor.includes("nvidia") ? "NVIDIA" : "AMD",
+                model: gpu.model || "Unknown GPU",
               };
-              
+
               // Only include GPUs with >512MB VRAM (discrete GPUs)
               if (gpuInfo.vramTotal > 512) {
                 detectedGpus.push(gpuInfo);
@@ -1050,15 +572,24 @@ function updateGpuInfoAsync() {
           // Silent fail - will try NVIDIA detection with nvidia-smi
         }
       }
-      
-      const hasNvidiaFromSi = detectedGpus.some(g => g.type === 'NVIDIA');
 
-      let nvidiaSmiExe = 'nvidia-smi';
-      if (process.platform === 'win32') {
+      const hasNvidiaFromSi = detectedGpus.some((g) => g.type === "NVIDIA");
+
+      let nvidiaSmiExe = "nvidia-smi";
+      if (process.platform === "win32") {
         // nvidia-smi may not be on PATH on Windows; check known install locations
         const candidates = [
-          path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvidia-smi.exe'),
-          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe')
+          path.join(
+            process.env.SystemRoot || "C:\\Windows",
+            "System32",
+            "nvidia-smi.exe",
+          ),
+          path.join(
+            process.env.ProgramFiles || "C:\\Program Files",
+            "NVIDIA Corporation",
+            "NVSMI",
+            "nvidia-smi.exe",
+          ),
         ];
         for (const candidate of candidates) {
           if (fs.existsSync(candidate)) {
@@ -1068,40 +599,45 @@ function updateGpuInfoAsync() {
         }
       }
 
-      const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null';
+      const nullDev = process.platform === "win32" ? "NUL" : "/dev/null";
       const nvidiaSmiCmd = `${nvidiaSmiExe} --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total,pci.bus_id,uuid,power.draw --format=csv,noheader,nounits 2>${nullDev}`;
-      
+
       exec(nvidiaSmiCmd, { timeout: 5000 }, (error, stdout) => {
         if (!error && stdout && stdout.trim()) {
           // If si.graphics already found NVIDIA GPUs, replace them with nvidia-smi data (more accurate stats)
           if (hasNvidiaFromSi) {
-            const nonNvidia = detectedGpus.filter(g => g.type !== 'NVIDIA');
+            const nonNvidia = detectedGpus.filter((g) => g.type !== "NVIDIA");
             detectedGpus.length = 0;
-            nonNvidia.forEach(g => detectedGpus.push(g));
+            nonNvidia.forEach((g) => detectedGpus.push(g));
           }
 
-          const lines = stdout.trim().split('\n');
-          lines.forEach(line => {
-            const parts = line.split(',').map(p => p.trim());
+          const lines = stdout.trim().split("\n");
+          lines.forEach((line) => {
+            const parts = line.split(",").map((p) => p.trim());
             if (parts.length >= 5 && !isNaN(parts[0])) {
               detectedGpus.push({
-                id: parseInt(parts[0]), deviceId: `pci:${pci(parts[5])}`, uuid: parts[6], observedAt: new Date().toISOString(), powerWatts: Number.isFinite(parseFloat(parts[7])) ? parseFloat(parts[7]) : null,
+                id: parseInt(parts[0]),
+                deviceId: `pci:${pci(parts[5])}`,
+                uuid: parts[6],
+                observedAt: new Date().toISOString(),
+                powerWatts: Number.isFinite(parseFloat(parts[7]))
+                  ? parseFloat(parts[7])
+                  : null,
                 temperature: parseFloat(parts[1]),
                 usage: parseFloat(parts[2]),
                 vramUsed: parseFloat(parts[3]),
                 vramTotal: parseFloat(parts[4]),
-                type: 'NVIDIA'
+                type: "NVIDIA",
               });
             }
           });
         }
-        
+
         cachedGpuStats = detectedGpus;
         gpuObservedAt = Date.now();
-        
+
         gpuUpdateInProgress = false;
       });
-      
     } catch (e) {
       gpuUpdateInProgress = false;
     }
@@ -1132,7 +668,7 @@ let cachedCpuUsage = null;
 function sampleCpuUsage() {
   const cpus = os.cpus();
   const totals = { idle: 0, total: 0 };
-  cpus.forEach(cpu => {
+  cpus.forEach((cpu) => {
     const t = cpu.times;
     totals.idle += t.idle;
     totals.total += t.user + t.nice + t.sys + t.irq + t.idle;
@@ -1142,7 +678,10 @@ function sampleCpuUsage() {
     const idleDelta = totals.idle - prevCpuTimes.idle;
     const totalDelta = totals.total - prevCpuTimes.total;
     cpuUsageObservedAt = Date.now();
-    cachedCpuUsage = totalDelta > 0 ? Math.min(((totalDelta - idleDelta) / totalDelta) * 100, 100) : 0;
+    cachedCpuUsage =
+      totalDelta > 0
+        ? Math.min(((totalDelta - idleDelta) / totalDelta) * 100, 100)
+        : 0;
   }
   prevCpuTimes = totals;
 }
@@ -1151,220 +690,29 @@ function sampleCpuUsage() {
 let cpuSampleInterval = setInterval(sampleCpuUsage, 5000);
 let cpuSampleInitTimeout = setTimeout(sampleCpuUsage, 500);
 
-ipcMain.handle('get-cpu-stats', () => {
+ipcMain.handle("get-cpu-stats", () => {
   return {
-    observedAt: cpuUsageObservedAt, temperatureObservedAt: cpuTempObservedAt,
+    observedAt: cpuUsageObservedAt,
+    temperatureObservedAt: cpuTempObservedAt,
     usage: Date.now() - cpuUsageObservedAt <= 30000 ? cachedCpuUsage : null,
-    temperature: Date.now() - cpuTempObservedAt <= 30000 ? cachedCpuTemp : null
+    temperature: Date.now() - cpuTempObservedAt <= 30000 ? cachedCpuTemp : null,
   };
 });
 
-ipcMain.handle('get-memory-stats', () => {
+ipcMain.handle("get-memory-stats", () => {
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
-  
+
   return {
     total: totalMem,
     used: totalMem - freeMem,
-    usagePercent: ((totalMem - freeMem) / totalMem) * 100
+    usagePercent: ((totalMem - freeMem) / totalMem) * 100,
   };
 });
 
-ipcMain.handle('get-gpu-stats', () => {
+ipcMain.handle("get-gpu-stats", () => {
   return Date.now() - gpuObservedAt <= 30000 ? cachedGpuStats : [];
 });
-
-// Helper functions
-
-function getMinerBinaryPath(minerType, customPath) {
-  const binaryNames = {
-    xmrig: process.platform === 'win32' ? 'xmrig.exe' : 'xmrig',
-    nanominer: process.platform === 'win32' ? 'nanominer.exe' : 'nanominer'
-  };
-
-  const binaryName = binaryNames[minerType];
-  if (!binaryName) {
-    throw new Error(`Unknown miner type: ${minerType}`);
-  }
-
-  // Custom path provided by user
-  if (customPath) {
-    const normalized = path.normalize(customPath);
-    if (fs.existsSync(normalized)) {
-      return normalized;
-    }
-    throw new Error(
-      `Custom ${minerType} path not found: ${normalized}\n` +
-      `Make sure the file exists and is not blocked by antivirus.`
-    );
-  }
-
-  // Bundled binary paths to check (in priority order)
-  const searchPaths = [];
-
-  // Production: process.resourcesPath/miners/<type>/binary
-  if (!isDev && process.resourcesPath) {
-    searchPaths.push(path.join(process.resourcesPath, 'miners', minerType, binaryName));
-  }
-
-  // Dev mode: project/miners/<type>/binary
-  searchPaths.push(path.join(__dirname, '..', 'miners', minerType, binaryName));
-
-  // Check each path
-  for (const searchPath of searchPaths) {
-    if (fs.existsSync(searchPath)) {
-      return path.normalize(searchPath);
-    }
-  }
-
-  // Nothing found - build a helpful error message
-  const searchedStr = searchPaths.map(p => `  - ${p}`).join('\n');
-  let errorMsg = `${binaryName} not found. Searched:\n${searchedStr}`;
-
-  if (process.platform === 'win32') {
-    errorMsg += `\n\nCommon fixes on Windows:\n` +
-      `1. Windows Defender or antivirus may have quarantined ${binaryName} — add an exclusion for the MineMaster folder\n` +
-      `2. Re-download: run "npm run setup" from the MineMaster directory\n` +
-      `3. Or manually place ${binaryName} in the miners/${minerType}/ folder`;
-  } else {
-    errorMsg += `\n\nRe-download: run "npm run setup" from the MineMaster directory`;
-  }
-
-  throw new Error(errorMsg);
-}
-
-function getXmrigPath(customPath) {
-  return getMinerBinaryPath('xmrig', customPath);
-}
-
-function getNanominerPath(customPath) {
-  return getMinerBinaryPath('nanominer', customPath);
-}
-
-function createNanominerConfig(minerId, config) {
-  // Write config to userData (writable on all platforms, even if installed to Program Files)
-  const configDir = isDev
-    ? path.join(__dirname, '../miners/nanominer')
-    : path.join(app.getPath('userData'), 'nanominer-configs');
-  
-  // Ensure config directory exists
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true });
-  }
-  
-  // Use a clean filename (sanitize minerId for Windows compatibility)
-  const safeMinerId = minerId.replace(/[^a-zA-Z0-9-_]/g, '_');
-  const configPath = path.join(configDir, `${safeMinerId}-config.ini`);
-  
-  // Build config content (flat format, no section headers for single coin)
-  // Use Windows-style line endings on Windows for better compatibility
-  const lineEnding = process.platform === 'win32' ? '\r\n' : '\n';
-  let configContent = '';
-  
-  // Add wallet and pool info
-  if (config.user) {
-    configContent += `wallet = ${config.user}${lineEnding}`;
-  }
-  
-  // Nanominer uses "coin" parameter instead of algorithm section
-  if (config.coin) {
-    configContent += `coin = ${config.coin}${lineEnding}`;
-  } else if (config.algorithm) {
-    // Fallback: try to map algorithm to coin
-    const algoToCoin = {
-      'kawpow': 'RVN',
-      'etchash': 'ETC',
-      'ethash': 'ETC',
-      'autolykos2': 'ERG',
-      'octopus': 'CFX',
-      'randomx': 'XMR',
-      'zelhash': 'FLUX',
-      'beamhash': 'BEAM'
-    };
-    const coin = algoToCoin[config.algorithm.toLowerCase()] || config.algorithm.toUpperCase();
-    configContent += `coin = ${coin}${lineEnding}`;
-  }
-  
-  if (config.pool) {
-    configContent += `pool1 = ${config.pool}${lineEnding}`;
-  }
-  
-  // Set rig name for pool identification (default to hostname if not set)
-  const rigName = config.rigName || os.hostname();
-  configContent += `rigName = ${rigName}${lineEnding}`;
-  
-  if (config.email) {
-    configContent += `email = ${config.email}${lineEnding}`;
-  }
-  
-  // GPU selection
-  if (config.gpus && config.gpus.length > 0) {
-    configContent += `devices = ${config.gpus.join(',')}${lineEnding}`;
-  }
-  
-  configContent += lineEnding;
-  
-  // Add global settings
-  configContent += `webPort = 0${lineEnding}`; // Disable web interface to avoid port conflicts
-  configContent += `watchdog = false${lineEnding}`; // Disable watchdog to prevent parent-child process spawning
-  
-  // Windows-specific: Add noColor to avoid ANSI issues in some terminals
-  if (process.platform === 'win32') {
-    configContent += `noColor = true${lineEnding}`;
-  }
-  
-  // Write config file
-  fs.writeFileSync(configPath, configContent, 'utf8');
-  
-  return path.normalize(configPath);
-}
-
-function buildXmrigArgs(config) {
-  const args = [];
-
-  if (config.pool) {
-    args.push('-o', config.pool);
-  }
-
-  if (config.user) {
-    args.push('-u', config.user);
-  }
-
-  // Password defaults to hostname (used as worker name by many pools)
-  args.push('-p', config.password || os.hostname());
-
-  if (config.algorithm) {
-    args.push('-a', config.algorithm);
-  }
-
-  // Calculate threads based on percentage
-  // threadPercentage: 100 = all threads (0), 50 = half threads, etc.
-  if (config.threadPercentage !== undefined && config.threadPercentage !== 100) {
-    const totalCpus = os.cpus().length;
-    const threadsToUse = Math.max(1, Math.round(totalCpus * (config.threadPercentage / 100)));
-    args.push('-t', threadsToUse.toString());
-  }
-  // 100% or undefined = use all threads (don't specify -t, let XMRig decide)
-
-  if (config.donateLevel !== undefined) {
-    args.push('--donate-level', config.donateLevel.toString());
-  }
-
-  // Set rig-id (worker name) for pool identification
-  if (config.workerName) {
-    args.push('--rig-id', config.workerName);
-  } else {
-    // Default to hostname if no custom worker name
-    args.push('--rig-id', os.hostname());
-  }
-
-  // Add any additional arguments
-  if (config.additionalArgs) {
-    args.push(...config.additionalArgs.split(' ').filter(arg => arg.trim()));
-  }
-
-  return args;
-}
 
 // ============================================
 // MASTER SERVER IPC HANDLERS
@@ -1373,29 +721,27 @@ function buildXmrigArgs(config) {
 /**
  * Get MAC address of the primary network interface
  */
-ipcMain.handle('get-mac-address', async () => {
+ipcMain.handle("get-mac-address", async () => {
   try {
     const networkInterfaces = await si.networkInterfaces();
     // Get the first interface with a valid MAC address
-    const primaryInterface = networkInterfaces.find(iface => 
-      iface.mac && 
-      iface.mac !== '00:00:00:00:00:00' && 
-      !iface.internal
+    const primaryInterface = networkInterfaces.find(
+      (iface) =>
+        iface.mac && iface.mac !== "00:00:00:00:00:00" && !iface.internal,
     );
-    
+
     if (primaryInterface) {
       return primaryInterface.mac;
     }
-    
+
     // Fallback: try to get any non-loopback interface
-    const anyInterface = networkInterfaces.find(iface => 
-      iface.mac && 
-      iface.mac !== '00:00:00:00:00:00'
+    const anyInterface = networkInterfaces.find(
+      (iface) => iface.mac && iface.mac !== "00:00:00:00:00:00",
     );
-    
-    return anyInterface ? anyInterface.mac : 'unknown-mac';
+
+    return anyInterface ? anyInterface.mac : "unknown-mac";
   } catch (error) {
-    return 'unknown-mac';
+    return "unknown-mac";
   }
 });
 
@@ -1406,27 +752,27 @@ ipcMain.handle('get-mac-address', async () => {
  */
 function getMasterConfigPath() {
   if (isDev) {
-    return path.join(__dirname, '..', 'master-server.json');
+    return path.join(__dirname, "..", "master-server.json");
   }
-  return path.join(app.getPath('userData'), 'master-server.json');
+  return path.join(app.getPath("userData"), "master-server.json");
 }
 
 /**
  * Load master server configuration
  */
-ipcMain.handle('load-master-config', async () => {
+ipcMain.handle("load-master-config", async () => {
   const configPath = getMasterConfigPath();
-  
+
   // Also check the bundled default (inside asar) for first-run migration
-  const bundledPath = path.join(__dirname, '..', 'master-server.json');
-  
+  const bundledPath = path.join(__dirname, "..", "master-server.json");
+
   try {
     if (fs.existsSync(configPath)) {
-      const data = fs.readFileSync(configPath, 'utf8');
+      const data = fs.readFileSync(configPath, "utf8");
       return JSON.parse(data);
     } else if (!isDev && fs.existsSync(bundledPath)) {
       // First run after install: copy bundled config to writable location
-      const data = fs.readFileSync(bundledPath, 'utf8');
+      const data = fs.readFileSync(bundledPath, "utf8");
       const config = JSON.parse(data);
       try {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -1438,11 +784,11 @@ ipcMain.handle('load-master-config', async () => {
       // Return default config
       const defaultConfig = {
         enabled: false,
-        host: 'mining.ironcladtech.ca',
+        host: "mining.ironcladtech.ca",
         port: 443,
         autoReconnect: true,
         reconnectInterval: 5000,
-        heartbeatInterval: 30000
+        heartbeatInterval: 30000,
       };
       return defaultConfig;
     }
@@ -1454,11 +800,12 @@ ipcMain.handle('load-master-config', async () => {
 /**
  * Save master server configuration
  */
-ipcMain.handle('save-master-config', async (event, config) => {
+ipcMain.handle("save-master-config", async (event, config) => {
   const configPath = getMasterConfigPath();
-  
+
   try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    fs.writeFileSync(`${configPath}.tmp`, JSON.stringify(config, null, 2));
+    fs.renameSync(`${configPath}.tmp`, configPath);
     return { success: true };
   } catch (error) {
     throw error;

@@ -68,6 +68,12 @@ export function processSnapshot(miner, now = Date.now()) {
     pid: miner.pid || null,
     minerVersion: miner.minerVersion || null,
     error: miner.error || null,
+    diagnostic: miner.diagnostic || null,
+    paused: miner.paused === true,
+    restartPendingAt: miner.restartPendingAt
+      ? new Date(miner.restartPendingAt).toISOString()
+      : null,
+    pauseReason: miner.pauseReason || null,
     shares: miner.shares || null,
     pool: miner.pool || null,
   };
@@ -95,5 +101,17 @@ export function parseProcessDetails(line) {
       observedAt: new Date().toISOString(),
       source: "process-log",
     };
+  if (/\bpaused\b/i.test(text)) {
+    result.paused = true;
+    result.pauseReason = /battery/i.test(text)
+      ? "battery"
+      : /active|activity/i.test(text)
+        ? "user-active"
+        : "miner-paused";
+  }
+  if (/\b(?:resumed|resume mining)\b/i.test(text)) {
+    result.paused = false;
+    result.pauseReason = null;
+  }
   return result;
 }

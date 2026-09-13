@@ -3,40 +3,30 @@
  * Implements circular buffer with configurable max lines
  */
 
-const MAX_CONSOLE_LINES = 1000; // Keep last 1000 lines
-const TRIM_TO_LINES = 800; // Trim to this when max reached
-
-/**
- * Add line to console output with automatic trimming
- * @param {string[]} currentOutput - Current output array
- * @param {string} newLine - New line to add
- * @returns {string[]} Updated output array
- */
-export function addConsoleOutput(currentOutput, newLine) {
-  const updated = [...currentOutput, newLine];
-  
-  // Trim if exceeded max
-  if (updated.length > MAX_CONSOLE_LINES) {
-    return updated.slice(-TRIM_TO_LINES);
+const MAX_CONSOLE_LINES = 1000;
+const MAX_CONSOLE_CHARS = 256 * 1024;
+function bounded(output) {
+  let count = 0;
+  const result = [];
+  for (
+    let i = output.length - 1;
+    i >= 0 && result.length < MAX_CONSOLE_LINES && count < MAX_CONSOLE_CHARS;
+    i--
+  ) {
+    const chunk = String(output[i]).slice(-(MAX_CONSOLE_CHARS - count));
+    count += chunk.length;
+    result.push(chunk);
   }
-  
-  return updated;
+  return result.reverse();
 }
-
-/**
- * Batch add multiple lines (for efficiency)
- * @param {string[]} currentOutput - Current output array
- * @param {string[]} newLines - Array of new lines
- * @returns {string[]} Updated output array
- */
-export function addConsoleOutputBatch(currentOutput, newLines) {
-  const updated = [...currentOutput, ...newLines];
-  
-  if (updated.length > MAX_CONSOLE_LINES) {
-    return updated.slice(-TRIM_TO_LINES);
-  }
-  
-  return updated;
+export function addConsoleOutput(output, chunk) {
+  return bounded([
+    ...output,
+    ...(String(chunk).match(/[^\n]*\n|[^\n]+$/g) || []),
+  ]);
+}
+export function addConsoleOutputBatch(output, chunks) {
+  return addConsoleOutput(output, chunks.join(""));
 }
 
 /**
@@ -46,14 +36,14 @@ export function addConsoleOutputBatch(currentOutput, newLines) {
  */
 export function getConsoleStats(output) {
   const totalLines = output.length;
-  const totalBytes = output.join('').length;
+  const totalBytes = output.join("").length;
   const avgLineLength = totalLines > 0 ? totalBytes / totalLines : 0;
-  
+
   return {
     totalLines,
     totalBytes,
     avgLineLength: Math.round(avgLineLength),
-    nearLimit: totalLines > MAX_CONSOLE_LINES * 0.8
+    nearLimit: totalLines > MAX_CONSOLE_LINES * 0.8,
   };
 }
 
@@ -65,19 +55,19 @@ export function getConsoleStats(output) {
  */
 export function searchConsole(output, searchTerm) {
   if (!searchTerm) return [];
-  
+
   const matches = [];
   const lowerSearch = searchTerm.toLowerCase();
-  
+
   output.forEach((line, index) => {
     if (line.toLowerCase().includes(lowerSearch)) {
       matches.push({
         lineNumber: index + 1,
         content: line,
-        matchIndex: line.toLowerCase().indexOf(lowerSearch)
+        matchIndex: line.toLowerCase().indexOf(lowerSearch),
       });
     }
   });
-  
+
   return matches;
 }

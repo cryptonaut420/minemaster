@@ -11,3 +11,5 @@ MineMaster runs XMRig and Nanominer through an Electron desktop client and provi
 - [Contributor and agent guidance](AGENTS.md)
 
 The backend/admin repair adds shared reporting, acknowledged process commands, central logs and incidents, versioned configuration rollout, and a refreshed fleet dashboard. See the [implementation and validation report](docs/audits/backend-admin-2026-09-12/implementation.md) for completed work and hardware/deployment limits. The follow-up adds scoped API keys and gates observer access while preserving unauthenticated miner registration/reporting. See [API access](docs/api-access.md) and the [second-pass report](docs/audits/backend-admin-2026-09-12/second-pass.md).
+
+Desktop 1.2 updates the bundled engines to XMRig 6.26.0 and Nanominer 3.10.0, verifies downloads and runtime files, improves native process ownership and Windows diagnostics, and adds scoped miner repair, CPU tuning, pool failover and opt-in crash recovery. See the [client audit](docs/audits/client-2026-09-13/README.md) for validation and rollout limits.

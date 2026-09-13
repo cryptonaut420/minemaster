@@ -1,0 +1,111 @@
+.miner-health {
+  background: #242936;
+  border-left: 3px solid #8d9bb4;
+  padding: 16px 20px;
+  margin: 16px 0;
+  border-radius: 5px;
+  color: #dce3ee;
+  min-width: 0;
+}
+.miner-health.needs-attention {
+  border-left-color: #f0b35b;
+  background: #302b24;
+}
+.health-summary,
+.health-facts,
+.health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+}
+.health-summary strong {
+  font-size: 16px;
+  margin-right: auto;
+}
+.health-summary span,
+.health-facts {
+  font-size: 12px;
+  color: #bac5d5;
+}
+.health-facts {
+  margin-top: 12px;
+}
+.health-actions {
+  margin-top: 14px;
+  gap: 8px;
+}
+.health-actions button,
+.repair-help button {
+  background: #333d4e;
+  color: #f0f4fa;
+  border: 1px solid #64728a;
+  border-radius: 4px;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.health-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.health-error {
+  color: #f6cb8b;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.health-summary .pending-config {
+  color: #f6cb8b;
+}
+.repair-help {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 78ch;
+}
+.repair-help summary {
+  cursor: pointer;
+}
+.repair-help code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #d1daf4;
+}
+.repair-help li {
+  margin-bottom: 8px;
+}
+:focus-visible {
+  outline: 2px solid #a8b9f8;
+  outline-offset: 3px;
+}
+@media (max-width: 650px) {
+  .miner-health {
+    padding: 12px;
+  }
+  .health-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+.engine-options {
+  margin: 16px 0;
+  padding: 14px 18px;
+  border: 1px solid #465267;
+  border-radius: 5px;
+}
+.engine-options summary {
+  cursor: pointer;
+  color: #dce3ee;
+  padding-bottom: 10px;
+}

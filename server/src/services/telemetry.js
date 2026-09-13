@@ -95,7 +95,7 @@ function normalizeProcesses(payload, now = Date.now()) {
     const observed = date(p.hashrateObservedAt ?? p.observedAt);
     const protocol2 = payload.protocolVersion >= 2;
     const validTime = observed !== null && observed <= now + 5000;
-    const rate = number(p.hashrate);
+    const rate = p.paused === true ? null : number(p.hashrate);
     const quality =
       rate === null
         ? "unavailable"
@@ -111,6 +111,29 @@ function normalizeProcesses(payload, now = Date.now()) {
       type: p.type || (p.deviceType === "GPU" ? "nanominer" : "xmrig"),
       deviceType: p.deviceType === "GPU" ? "GPU" : "CPU",
       running: p.running === true,
+      paused: p.paused === true,
+      restartPendingAt: iso(p.restartPendingAt),
+      pauseReason:
+        typeof p.pauseReason === "string" ? p.pauseReason.slice(0, 100) : null,
+      diagnostic:
+        p.diagnostic && typeof p.diagnostic === "object"
+          ? Object.fromEntries(
+              [
+                "status",
+                "code",
+                "message",
+                "path",
+                "version",
+                "expectedVersion",
+                "observedAt",
+              ]
+                .filter((k) => typeof p.diagnostic[k] === "string")
+                .map((k) => [
+                  k,
+                  p.diagnostic[k].slice(0, k === "message" ? 2000 : 1000),
+                ]),
+            )
+          : null,
       enabled: p.enabled !== false,
       algorithm:
         typeof p.algorithm === "string" ? p.algorithm.slice(0, 80) : null,
@@ -177,7 +200,7 @@ function viewRig(rig, now = Date.now()) {
           ? "stale"
           : r.processes.some((p) => p.error)
             ? "error"
-            : r.processes.some((p) => p.running)
+            : r.processes.some((p) => p.running && !p.paused)
               ? "mining"
               : "online";
   r.freshness = {
@@ -189,7 +212,7 @@ function viewRig(rig, now = Date.now()) {
         ? null
         : Math.max(0, Math.floor((now - date(r.telemetryReceivedAt)) / 1000)),
   };
-  r.mining = fresh && r.processes.some((p) => p.running);
+  r.mining = fresh && r.processes.some((p) => p.running && !p.paused);
   r.maintenance = date(r.maintenanceUntil) > now;
   r.configDrift = r.processes
     .filter(
@@ -208,7 +231,9 @@ function viewRig(rig, now = Date.now()) {
       r.configDrift.length > 0 ||
       r.processes.some(
         (p) =>
-          p.running && ["zero", "stale", "unavailable"].includes(p.quality),
+          p.running &&
+          !p.paused &&
+          ["zero", "stale", "unavailable"].includes(p.quality),
       ));
   r.reason = !connected
     ? "Agent disconnected"
@@ -217,11 +242,15 @@ function viewRig(rig, now = Date.now()) {
       : r.processes.find((p) => p.error)?.error ||
         (r.configDrift.length
           ? "Configuration pending"
-          : r.processes.some((p) => p.running && p.quality === "zero")
+          : r.processes.some(
+                (p) => p.running && !p.paused && p.quality === "zero",
+              )
             ? "Zero hashrate"
             : r.processes.some(
                   (p) =>
-                    p.running && ["stale", "unavailable"].includes(p.quality),
+                    p.running &&
+                    !p.paused &&
+                    ["stale", "unavailable"].includes(p.quality),
                 )
               ? "Hashrate unavailable"
               : r.mining
@@ -294,8 +323,13 @@ function summary(rigs, now = Date.now()) {
         reportingProcesses: 0,
         runningProcesses: 0,
         unavailableProcesses: 0,
+        pausedProcesses: 0,
         unit: "H/s",
       });
+      if (p.running && p.paused) {
+        group.pausedProcesses++;
+        continue;
+      }
       if (p.running) group.runningProcesses++;
       if (
         r.freshness.telemetryFresh &&

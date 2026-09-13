@@ -3466,6 +3466,23 @@
           "pool": {
             "type": "object",
             "nullable": true
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "pauseReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "diagnostic": {
+            "type": "object",
+            "nullable": true,
+            "description": "Miner file verification and latest native launch/repair diagnostics. Fields: status, code, message, path, version, expectedVersion, observedAt."
+          },
+          "restartPendingAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         }
       },
@@ -3551,7 +3568,9 @@
               "restart",
               "device-enable",
               "device-disable",
-              "config-update"
+              "config-update",
+              "miner-diagnose",
+              "miner-repair"
             ]
           },
           "deviceType": {
@@ -3708,6 +3727,56 @@
             "type": "integer",
             "minimum": 10,
             "maximum": 100
+          },
+          "pauseOnBattery": {
+            "type": "boolean"
+          },
+          "hugePages": {
+            "type": "boolean"
+          },
+          "tls": {
+            "type": "boolean"
+          },
+          "keepAlive": {
+            "type": "boolean"
+          },
+          "threads": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1024
+          },
+          "cpuPriority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "pauseOnActive": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600
+          },
+          "backupPools": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            }
+          },
+          "restartOnCrash": {
+            "type": "boolean",
+            "default": false
+          },
+          "crashRestartDelaySeconds": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 600,
+            "default": 30
+          },
+          "maxCrashRestartsPerHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 2
           }
         }
       },

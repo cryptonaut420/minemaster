@@ -203,7 +203,11 @@ function RigDetail({ id, close, onAction, onChanged }) {
                       {p.deviceType} · {p.type}
                     </h3>
                     <Badge status={p.running ? p.quality : "online"}>
-                      {p.running ? p.quality : "Stopped"}
+                      {p.paused
+                        ? `Paused: ${p.pauseReason || "miner"}`
+                        : p.running
+                          ? p.quality
+                          : "Stopped"}
                     </Badge>
                   </div>
                   <strong>
@@ -230,7 +234,16 @@ function RigDetail({ id, close, onAction, onChanged }) {
                     <dt>Local overrides</dt>
                     <dd>{p.localOverrides?.join(", ") || "None reported"}</dd>
                     <dt>Miner version</dt>
-                    <dd>{p.minerVersion || "Not reported"}</dd>
+                    <dd>
+                      {p.minerVersion ||
+                        p.diagnostic?.version ||
+                        "Not reported"}
+                    </dd>
+                    <dt>Miner files</dt>
+                    <dd>
+                      {p.diagnostic?.status || "Not checked"}{" "}
+                      {p.diagnostic?.code || ""}
+                    </dd>
                     <dt>Process ID</dt>
                     <dd>{p.pid || "Not reported"}</dd>
                     <dt>Pool</dt>
@@ -246,6 +259,14 @@ function RigDetail({ id, close, onAction, onChanged }) {
                         : "Unavailable"}
                     </dd>
                   </dl>
+                  {p.diagnostic && (
+                    <details>
+                      <summary>Miner diagnostics and repair status</summary>
+                      <p>{p.diagnostic.message}</p>
+                      <p className="op-muted">{p.diagnostic.path}</p>
+                      <p>Checked {at(p.diagnostic.observedAt)}</p>
+                    </details>
+                  )}
                   <details>
                     <summary>Configuration used at launch</summary>
                     <pre>

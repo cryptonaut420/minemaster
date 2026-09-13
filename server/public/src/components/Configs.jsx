@@ -15,15 +15,17 @@ const algorithms = {
   nanominer: [
     "ethash",
     "etchash",
+    "ethashb3",
+    "fishhash",
+    "karlsenhashv2",
+    "ubqhash",
+    "firopow",
     "kawpow",
-    "autolykos",
-    "autolykos2",
     "octopus",
+    "autolykos",
+    "verthash",
     "conflux",
-    "ton",
-    "kaspa",
-    "karlsenhash",
-    "nexa",
+    "autolykos2",
   ],
 };
 const labels = {
@@ -35,6 +37,17 @@ const labels = {
   threadPercentage: "CPU threads (%)",
   additionalArgs: "Additional arguments",
   rigName: "Worker name",
+  restartOnCrash: "Restart after an unexpected exit",
+  crashRestartDelaySeconds: "Delay before crash recovery (seconds)",
+  maxCrashRestartsPerHour: "Maximum crash restarts per hour (0–5)",
+  threads: "Explicit CPU threads (0 = automatic)",
+  cpuPriority: "CPU priority (0 idle, 2 normal)",
+  pauseOnBattery: "Pause CPU mining on battery",
+  pauseOnActive: "Pause on activity; resume after idle seconds (0 = off)",
+  hugePages: "Use huge pages when available",
+  tls: "Pool TLS",
+  keepAlive: "Pool keepalive",
+  backupPools: "Backup pools (comma separated, up to three)",
 };
 export default function Configs() {
   const resource = useResource("configs"),
@@ -227,13 +240,29 @@ export default function Configs() {
                           <option key={a}>{a}</option>
                         ))}
                       </select>
+                    ) : typeof value === "boolean" ? (
+                      <input
+                        id={`config-${type}-${k}`}
+                        type="checkbox"
+                        checked={value}
+                        onChange={(e) =>
+                          setDrafts({
+                            ...drafts,
+                            [type]: { ...draft, [k]: e.target.checked },
+                          })
+                        }
+                      />
                     ) : (
                       <input
                         id={`config-${type}-${k}`}
-                        type={k === "threadPercentage" ? "number" : "text"}
+                        type={typeof value === "number" ? "number" : "text"}
                         min={k === "threadPercentage" ? 10 : undefined}
                         max={k === "threadPercentage" ? 100 : undefined}
-                        value={value ?? ""}
+                        value={
+                          Array.isArray(value)
+                            ? value.join(", ")
+                            : (value ?? "")
+                        }
                         aria-invalid={!!fields[k]}
                         aria-describedby={fields[k] ? `error-${k}` : undefined}
                         onChange={(e) =>
@@ -242,9 +271,15 @@ export default function Configs() {
                             [type]: {
                               ...draft,
                               [k]:
-                                k === "threadPercentage"
+                                typeof value === "number"
                                   ? Number(e.target.value)
-                                  : e.target.value,
+                                  : k === "backupPools"
+                                    ? e.target.value.trim()
+                                      ? e.target.value
+                                          .split(",")
+                                          .map((v) => v.trim())
+                                      : []
+                                    : e.target.value,
                             },
                           })
                         }
@@ -260,7 +295,9 @@ export default function Configs() {
               <p className="op-muted">
                 Local worker name, password, GPU selection, and executable path
                 can override these values. Running processes retain their launch
-                configuration until restarted.
+                configuration until restarted. CPU controls and backup pools
+                require MineMaster 1.2 or later. Thread percentage is a budget
+                for automatic tuning, not a CPU usage measurement.
               </p>
               <div className="op-actions">
                 <button

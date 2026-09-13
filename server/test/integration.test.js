@@ -938,6 +938,72 @@ test("logs and events paginate stably across equal timestamps and retain history
   );
   assert.equal((await api("/v1/rigs")).data.total, 0);
 });
+test("miner repair is capability-gated, acknowledged, and available through the management API", async () => {
+  const ws = await socket();
+  send(ws, "register", registration("maintenance-capability-test"));
+  const bound = await waitFor(() =>
+    ws.messages.find((m) => ["bound", "registered"].includes(m.type)),
+  );
+  const minerId = bound.data.minerId;
+  let response = await api("/v1/commands", "POST", {
+    minerId,
+    action: "miner-repair",
+    deviceType: "CPU",
+  });
+  assert.equal(response.status, 422);
+  await db
+    .collection("miners")
+    .updateOne(
+      { id: minerId },
+      { $set: { "capabilities.minerMaintenance": true } },
+    );
+  response = await api("/v1/commands", "POST", {
+    minerId,
+    action: "miner-repair",
+    deviceType: "CPU",
+  });
+  assert.equal(response.status, 202);
+  const received = await waitFor(() =>
+    ws.messages.find(
+      (m) => m.type === "command" && m.data.action === "miner-repair",
+    ),
+  );
+  assert.equal(received.data.timeoutSeconds, 300);
+  send(ws, "command-result", {
+    id: received.data.id,
+    status: "succeeded",
+    result: {
+      processes: [
+        { id: "xmrig-1", diagnostic: { status: "ready", version: "6.26.0" } },
+      ],
+    },
+  });
+  await waitFor(
+    async () =>
+      (await db.collection("commands").findOne({ id: received.data.id }))
+        .status === "succeeded",
+  );
+  send(ws, "status-update", {
+    protocolVersion: 2,
+    processes: [
+      {
+        id: "xmrig-1",
+        type: "xmrig",
+        deviceType: "CPU",
+        running: false,
+        diagnostic: { status: "ready", version: "6.26.0" },
+      },
+    ],
+  });
+  await waitFor(
+    async () =>
+      (await db.collection("miners").findOne({ id: minerId })).processes?.[0]
+        ?.diagnostic?.version === "6.26.0",
+  );
+  const detail = await api(`/v1/rigs/${minerId}`);
+  assert.equal(detail.data.data.processes[0].diagnostic.status, "ready");
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

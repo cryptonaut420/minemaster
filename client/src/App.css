@@ -38,7 +38,7 @@
 }
 
 .app-version {
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: "Consolas", "Monaco", monospace;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -91,7 +91,9 @@
 }
 
 @keyframes update-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .App-content {
@@ -226,7 +228,7 @@
   font-size: 13px;
   font-weight: 700;
   color: #4ade80;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: "Consolas", "Monaco", monospace;
 }
 
 .hashrate-calculating {
@@ -267,4 +269,97 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* Keep controls available at narrow widths and long diagnostic text readable. */
+.header-right {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.header-right button {
+  background: #26344c;
+  color: #fff;
+  border: 1px solid #adb9d5;
+  border-radius: 4px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.main-content {
+  min-width: 0;
+}
+.console-header,
+.console-controls {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.console-controls input {
+  background: #242936;
+  color: #eef3fa;
+  border: 1px solid #64728a;
+  border-radius: 4px;
+  padding: 6px;
+  max-width: 150px;
+}
+.devices-list > div {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .App-header {
+    padding: 12px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .header-main .subtitle {
+    display: none;
+  }
+  .App-header h1 {
+    font-size: 21px;
+  }
+  .sidebar {
+    width: 150px;
+    min-width: 150px;
+    padding: 10px;
+  }
+  .App .dashboard-control-section {
+    padding: 12px;
+    flex-direction: column;
+  }
+  .App .devices-section {
+    width: 100%;
+  }
+  .App .master-control {
+    width: 64px;
+    height: 64px;
+    font-size: 28px;
+  }
+  .App .client-identity {
+    padding: 12px;
+  }
+  .App .identity-display,
+  .App .identity-edit {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .App .identity-name {
+    overflow-wrap: anywhere;
+  }
+  .App .identity-input {
+    max-width: 100%;
+  }
+  .master-server-panel .panel-header,
+  .master-server-panel .panel-title {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .App .dashboard-section {
+    padding: 12px;
+  }
+  .App .device-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .health-actions {
+    flex-wrap: wrap;
+  }
 }
