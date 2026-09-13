@@ -5,26 +5,45 @@ const path = require("path");
 const build = path.join(__dirname, "../build");
 const fixture = `
 localStorage.removeItem('master-server-bound');
+localStorage.setItem('minemaster-miner-state', JSON.stringify({'xmrig-1':{enabled:true},'nanominer-1':{enabled:true}}));
 localStorage.setItem('minemaster-config', JSON.stringify({
- 'xmrig-1': {pool:'pool.example.test:3333',user:'fixture-account',algorithm:'rx/0',coin:'XMR',threadPercentage:50,version:'fixture-v2'},
- 'nanominer-1': {pool:'pool.example.test:4444',user:'fixture-account',algorithm:'etchash',coin:'ETC',rigName:'',gpus:[],version:'fixture-v2'}
+ 'xmrig-1': {engine:'nanominer',pool:'pool.example.test:3333',user:'fixture-account',algorithm:'rx/0',coin:'XMR',threadPercentage:50,version:'fixture-v3'},
+ 'nanominer-1': {pool:'pool.example.test:4444',user:'fixture-account',algorithm:'etchash',coin:'ETC',rigName:'',gpus:[],version:'fixture-v3'}
 }));
 const listeners = {}, states = {}, diagnostics = {};
+let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
-const ready = type => ({status:'ready',version:type === 'xmrig'?'6.26.0':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+type+'/'+type+'.exe',message:'Verified upstream executable',observedAt:new Date().toISOString()});
-diagnostics['xmrig-1'] = {...ready('xmrig'),status:'unavailable',code:'EPERM',message:'The operating system blocked the CPU miner. Review Windows Security Protection History for this exact file.'};
+const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
+const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
+diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
 const info = {hostname:'Workshop rig 07',gpuDetectionStatus:'complete',os:{distro:'Windows',release:'11',platform:'win32',arch:'x64'},cpu:{brand:'AMD Ryzen 9 5950X',cores:32,physicalCores:16},memory:{total:34359738368},gpus:[{deviceId:'pci:0000:02:00.0',model:'AMD Radeon RX 6800',vram:16384}]};
 const api = {
- getSystemInfo:async()=>info,getCpuStats:async()=>({usage:32,temperature:54,observedAt:Date.now()}),getMemoryStats:async()=>({total:34359738368,used:8589934592,usagePercent:25}),
+ platform:'win32',getSystemInfo:async()=>info,getCpuStats:async()=>({usage:32,temperature:54,observedAt:Date.now()}),getMemoryStats:async()=>({total:34359738368,used:8589934592,usagePercent:25}),
  getGpuStats:async()=>[{deviceId:'pci:0000:02:00.0',type:'AMD',model:'AMD Radeon RX 6800',temperature:61,usage:98,vramUsed:5120,vramTotal:16384,observedAt:Date.now(),powerWatts:120}],
  getAllMinersStatus:async()=>Object.fromEntries(Object.entries(diagnostics).map(([id,d])=>[id,{running:false,...states[id],diagnostic:d,error:d.status==='unavailable'?d.message:null}])),
- startMiner:async({minerId,minerType,config})=>{ if(diagnostics[minerId]?.status==='unavailable')return{success:false,error:diagnostics[minerId].message,diagnostic:diagnostics[minerId]}; const state={running:true,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config}; states[minerId]=state; setTimeout(()=>emit('output',{minerId,data:minerType==='xmrig'?'XMRig/6.26.0\\nnew job from pool.example.test:3333\\ncpu speed 10s/60s/15m 0.00 n/a n/a H/s\\n':'nanominer v3.10.0\\nTotal: 61.5 Mh/s\\n'}),50);return{success:true,...state,diagnostic:diagnostics[minerId]};},
+ startMiner:async({minerId,minerType,config})=>{
+  const engine=minerType==='xmrig'?(config.engine||'xmrig'):'nanominer';
+  const diagnostic=diagnostics[minerId]=inspect(engine);
+  if(diagnostic.status==='unavailable')return{success:false,error:diagnostic.message,diagnostic};
+  const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
+  setTimeout(()=>emit('output',{minerId,data:minerType==='xmrig'?(engine==='nanominer'?'nanominer v3.10.0\\nTotal: 7250 H/s\\n':'XMRig/6.26.0\\nnew job from pool.example.test:3333\\ncpu speed 10s/60s/15m 7250.00 n/a n/a H/s\\n'):'nanominer v3.10.0\\nTotal: 61.5 Mh/s\\n'}),50);
+  return{success:true,...state,diagnostic};
+ },
  stopMiner:async({minerId})=>{states[minerId]={running:false};return{success:true};},
- diagnoseMiner:async({minerId})=>diagnostics[minerId],repairMiner:async({minerId,minerType})=>{diagnostics[minerId]=ready(minerType);return{success:true,diagnostic:diagnostics[minerId]};},
- openProtectionHistory:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
- getUpdateStatus:async()=>({state:'idle'}),checkForUpdate:async()=>{emit('update',{state:'downloaded',version:'1.2.1'});return{success:true};},installUpdate:async()=>{emit('update',{state:'installing',version:'1.2.1'});return{success:true};},
+ diagnoseMiner:async({minerId,minerType,includeWindows})=>{
+  const diagnostic=inspect(minerType);
+  if(includeWindows)diagnostic.windows={status:'available',signatureStatus:'NotSigned',checkedAt:new Date().toISOString(),message:'Simulated Windows history. Historical detections do not prove a current block; no match does not prove the file is allowed.',detections:minerType==='xmrig'&&!xmrigRepaired?[{threatName:'Fixture-only detection',resource:diagnostic.path,detectedAt:new Date().toISOString(),actionSuccess:true}]:[]};
+  return diagnostics[minerId]=diagnostic;
+ },
+ repairMiner:async({minerId,minerType})=>{
+  if(Object.values(states).some(s=>s.running&&s.engine===minerType))return{success:false,error:'Stop every process using '+minerType+' before repairing its shared files.'};
+  if(minerType==='xmrig')xmrigRepaired=true;
+  diagnostics[minerId]=ready(minerType);return{success:true,diagnostic:diagnostics[minerId]};
+ },
+ openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
+ getUpdateStatus:async()=>({state:'idle'}),checkForUpdate:async()=>{emit('update',{state:'downloaded',version:'1.3.1'});return{success:true};},installUpdate:async()=>{emit('update',{state:'installing',version:'1.3.1'});return{success:true};},
  invoke:async(channel)=>channel==='load-master-config'?{enabled:false,host:'127.0.0.1',port:65534,autoReconnect:false}:channel==='get-mac-address'?'fixture-only':{success:true}
 };
 window.electronAPI=window.electron=api;

@@ -27,12 +27,13 @@ async function hashFile(file) {
 }
 async function verifyDirectory(dir, release) {
   for (const [file, expected] of Object.entries(release.files)) {
-    if ((await hashFile(path.join(dir, file))) !== expected)
+    const filename = path.join(dir, file);
+    if ((await hashFile(filename)) !== expected)
       throw Object.assign(
         Error(
           `Verification failed for ${file}. Use Repair to restore the pinned upstream release.`,
         ),
-        { code: "CHECKSUM_MISMATCH" },
+        { code: "CHECKSUM_MISMATCH", path: filename },
       );
   }
   return path.join(dir, release.binary);
@@ -53,7 +54,7 @@ async function download(
         parsed,
         {
           signal: controller.signal,
-          headers: { "User-Agent": "MineMaster/1.2" },
+          headers: { "User-Agent": "MineMaster/1.3" },
         },
         resolve,
       );
@@ -97,23 +98,55 @@ async function download(
     clearTimeout(timeout);
   }
 }
-async function extract(archive, staging) {
-  // Arguments are passed directly; paths with spaces/quotes never become shell code.
-  if (archive.endsWith(".zip")) {
-    if (process.platform === "win32")
-      await runFile("tar.exe", ["-xf", archive, "-C", staging], {
-        timeout: 120000,
-        windowsHide: true,
-      });
-    else
-      await runFile("unzip", ["-q", archive, "-d", staging], {
-        timeout: 120000,
-      });
-  } else
-    await runFile("tar", ["-xzf", archive, "-C", staging], {
-      timeout: 120000,
-      windowsHide: true,
-    });
+function selectArchiveMembers(listing, release) {
+  const names = listing.split(/\r?\n/).filter(Boolean);
+  const binaries = names.filter(
+    (name) => name.split("/").at(-1) === release.binary,
+  );
+  if (names.length > 10000 || binaries.length !== 1)
+    throw Error("Archive must contain exactly one expected miner executable");
+  const prefix = binaries[0].slice(0, -release.binary.length);
+  return Object.keys(release.files).map((file) => {
+    const member = prefix + file;
+    if (
+      !names.includes(member) ||
+      names.filter((name) => name === member).length !== 1 ||
+      /[\\:\[\]*?\0]/.test(member) ||
+      member.startsWith("/") ||
+      member.startsWith("-") ||
+      member.split("/").includes("..")
+    )
+      throw Error(`Invalid or missing runtime archive member: ${file}`);
+    return member;
+  });
+}
+async function extract(
+  archive,
+  staging,
+  release,
+  { platform = process.platform, run = runFile } = {},
+) {
+  // List first, then extract only required runtime files. Optional drivers never touch disk.
+  const zip = archive.endsWith(".zip") && platform !== "win32";
+  const command = zip ? "unzip" : platform === "win32" ? "tar.exe" : "tar";
+  const options = {
+    timeout: 120000,
+    windowsHide: true,
+    maxBuffer: 1024 * 1024,
+  };
+  const { stdout } = await run(
+    command,
+    zip ? ["-Z1", archive] : ["-tf", archive],
+    options,
+  );
+  const members = selectArchiveMembers(stdout, release);
+  await run(
+    command,
+    zip
+      ? ["-q", archive, ...members, "-d", staging]
+      : ["-xf", archive, "-C", staging, "--", ...members],
+    options,
+  );
 }
 async function locate(dir, binary) {
   for (const item of await fs.promises.readdir(dir, { withFileTypes: true })) {
@@ -198,7 +231,7 @@ async function installRelease(
         );
       const extracted = path.join(staging, "extracted");
       await fs.promises.mkdir(extracted);
-      await unpack(archive, extracted);
+      await unpack(archive, extracted, release);
       sourceDir = await locate(extracted, release.binary);
       if (!sourceDir)
         throw Error("Miner executable missing from verified archive");
@@ -227,4 +260,6 @@ module.exports = {
   download,
   copyRuntime,
   replaceDirectory,
+  extract,
+  selectArchiveMembers,
 };

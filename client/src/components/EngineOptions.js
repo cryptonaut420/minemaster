@@ -1,18 +1,71 @@
 import React from "react";
+import { engineFor } from "../utils/miningConfig";
 export default function EngineOptions({ miner, onChange, bound }) {
   const disabled = miner.running || miner.loading || bound;
   const set = (key, value) => onChange({ ...miner.config, [key]: value });
   const id = (key) => `${miner.id}-${key}`;
+  const nanoCpu =
+    miner.deviceType === "CPU" &&
+    engineFor(miner.type, miner.config) === "nanominer";
   return (
     <details className="engine-options">
-      <summary>Pool failover and recovery settings</summary>
+      <summary>
+        {miner.deviceType === "CPU"
+          ? "CPU engine, pools and recovery"
+          : "Pool failover and recovery settings"}
+      </summary>
+      {miner.deviceType === "CPU" && (
+        <div className="form-group">
+          <label htmlFor={id("engine")}>CPU mining engine</label>
+          <select
+            id={id("engine")}
+            disabled={disabled}
+            value={engineFor(miner.type, miner.config)}
+            onChange={(e) =>
+              onChange({
+                ...miner.config,
+                engine: e.target.value,
+                customPath: "",
+                additionalArgs: "",
+                cpuPriority: 0,
+                pauseOnBattery: false,
+                pauseOnActive: 0,
+                tls: false,
+                keepAlive: false,
+                hugePages: true,
+                ...(e.target.value === "nanominer"
+                  ? { algorithm: "rx/0" }
+                  : {}),
+              })
+            }
+          >
+            <option
+              value="nanominer"
+              disabled={window.electronAPI?.platform === "darwin"}
+            >
+              Nanominer · RandomX · 2% fee
+            </option>
+            <option value="xmrig">
+              XMRig · advanced CPU controls · minimum 1% fee
+            </option>
+          </select>
+          <span className="field-hint">
+            CPU and GPU run separately. Changing engine clears its custom path
+            and engine-specific tuning. Existing configurations keep their
+            engine until changed.
+          </span>
+        </div>
+      )}
       <div className="form-group">
         <label htmlFor={id("backupPools")}>
           Backup pools (up to three, comma separated)
         </label>
         <input
           id={id("backupPools")}
-          value={(miner.config.backupPools || []).join(", ")}
+          value={(Array.isArray(miner.config.backupPools)
+            ? miner.config.backupPools
+            : []
+          ).join(", ")}
           disabled={disabled}
           placeholder="backup.example.com:3333"
           onChange={(e) =>
@@ -41,25 +94,26 @@ export default function EngineOptions({ miner, onChange, bound }) {
               onChange={(e) => set("threads", Number(e.target.value))}
             />
           </div>
-          {["hugePages", "tls", "keepAlive"].map((key) => (
-            <div className="form-group" key={key}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={miner.config[key] ?? key === "hugePages"}
-                  disabled={disabled}
-                  onChange={(e) => set(key, e.target.checked)}
-                />{" "}
-                {
+          {!nanoCpu &&
+            ["hugePages", "tls", "keepAlive"].map((key) => (
+              <div className="form-group" key={key}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={miner.config[key] ?? key === "hugePages"}
+                    disabled={disabled}
+                    onChange={(e) => set(key, e.target.checked)}
+                  />{" "}
                   {
-                    hugePages: "Use huge pages when available",
-                    tls: "Use TLS for every pool (requires pool support)",
-                    keepAlive: "Pool keepalive (requires pool support)",
-                  }[key]
-                }
-              </label>
-            </div>
-          ))}
+                    {
+                      hugePages: "Use huge pages when available",
+                      tls: "Use TLS for every pool (requires pool support)",
+                      keepAlive: "Pool keepalive (requires pool support)",
+                    }[key]
+                  }
+                </label>
+              </div>
+            ))}
         </>
       )}
       <div className="form-group">

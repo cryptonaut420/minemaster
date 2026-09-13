@@ -149,11 +149,17 @@ async function register(c, data) {
     type: data.silent ? "registered" : "bound",
     data: {
       minerId: miner.id,
-      configs,
+      configs: Config.forAgent(configs, miner.capabilities),
       protocolVersion: 2,
       capabilities: { commandResults: true, logs: true },
     },
   });
+  if (Config.forAgent(configs, miner.capabilities) !== configs)
+    sendToMiner(c.id, {
+      type: "error",
+      error:
+        "The assigned Nanominer CPU engine is unavailable on this agent. Upgrade the client or assign XMRig; CPU settings were not changed.",
+    });
   await monitoring.event(miner.id, "agent-connected", {
     version: miner.version,
     bootId: miner.bootId,
@@ -333,7 +339,10 @@ async function handle(c, message) {
     case "request-configs":
       sendToMiner(c.id, {
         type: "config-update",
-        data: miner.desiredConfigs || (await Config.getAll()),
+        data: Config.forAgent(
+          miner.desiredConfigs || (await Config.getAll()),
+          miner.capabilities,
+        ),
       });
       return;
     case "unbound": {

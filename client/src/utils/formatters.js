@@ -120,9 +120,11 @@ export function formatMinerRate(miner, now = Date.now()) {
   if (!miner.running) return "Stopped";
   if (miner.paused) return `Paused (${miner.pauseReason || "miner"})`;
   if (!Number.isFinite(miner.hashrate)) return "Waiting for first sample";
+  const observed = Date.parse(miner.hashrateObservedAt);
   if (
-    !miner.hashrateObservedAt ||
-    now - Date.parse(miner.hashrateObservedAt) > 60000
+    !Number.isFinite(observed) ||
+    observed > now + 5000 ||
+    now - observed > 60000
   )
     return "Stale sample";
   return formatHashrate(miner.hashrate);

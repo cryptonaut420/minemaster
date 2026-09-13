@@ -15,6 +15,62 @@ const esm = async (name) =>
   );
 const now = Date.now(),
   timestamp = new Date(now).toISOString();
+test("Nanominer CPU selection validates and is withheld from unsupported agents", () => {
+  const configs = {
+    xmrig: { ...Config.DEFAULTS.xmrig, engine: "nanominer" },
+    nanominer: Config.DEFAULTS.nanominer,
+  };
+  assert.doesNotThrow(() => Config.validate("xmrig", configs.xmrig));
+  assert.equal(Config.forAgent(configs, {}).xmrig, undefined);
+  assert.equal(
+    Config.forAgent(configs, { cpuEngines: ["xmrig", "nanominer"] }),
+    configs,
+  );
+  assert.throws(() =>
+    Config.validate("xmrig", { ...configs.xmrig, algorithm: "cn/r" }),
+  );
+  assert.throws(() =>
+    Config.validate("xmrig", { ...configs.xmrig, tls: true }),
+  );
+});
+test("API telemetry preserves actual CPU engine, effective threads and bounded Windows diagnostics", () => {
+  const process = t.normalizeProcesses(
+    {
+      protocolVersion: 2,
+      processes: [
+        {
+          id: "cpu",
+          type: "xmrig",
+          deviceType: "CPU",
+          engine: "nanominer",
+          running: true,
+          effectiveSettings: { cpuThreads: 8, devFeePercent: 2 },
+          diagnostic: {
+            status: "ready",
+            engine: "nanominer",
+            expectedSha256: "a".repeat(64),
+            windows: {
+              status: "available",
+              checkedAt: timestamp,
+              signatureStatus: "NotSigned",
+              detections: Array(9).fill({
+                threatName: "Test",
+                resource: "C:\\Miner\\nanominer.exe",
+                detectedAt: timestamp,
+                actionSuccess: true,
+              }),
+            },
+          },
+        },
+      ],
+    },
+    now,
+  )[0];
+  assert.equal(process.engine, "nanominer");
+  assert.equal(process.effectiveSettings.cpuThreads, 8);
+  assert.equal(process.diagnostic.windows.detections.length, 5);
+  assert.equal(process.diagnostic.windows.signatureStatus, "NotSigned");
+});
 const p = {
   id: "cpu",
   deviceType: "CPU",

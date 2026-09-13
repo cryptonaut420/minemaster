@@ -6,6 +6,8 @@ const {
   parseArguments,
   xmrigConfig,
   nanominerConfig,
+  engineFor,
+  cpuThreads,
 } = require("../src/utils/miningConfig");
 const cpu = {
   pool: "[::1]:3333",
@@ -17,6 +19,35 @@ test("accept pool usernames and IPv6 while rejecting invalid ports and malformed
   for (const pool of ["pool:0", "pool:65536", "pool:12\nwatchdog=true"])
     assert.equal(poolAddress(pool), false);
   assert.equal(validate("xmrig", { ...cpu, user: null }).valid, false);
+});
+test("Nanominer CPU is explicit, isolated from GPU settings, and reports a bounded thread budget", () => {
+  const config = {
+    ...cpu,
+    engine: "nanominer",
+    coin: "XMR",
+    pool: "pool:3333",
+    threadPercentage: 50,
+    gpus: [1],
+    workerName: "cpu-worker",
+  };
+  assert.equal(engineFor("xmrig", {}), "xmrig");
+  assert.equal(validate("xmrig", config).valid, true);
+  const ini = nanominerConfig(config, "rig", { cpu: true, logicalCores: 16 });
+  assert.match(ini, /\[RandomX\]/);
+  assert.match(ini, /cpuThreads = 8/);
+  assert.match(ini, /rigName = cpu-worker/);
+  assert.doesNotMatch(ini, /devices =/);
+  assert.equal(cpuThreads({ threads: 100 }, 8), 8);
+  assert.equal(cpuThreads({ threadPercentage: 10 }, 1), 1);
+  for (const patch of [
+    { engine: "other" },
+    { algorithm: "cn/r" },
+    { pauseOnBattery: true },
+    { tls: true },
+    { additionalArgs: "--tls" },
+    { additionalArgs: 42 },
+  ])
+    assert.equal(validate("xmrig", { ...config, ...patch }).valid, false);
 });
 test("CPU tuning preserves efficient autoconfiguration and driver-free defaults", () => {
   const c = xmrigConfig(

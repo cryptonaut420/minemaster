@@ -200,7 +200,7 @@ function RigDetail({ id, close, onAction, onChanged }) {
                 <section className="op-process" key={p.id}>
                   <div className="op-row">
                     <h3>
-                      {p.deviceType} · {p.type}
+                      {p.deviceType} · {p.engine || "Engine not reported"}
                     </h3>
                     <Badge status={p.running ? p.quality : "online"}>
                       {p.paused
@@ -235,10 +235,17 @@ function RigDetail({ id, close, onAction, onChanged }) {
                     <dd>{p.localOverrides?.join(", ") || "None reported"}</dd>
                     <dt>Miner version</dt>
                     <dd>
+                      {p.engine || "Engine not reported"} ·{" "}
                       {p.minerVersion ||
                         p.diagnostic?.version ||
                         "Not reported"}
                     </dd>
+                    {p.running && p.effectiveSettings?.cpuThreads && (
+                      <>
+                        <dt>CPU threads at launch</dt>
+                        <dd>{p.effectiveSettings.cpuThreads}</dd>
+                      </>
+                    )}
                     <dt>Miner files</dt>
                     <dd>
                       {p.diagnostic?.status || "Not checked"}{" "}
@@ -265,6 +272,33 @@ function RigDetail({ id, close, onAction, onChanged }) {
                       <p>{p.diagnostic.message}</p>
                       <p className="op-muted">{p.diagnostic.path}</p>
                       <p>Checked {at(p.diagnostic.observedAt)}</p>
+                      {p.diagnostic.expectedSha256 && (
+                        <p className="op-muted">
+                          Expected executable SHA-256:{" "}
+                          {p.diagnostic.expectedSha256}
+                        </p>
+                      )}
+                      {p.diagnostic.windows && (
+                        <div>
+                          <p>
+                            Windows check: {p.diagnostic.windows.status} ·{" "}
+                            {at(p.diagnostic.windows.checkedAt)}
+                          </p>
+                          <p>{p.diagnostic.windows.message}</p>
+                          <p>
+                            Signature:{" "}
+                            {p.diagnostic.windows.signatureStatus ||
+                              "Unavailable"}
+                          </p>
+                          {p.diagnostic.windows.detections?.map((d, i) => (
+                            <p key={i}>
+                              {d.threatName} · {at(d.detectedAt)}
+                              <br />
+                              {d.resource}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </details>
                   )}
                   <details>

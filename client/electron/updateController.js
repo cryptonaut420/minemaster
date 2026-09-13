@@ -24,10 +24,16 @@ function createUpdateController({
       set("downloading", { percent: Math.round(progress.percent) }),
     "update-downloaded": (info) =>
       set("downloaded", { version: info.version, percent: 100, message: null }),
-    error: (error) =>
-      set(state.state === "downloaded" ? "downloaded" : "error", {
-        message: error?.message || "Update failed",
-      }),
+    error: (error) => {
+      const failedInstall = state.state === "installing";
+      if (failedInstall) releaseStarts();
+      set(
+        failedInstall || state.state === "downloaded" ? "downloaded" : "error",
+        {
+          message: `${failedInstall ? "Install paused: " : ""}${error?.message || "Update failed"}`,
+        },
+      );
+    },
   };
   for (const [event, listener] of Object.entries(listeners))
     updater.on(event, listener);
@@ -70,6 +76,8 @@ function createUpdateController({
     try {
       await stopMiners(); // A timeout/failed stop must reject, never proceed with an uncertain stop.
       updater.quitAndInstall(true, true);
+      if (state.state !== "installing")
+        return { success: false, error: state.message };
       return { success: true };
     } catch (error) {
       releaseStarts();

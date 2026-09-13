@@ -9,6 +9,8 @@ const {
   verifyDirectory,
   installRelease,
   replaceDirectory,
+  selectArchiveMembers,
+  extract,
 } = require("../electron/mining/install");
 test("pins separate architecture releases and excludes optional kernel drivers from runtime bundles", () => {
   assert.notEqual(
@@ -22,6 +24,38 @@ test("pins separate architecture releases and excludes optional kernel drivers f
   );
   assert.equal(targetName("win32", "x64"), "win-x64");
   assert.throws(() => releaseFor("nanominer", "darwin", "arm64"));
+});
+test("extraction includes only manifest runtime files and rejects ambiguous archive layouts", async () => {
+  const release = releaseFor("xmrig", "win32", "x64");
+  const listing =
+    "xmrig-6.26.0/\nxmrig-6.26.0/xmrig.exe\nxmrig-6.26.0/WinRing0x64.sys\nxmrig-6.26.0/start.cmd\n";
+  assert.deepEqual(selectArchiveMembers(listing, release), [
+    "xmrig-6.26.0/xmrig.exe",
+  ]);
+  for (const bad of [
+    "../xmrig.exe\n",
+    "/tmp/xmrig.exe\n",
+    "a/xmrig.exe\nb/xmrig.exe\n",
+    "a/xmrig.exe\na/xmrig.exe\n",
+  ])
+    assert.throws(() => selectArchiveMembers(bad, release));
+  const calls = [];
+  await extract("C:\\temp\\miner.zip", "C:\\temp\\out", release, {
+    platform: "win32",
+    run: async (...args) => {
+      calls.push(args);
+      return { stdout: listing };
+    },
+  });
+  assert.equal(calls[0][0], "tar.exe");
+  assert.deepEqual(calls[1][1], [
+    "-xf",
+    "C:\\temp\\miner.zip",
+    "-C",
+    "C:\\temp\\out",
+    "--",
+    "xmrig-6.26.0/xmrig.exe",
+  ]);
 });
 test("archive mismatch leaves the previous installation intact and never extracts", async (t) => {
   const root = await fs.mkdtemp(

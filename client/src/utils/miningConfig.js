@@ -13,6 +13,9 @@ const GPU_ALGORITHMS = [
   "verthash",
 ];
 const aliases = { conflux: "octopus", autolykos2: "autolykos" };
+// Preserve the legacy CPU slot/ID while allowing a different executable behind it.
+const engineFor = (type, config = {}) =>
+  type === "xmrig" ? config?.engine || "xmrig" : type;
 function poolAddress(value) {
   if (typeof value !== "string" || /[\s\r\n\0]/.test(value)) return false;
   const match = value.match(
@@ -98,6 +101,8 @@ function validate(type, config) {
   integer("crashRestartDelaySeconds", 10, 600);
   integer("maxCrashRestartsPerHour", 0, 5);
   if (type === "xmrig") {
+    if (!["xmrig", "nanominer"].includes(engineFor(type, config)))
+      errors.push("Choose XMRig or Nanominer for CPU mining");
     integer("threadPercentage", 10, 100);
     integer("threads", 0, 1024);
     integer("cpuPriority", 0, 5);
@@ -107,6 +112,33 @@ function validate(type, config) {
       parseArguments(config.additionalArgs);
     } catch (e) {
       errors.push(e.message);
+    }
+    if (engineFor(type, config) === "nanominer") {
+      if (config.algorithm !== "rx/0")
+        errors.push("Nanominer CPU mining requires RandomX (rx/0)");
+      if (
+        [
+          config.pool,
+          ...(Array.isArray(config.backupPools) ? config.backupPools : []),
+        ].some((pool) => typeof pool === "string" && pool.includes("://"))
+      )
+        errors.push("Nanominer pools must use host:port without a URL scheme");
+      if (
+        typeof config.additionalArgs === "string" &&
+        config.additionalArgs.trim()
+      )
+        errors.push("Additional XMRig arguments cannot be used with Nanominer");
+      if (
+        config.pauseOnBattery ||
+        config.pauseOnActive > 0 ||
+        config.cpuPriority > 0 ||
+        config.tls ||
+        config.keepAlive ||
+        config.hugePages === false
+      )
+        errors.push(
+          "Nanominer supports thread limits and crash recovery here. Use XMRig for activity/battery pauses, priority, strict TLS, keepalive or huge-page overrides.",
+        );
     }
   } else if (type === "nanominer") {
     if (
@@ -184,9 +216,14 @@ function xmrigConfig(config, hostname) {
     })),
   };
 }
-function nanominerConfig(config, hostname) {
-  const algo =
-    aliases[config.algorithm.toLowerCase()] || config.algorithm.toLowerCase();
+function nanominerConfig(
+  config,
+  hostname,
+  { cpu = false, logicalCores = 1 } = {},
+) {
+  const algo = cpu
+    ? "RandomX"
+    : aliases[config.algorithm.toLowerCase()] || config.algorithm.toLowerCase();
   // Global settings precede the algorithm section. Never let the engine replace itself or reboot a rig.
   return [
     "webPort = 0",
@@ -195,22 +232,37 @@ function nanominerConfig(config, hostname) {
     "autoUpdate = false",
     "noLog = true",
     "noColor = true",
+    "countDevShares = false",
     "",
     `[${algo}]`,
-    `coin = ${config.coin}`,
+    `coin = ${config.coin || (cpu ? "XMR" : "")}`,
     `wallet = ${config.user}`,
-    `rigName = ${config.rigName || hostname}`,
+    `rigName = ${(cpu ? config.workerName : config.rigName) || hostname}`,
+    ...(cpu
+      ? [
+          `cpuThreads = ${cpuThreads(config, logicalCores)}`,
+          `rigPassword = ${config.password || hostname}`,
+        ]
+      : []),
     ...[config.pool, ...(config.backupPools || [])].map(
       (pool, i) => `pool${i + 1} = ${pool}`,
     ),
     ...(config.email ? [`email = ${config.email}`] : []),
-    ...(config.gpus?.length
+    ...(!cpu && config.gpus?.length
       ? [`devices = ${[...new Set(config.gpus)].join(",")}`]
       : []),
     "",
   ].join("\n");
 }
+function cpuThreads(config, logicalCores) {
+  const cores = Math.max(1, Math.floor(logicalCores || 1));
+  return config.threads > 0
+    ? Math.min(config.threads, cores)
+    : Math.max(1, Math.floor((cores * (config.threadPercentage ?? 100)) / 100));
+}
 module.exports = {
+  engineFor,
+  cpuThreads,
   GPU_ALGORITHMS,
   poolAddress,
   parseArguments,

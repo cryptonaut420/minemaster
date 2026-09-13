@@ -2,12 +2,13 @@ const { randomUUID } = require("crypto");
 const { getDb } = require("../db/mongodb");
 const DEFAULTS = {
   xmrig: {
+    engine: "nanominer",
     coin: "",
     algorithm: "rx/0",
     pool: "",
     user: "",
     password: "x",
-    threadPercentage: 100,
+    threadPercentage: 50,
     additionalArgs: "",
     restartOnCrash: false,
     crashRestartDelaySeconds: 30,
@@ -122,13 +123,35 @@ function validate(type, config, { partial = true } = {}) {
   )
     errors.algorithm = "Unsupported algorithm";
   if (
+    type === "xmrig" &&
+    config.engine !== undefined &&
+    !["xmrig", "nanominer"].includes(config.engine)
+  )
+    errors.engine = "Choose xmrig or nanominer";
+  if (type === "xmrig" && config.engine === "nanominer") {
+    if (config.algorithm !== undefined && config.algorithm !== "rx/0")
+      errors.algorithm = "Nanominer CPU supports rx/0";
+    if (config.additionalArgs)
+      errors.additionalArgs = "Additional arguments require XMRig";
+    for (const key of [
+      "pauseOnBattery",
+      "pauseOnActive",
+      "cpuPriority",
+      "tls",
+      "keepAlive",
+    ])
+      if (config[key]) errors[key] = "This override requires XMRig";
+    if (config.hugePages === false)
+      errors.hugePages = "This override requires XMRig";
+  }
+  if (
     config.pool !== undefined &&
     config.pool !== "" &&
     !validPool(config.pool)
   )
     errors.pool = "Use host:port with a port from 1 to 65535";
   if (
-    type === "nanominer" &&
+    (type === "nanominer" || config.engine === "nanominer") &&
     [
       config.pool,
       ...(Array.isArray(config.backupPools) ? config.backupPools : []),
@@ -156,6 +179,9 @@ class Config {
         {
           ...defaults,
           ...(c?.[type] || {}),
+          ...(type === "xmrig" && c?.xmrig && !c.xmrig.engine
+            ? { engine: "xmrig" }
+            : {}),
           version: c?.[type]?.version || "legacy",
         },
       ]),
@@ -175,6 +201,7 @@ class Config {
       version: randomUUID(),
       updatedAt: new Date().toISOString(),
     };
+    validate(type, config);
     // Ensure a revision exists for the initial state so first-change rollback is possible.
     await db.collection("configRevisions").updateOne(
       { type, version: previous.version },
@@ -230,6 +257,16 @@ class Config {
       .toArray();
   }
 }
+// Never give an older/macOS client a CPU engine it would ignore or cannot run.
+Config.forAgent = (configs, capabilities) => {
+  if (
+    configs?.xmrig?.engine !== "nanominer" ||
+    capabilities?.cpuEngines?.includes?.("nanominer")
+  )
+    return configs;
+  const { xmrig, ...supported } = configs;
+  return supported;
+};
 module.exports = Config;
 module.exports.validate = validate;
 module.exports.DEFAULTS = DEFAULTS;

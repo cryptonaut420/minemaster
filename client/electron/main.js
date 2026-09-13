@@ -64,7 +64,9 @@ function getUpdateResumeFilePath() {
 
 function saveUpdateResumeState(runningMinerIds) {
   const data = { minerIds: runningMinerIds, savedAt: Date.now() };
-  fs.writeFileSync(getUpdateResumeFilePath(), JSON.stringify(data), "utf8");
+  const file = getUpdateResumeFilePath();
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify(data), "utf8");
+  fs.renameSync(`${file}.tmp`, file);
 }
 
 function loadAndClearUpdateResumeState() {
@@ -274,9 +276,13 @@ function createWindow() {
   }
 
   // Initialize auto-updater (only runs checks in packaged builds)
-  initAutoUpdater(mainWindow, stopAllMinersForUpdate, () =>
-    processManager.allowStarts(),
-  );
+  initAutoUpdater(mainWindow, stopAllMinersForUpdate, () => {
+    processManager.allowStarts();
+    // A failed installer must not cause mining to resume on a later ordinary launch.
+    try {
+      fs.unlinkSync(getUpdateResumeFilePath());
+    } catch (_) {}
+  });
 
   mainWindow.on("close", (event) => {
     if (!quitConfirmed) {
@@ -339,7 +345,7 @@ else {
       ["nanominer-1", "nanominer"],
     ]) {
       try {
-        await runtime.prepare(type);
+        await processManager.prepareEngine(type);
       } catch (_) {}
       await processManager.diagnose(id, type);
     }
@@ -379,8 +385,12 @@ ipcMain.handle("get-miner-status", (_event, { minerId }) =>
   processManager.snapshot(minerId),
 );
 ipcMain.handle("get-all-miners-status", () => processManager.snapshots());
-ipcMain.handle("diagnose-miner", (_event, { minerId, minerType, customPath }) =>
-  processManager.diagnose(minerId, minerType, customPath),
+ipcMain.handle(
+  "diagnose-miner",
+  (_event, { minerId, minerType, customPath, includeWindows }) =>
+    processManager.diagnose(minerId, minerType, customPath, {
+      includeWindows: includeWindows === true,
+    }),
 );
 ipcMain.handle("repair-miner", (_event, { minerId, minerType, customPath }) =>
   processManager.repair(minerId, minerType, customPath),
@@ -389,6 +399,9 @@ ipcMain.handle("open-protection-history", () =>
   shell.openExternal(
     "https://support.microsoft.com/en-us/windows/security/windows-security/protection-history-in-the-windows-security-app",
   ),
+);
+ipcMain.handle("open-file-review", () =>
+  shell.openExternal("https://www.microsoft.com/en-us/wdsi/filesubmission"),
 );
 
 ipcMain.handle("get-system-info", async () => {

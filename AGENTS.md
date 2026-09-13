@@ -2,6 +2,8 @@
 
 Applies to the whole repository. Read this file before making changes.
 
+- Work directly on `master`, as requested by the owner. Do not create a separate branch unless asked.
+
 ## Project map
 - `server/src/`: CommonJS Express API, MongoDB models, and WebSocket service.
 - `server/public/src/`: React/Vite admin. Active pages are Dashboard and Configs.
@@ -54,3 +56,12 @@ Applies to the whole repository. Read this file before making changes.
 - Shared renderer/native configuration validation is `client/src/utils/miningConfig.js`. Keep backend `Config` validation and OpenAPI in agreement. Optional paused mining and file diagnostics must survive status normalization and remain visible through API/admin.
 - New `miner-diagnose`/`miner-repair` commands require `capabilities.minerMaintenance`; check the API-to-native result path. Repair does not start mining and must refuse running processes. Miner reporting still needs no key.
 - Client browser fixture: build the renderer, then run `node client/scripts/preview-fixture.cjs`. It simulates Electron and hardware, binds loopback only, and cannot prove Windows quarantine behavior or real miner performance.
+
+## Desktop client 1.3
+- Read `docs/audits/client-2026-09-13/second-pass.md` alongside the first audit for current engine defaults, compatibility and validation limits.
+- CPU keeps the legacy `xmrig-1` process ID and `xmrig` configuration slot. `config.engine` selects `nanominer` or `xmrig`; report the actual executable as `process.engine`. Never infer GPU scope from executable name.
+- New Windows/Linux CPU profiles default to Nanominer; existing profiles without an engine remain XMRig. macOS CPU stays XMRig. Gate Nanominer CPU delivery on `capabilities.cpuEngines`.
+- CPU/GPU Nanominer instances share verified files but have separate working directories and single-algorithm configs. Serialize preparation/repair per engine, refuse repair while either process is running, and preserve independent Stop behavior.
+- Nanominer CPU uses `[RandomX]` and `cpuThreads`; do not silently accept XMRig-only tuning. Keep thread conversion, fees and telemetry explicit.
+- Windows history checks are read-only, explicit, bounded and limited to exact miner paths. Missing history is not proof that an executable is allowed; never automatically switch engines in response to antivirus detection.
+- Extract only manifest runtime files from upstream archives, including in temporary directories. Keep optional drivers out of extraction as well as final packaging.

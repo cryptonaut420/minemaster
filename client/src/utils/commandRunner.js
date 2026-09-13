@@ -180,6 +180,11 @@ export function createCommandRunner({
                 running: current.running,
                 enabled: current.enabled,
                 pid: current.pid,
+                engine:
+                  current.engine ||
+                  current.activeConfig?.engine ||
+                  current.type,
+                effectiveSettings: current.effectiveSettings || null,
                 appliedConfigVersion: current.activeConfig?.version || null,
               };
             });

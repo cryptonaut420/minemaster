@@ -40,7 +40,7 @@ const registration = (id) => ({
   systemId: id,
   protocolVersion: 2,
   version: "test-agent",
-  capabilities: { commandResults: true },
+  capabilities: { commandResults: true, cpuEngines: ["xmrig", "nanominer"] },
   systemInfo: {
     hostname: id,
     gpus: [
@@ -1002,6 +1002,73 @@ test("miner repair is capability-gated, acknowledged, and available through the 
   );
   const detail = await api(`/v1/rigs/${minerId}`);
   assert.equal(detail.data.data.processes[0].diagnostic.status, "ready");
+});
+
+test("CPU engine rollout gates old agents, delivers Nanominer to capable agents, and preserves legacy choices", async () => {
+  const Config = require("../src/models/Config");
+  const previous = await Config.get("xmrig");
+  await Config.update(
+    "xmrig",
+    {
+      ...Config.DEFAULTS.xmrig,
+      pool: "fixture.pool:3333",
+      user: "fixture-wallet",
+    },
+    "test",
+    previous.version,
+  );
+  const old = await socket();
+  send(old, "register", {
+    ...registration("legacy-cpu-engine"),
+    capabilities: { commandResults: true },
+  });
+  const oldBound = await waitFor(() =>
+    old.messages.find((m) => m.type === "bound"),
+  );
+  assert.equal(oldBound.data.configs.xmrig, undefined);
+  assert.equal(
+    (
+      await api("/v1/commands", "POST", {
+        minerId: oldBound.data.minerId,
+        action: "start",
+        deviceType: "CPU",
+      })
+    ).status,
+    422,
+  );
+  const modern = await socket();
+  send(modern, "register", registration("dual-cpu-engine"));
+  const bound = await waitFor(() =>
+    modern.messages.find((m) => m.type === "bound"),
+  );
+  assert.equal(bound.data.configs.xmrig.engine, "nanominer");
+  const response = await api("/v1/commands", "POST", {
+    minerId: bound.data.minerId,
+    action: "start",
+    deviceType: "CPU",
+  });
+  assert.equal(response.status, 202);
+  const command = await waitFor(() =>
+    modern.messages.find((m) => m.type === "command"),
+  );
+  send(modern, "command-result", {
+    id: command.data.id,
+    status: "succeeded",
+    result: {
+      processes: [{ id: "xmrig-1", engine: "nanominer", running: true }],
+    },
+  });
+  await waitFor(
+    async () =>
+      (await db.collection("commands").findOne({ id: command.data.id }))
+        .status === "succeeded",
+  );
+  const stored = await db.collection("configs").findOne({ _id: "global" });
+  await db
+    .collection("configs")
+    .updateOne({ _id: "global" }, { $unset: { "xmrig.engine": "" } });
+  assert.equal((await Config.get("xmrig")).engine, "xmrig");
+  await db.collection("configs").replaceOne({ _id: "global" }, stored);
 });
 
 test("database failures are unavailable responses, never successful empty data", async () => {

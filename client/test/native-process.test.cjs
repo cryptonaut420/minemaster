@@ -50,6 +50,65 @@ const request = {
   minerType: "xmrig",
   config: { version: "v1", gpus: [0] },
 };
+test("two Nanominer processes stop independently and repair waits until both release the engine", async () => {
+  const live = new Set();
+  let nextPid = 1000,
+    repairs = 0;
+  const f = fixture({
+    alive: (pid) => live.has(pid),
+    spawnProcess: () => {
+      const p = new EventEmitter();
+      p.pid = ++nextPid;
+      p.stdout = new EventEmitter();
+      p.stderr = new EventEmitter();
+      live.add(p.pid);
+      return p;
+    },
+    signal: async (p) => live.delete(p.pid),
+  });
+  f.runtime.prepare = async () => {
+    repairs++;
+  };
+  const cpu = await f.manager.start({
+    ...request,
+    config: { engine: "nanominer" },
+  });
+  const gpu = await f.manager.start({
+    minerId: "gpu",
+    minerType: "nanominer",
+    config: {},
+  });
+  assert.notEqual(cpu.pid, gpu.pid);
+  assert.equal(cpu.engine, "nanominer");
+  await f.manager.stop({ minerId: "cpu" });
+  assert.equal(f.manager.snapshot("gpu").running, true);
+  assert.equal((await f.manager.repair("cpu", "nanominer")).success, false);
+  assert.equal(repairs, 0);
+  await f.manager.stop({ minerId: "gpu" });
+  assert.equal((await f.manager.repair("cpu", "nanominer")).success, true);
+  assert.equal(repairs, 1);
+});
+test("a repair cannot race past a different process preparing the same engine", async () => {
+  let release, entered;
+  const ready = new Promise((r) => (entered = r));
+  const f = fixture();
+  const launch = f.runtime.launchSpec;
+  f.runtime.launchSpec = async (...args) => {
+    entered();
+    await new Promise((r) => (release = r));
+    return launch(...args);
+  };
+  const start = f.manager.start({
+    minerId: "gpu",
+    minerType: "nanominer",
+    config: {},
+  });
+  await ready;
+  const repair = f.manager.repair("cpu", "nanominer");
+  release();
+  assert.equal((await start).success, true);
+  assert.equal((await repair).success, false);
+});
 test("launch snapshots deep configuration; a duplicate start does not create another process", async () => {
   const { manager, children } = fixture();
   const input = structuredClone(request);

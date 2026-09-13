@@ -57,3 +57,22 @@ test("asynchronous update failures are handled and concurrent checks share a sin
   assert.equal((await b).success, false);
   assert.equal(calls, 1);
 });
+test("an installer error event releases mining controls and retains the downloaded update", async () => {
+  const updater = new EventEmitter();
+  let released = 0;
+  updater.quitAndInstall = () => {};
+  const c = createUpdateController({
+    updater,
+    stopMiners: async () => {},
+    releaseStarts: () => released++,
+  });
+  updater.emit("update-downloaded", { version: "2.0.0" });
+  await c.install();
+  updater.emit("error", Error("Installer access denied"));
+  assert.equal(c.getState().state, "downloaded");
+  assert.match(c.getState().message, /Installer access denied/);
+  assert.equal(released, 1);
+  updater.quitAndInstall = () =>
+    updater.emit("error", Error("Immediate failure"));
+  assert.equal((await c.install()).success, false);
+});

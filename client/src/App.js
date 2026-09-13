@@ -26,6 +26,7 @@ import {
   processSnapshot,
 } from "./utils/telemetry";
 import { createCommandRunner } from "./utils/commandRunner";
+import { engineFor } from "./utils/miningConfig";
 
 function App() {
   const lineBuffers = useRef({});
@@ -66,7 +67,7 @@ function App() {
   const [miners, setMinersState] = useState([
     {
       id: "xmrig-1",
-      name: "XMRig CPU Miner",
+      name: "CPU Miner",
       type: "xmrig",
       deviceType: "CPU",
       running: false,
@@ -74,23 +75,27 @@ function App() {
       loading: false,
       hashrate: null,
       startTime: null,
-      config: savedConfig?.["xmrig-1"] || {
-        pool: "",
-        user: "",
-        password: "",
-        coin: "XMR",
-        algorithm: "rx/0",
-        threads: 0,
-        threadPercentage: 100, // 100% = use all threads (0 in config)
-        donateLevel: 1,
-        cpuPriority: 0,
-        hugePages: true,
-        pauseOnBattery: false,
-        pauseOnActive: 0,
-        backupPools: [],
-        customPath: "",
-        additionalArgs: "",
-      },
+      config: savedConfig?.["xmrig-1"]
+        ? { engine: "xmrig", ...savedConfig["xmrig-1"] }
+        : {
+            engine:
+              window.electronAPI?.platform === "darwin" ? "xmrig" : "nanominer",
+            pool: "",
+            user: "",
+            password: "",
+            coin: "XMR",
+            algorithm: "rx/0",
+            threads: 0,
+            threadPercentage: 50,
+            donateLevel: 1,
+            cpuPriority: 0,
+            hugePages: true,
+            pauseOnBattery: false,
+            pauseOnActive: 0,
+            backupPools: [],
+            customPath: "",
+            additionalArgs: "",
+          },
       output: [],
       validationErrors: [],
     },
@@ -483,7 +488,14 @@ function App() {
           )
           .map((k) => [k, miner.config[k]]),
       );
-      const config = { ...miner.config, ...globalConfig, ...local };
+      const config = {
+        ...miner.config,
+        ...globalConfig,
+        ...local,
+        ...(miner.type === "xmrig"
+          ? { engine: globalConfig.engine || "xmrig" }
+          : {}),
+      };
       return {
         ...miner,
         config,
@@ -792,6 +804,8 @@ function App() {
         pid: result.pid,
         runId: result.runId,
         diagnostic: result.diagnostic,
+        engine: result.engine,
+        effectiveSettings: result.effectiveSettings,
         activeConfig: result.activeConfig || activeConfig,
         startTime: result.startedAt || Date.now(),
       });
@@ -851,8 +865,13 @@ function App() {
     try {
       const request = {
         minerId,
-        minerType: miner.type,
-        customPath: miner.config.customPath,
+        minerType: engineFor(
+          miner.type,
+          miner.running ? miner.activeConfig : miner.config,
+        ),
+        customPath: (miner.running ? miner.activeConfig : miner.config)
+          ?.customPath,
+        includeWindows: true,
       };
       const result =
         action === "miner-repair"
@@ -862,10 +881,12 @@ function App() {
               diagnostic: await window.electronAPI.diagnoseMiner(request),
             };
       patchMiner(minerId, {
-        diagnostic: result.diagnostic,
+        ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
         loading: false,
         error: result.success ? null : result.error,
       });
+      if (!result.success)
+        addNotification(result.error || "Miner maintenance failed", "error");
       masterServer.reportEvent(action, { processId: minerId, ...result });
       sendImmediateStatusUpdateRef.current?.();
       return result;
@@ -961,7 +982,9 @@ function App() {
                 Preparing update v{updateStatus.version}...
               </div>
             )}
-            {updateStatus.state === "error" && (
+            {(updateStatus.state === "error" ||
+              (updateStatus.state === "downloaded" &&
+                updateStatus.message)) && (
               <div className="update-indicator update-error">
                 {updateStatus.message || "Update failed"}
               </div>
@@ -969,9 +992,16 @@ function App() {
             {updateStatus.state === "downloaded" && (
               <button
                 onClick={async () => {
-                  const result = await window.electronAPI.installUpdate();
-                  if (!result?.success)
-                    addNotification(result?.error || "Install failed", "error");
+                  try {
+                    const result = await window.electronAPI.installUpdate();
+                    if (!result?.success)
+                      addNotification(
+                        result?.error || "Install failed",
+                        "error",
+                      );
+                  } catch (error) {
+                    addNotification(error.message || "Install failed", "error");
+                  }
                 }}
               >
                 Install v{updateStatus.version} and restart
@@ -979,9 +1009,18 @@ function App() {
             )}
             <button
               onClick={() =>
-                window.electronAPI?.checkForUpdate().then((result) => {
-                  if (result?.message) addNotification(result.message, "info");
-                })
+                window.electronAPI
+                  ?.checkForUpdate()
+                  .then((result) => {
+                    if (result?.message)
+                      addNotification(result.message, "info");
+                  })
+                  .catch((error) =>
+                    addNotification(
+                      error.message || "Update check failed",
+                      "error",
+                    ),
+                  )
               }
             >
               Check for updates
@@ -1052,7 +1091,12 @@ function App() {
                       </span>
                     </div>
                   )}
-                  <span className="miner-type">{miner.type}</span>
+                  <span className="miner-type">
+                    {miner.running
+                      ? miner.engine ||
+                        engineFor(miner.type, miner.activeConfig)
+                      : engineFor(miner.type, miner.config)}
+                  </span>
                 </div>
               ))}
             </div>

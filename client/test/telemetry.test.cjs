@@ -36,6 +36,17 @@ test("zero, missing, stale, paused, stopped and live rates stay distinguishable 
     "Waiting for first sample",
   );
   assert.equal(formatMinerRate(p, now + 61000), "Stale sample");
+  assert.equal(
+    formatMinerRate({ ...p, hashrateObservedAt: "broken" }, now),
+    "Stale sample",
+  );
+  assert.equal(
+    formatMinerRate(
+      { ...p, hashrateObservedAt: new Date(now + 3600000).toISOString() },
+      now,
+    ),
+    "Stale sample",
+  );
   assert.match(formatMinerRate({ ...p, paused: true }, now), /Paused/);
   assert.equal(formatMinerRate({ ...p, running: false }, now), "Stopped");
 });
@@ -61,4 +72,12 @@ test("actual miner logs retain units, split observations, shares, versions and p
     "battery",
   );
   assert.equal(parseProcessDetails("resumed").paused, false);
+  assert.equal(
+    parseProcessDetails("use pool pool:3333").pool.status,
+    "connecting",
+  );
+  assert.equal(
+    parseProcessDetails("new job from pool:3333").pool.status,
+    "connected",
+  );
 });

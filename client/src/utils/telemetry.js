@@ -40,11 +40,16 @@ export function parseShares(line) {
 }
 export function processSnapshot(miner, now = Date.now()) {
   const observed = miner.hashrateObservedAt || null;
+  const observedTime = Date.parse(observed);
   const valid =
     typeof miner.hashrate === "number" && Number.isFinite(miner.hashrate);
   return {
     id: miner.id,
     type: miner.type,
+    engine: miner.running
+      ? miner.engine || miner.activeConfig?.engine || miner.type
+      : miner.config?.engine || miner.type,
+    effectiveSettings: miner.running ? miner.effectiveSettings || null : null,
     deviceType: miner.deviceType,
     running: miner.running === true,
     enabled: miner.enabled !== false,
@@ -52,7 +57,9 @@ export function processSnapshot(miner, now = Date.now()) {
     hashrateObservedAt: observed,
     quality: !valid
       ? "unavailable"
-      : !observed || now - Date.parse(observed) > 60000
+      : !Number.isFinite(observedTime) ||
+          observedTime > now + 5000 ||
+          now - observedTime > 60000
         ? "stale"
         : miner.hashrate === 0
           ? "zero"
@@ -89,7 +96,7 @@ export function parseProcessDetails(line) {
   if (pool)
     result.pool = {
       address: pool[1],
-      status: "connected",
+      status: /\bnew job from\b/i.test(text) ? "connected" : "connecting",
       observedAt: new Date().toISOString(),
       source: "process-log",
     };

@@ -9,6 +9,49 @@ const date = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 const iso = (v) => (date(v) === null ? null : new Date(date(v)).toISOString());
+function normalizeDiagnostic(d) {
+  if (!d || typeof d !== "object" || Array.isArray(d)) return null;
+  const result = Object.fromEntries(
+    [
+      "status",
+      "engine",
+      "code",
+      "message",
+      "path",
+      "version",
+      "expectedVersion",
+      "observedAt",
+      "sha256",
+      "expectedSha256",
+      "sourceUrl",
+    ]
+      .filter((k) => typeof d[k] === "string")
+      .map((k) => [k, d[k].slice(0, k === "message" ? 2000 : 1000)]),
+  );
+  if (d.windows && typeof d.windows === "object") {
+    const w = d.windows;
+    result.windows = {
+      status: w.status === "available" ? "available" : "unavailable",
+      checkedAt: iso(w.checkedAt),
+      signatureStatus:
+        typeof w.signatureStatus === "string"
+          ? w.signatureStatus.slice(0, 80)
+          : null,
+      message: typeof w.message === "string" ? w.message.slice(0, 1000) : null,
+      detections: (Array.isArray(w.detections) ? w.detections : [])
+        .filter((d) => d && typeof d === "object")
+        .slice(0, 5)
+        .map((d) => ({
+          threatName: String(d.threatName || "Unknown detection").slice(0, 200),
+          resource: String(d.resource || "").slice(0, 1000),
+          detectedAt: iso(d.detectedAt),
+          actionSuccess:
+            typeof d.actionSuccess === "boolean" ? d.actionSuccess : null,
+        })),
+    };
+  }
+  return result;
+}
 function gpuIdentity(gpu, index) {
   const bus = gpu.pciBus || gpu.busAddress || gpu.bus;
   let normalized = bus
@@ -110,30 +153,20 @@ function normalizeProcesses(payload, now = Date.now()) {
       id,
       type: p.type || (p.deviceType === "GPU" ? "nanominer" : "xmrig"),
       deviceType: p.deviceType === "GPU" ? "GPU" : "CPU",
+      engine: ["xmrig", "nanominer"].includes(p.engine) ? p.engine : null,
+      effectiveSettings:
+        p.effectiveSettings && typeof p.effectiveSettings === "object"
+          ? {
+              cpuThreads: number(p.effectiveSettings.cpuThreads, 1, 1024),
+              devFeePercent: number(p.effectiveSettings.devFeePercent, 0, 100),
+            }
+          : null,
       running: p.running === true,
       paused: p.paused === true,
       restartPendingAt: iso(p.restartPendingAt),
       pauseReason:
         typeof p.pauseReason === "string" ? p.pauseReason.slice(0, 100) : null,
-      diagnostic:
-        p.diagnostic && typeof p.diagnostic === "object"
-          ? Object.fromEntries(
-              [
-                "status",
-                "code",
-                "message",
-                "path",
-                "version",
-                "expectedVersion",
-                "observedAt",
-              ]
-                .filter((k) => typeof p.diagnostic[k] === "string")
-                .map((k) => [
-                  k,
-                  p.diagnostic[k].slice(0, k === "message" ? 2000 : 1000),
-                ]),
-            )
-          : null,
+      diagnostic: normalizeDiagnostic(p.diagnostic),
       enabled: p.enabled !== false,
       algorithm:
         typeof p.algorithm === "string" ? p.algorithm.slice(0, 80) : null,

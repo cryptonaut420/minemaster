@@ -29,6 +29,7 @@ const algorithms = {
   ],
 };
 const labels = {
+  engine: "CPU mining engine",
   coin: "Coin label",
   algorithm: "Algorithm",
   pool: "Pool address",
@@ -204,7 +205,7 @@ export default function Configs() {
               rolloutKey.current = requestId();
             }}
           >
-            {t === "xmrig" ? "CPU · XMRig" : "GPU · Nanominer"}
+            {t === "xmrig" ? "CPU · RandomX / XMRig" : "GPU · Nanominer"}
             {baseline[t] &&
             JSON.stringify(drafts[t]) !== JSON.stringify(baseline[t])
               ? " *"
@@ -220,12 +221,70 @@ export default function Configs() {
           </p>
           {draft && (
             <form onSubmit={save} className="op-config-form">
+              {type === "xmrig" && draft.engine === "nanominer" && (
+                <p>
+                  Nanominer CPU and GPU are separate processes. RandomX has a 2%
+                  fee. Thread limits and crash recovery are supported; advanced
+                  activity, priority and TLS controls require XMRig. Older
+                  clients must be upgraded before receiving Nanominer CPU
+                  settings.
+                </p>
+              )}
               {Object.entries(draft)
-                .filter(([k]) => labels[k])
+                .filter(
+                  ([k]) =>
+                    labels[k] &&
+                    !(
+                      type === "xmrig" &&
+                      draft.engine === "nanominer" &&
+                      [
+                        "cpuPriority",
+                        "pauseOnBattery",
+                        "pauseOnActive",
+                        "tls",
+                        "keepAlive",
+                        "hugePages",
+                        "additionalArgs",
+                      ].includes(k)
+                    ),
+                )
                 .map(([k, value]) => (
                   <label key={k} htmlFor={`config-${type}-${k}`}>
                     {labels[k]}
-                    {k === "algorithm" ? (
+                    {k === "engine" ? (
+                      <select
+                        id={`config-${type}-${k}`}
+                        value={value}
+                        onChange={(e) =>
+                          setDrafts({
+                            ...drafts,
+                            [type]: {
+                              ...draft,
+                              engine: e.target.value,
+                              ...(e.target.value === "nanominer"
+                                ? {
+                                    algorithm: "rx/0",
+                                    additionalArgs: "",
+                                    cpuPriority: 0,
+                                    pauseOnBattery: false,
+                                    pauseOnActive: 0,
+                                    tls: false,
+                                    keepAlive: false,
+                                    hugePages: true,
+                                  }
+                                : {}),
+                            },
+                          })
+                        }
+                      >
+                        <option value="nanominer">
+                          Nanominer · RandomX · 2% fee
+                        </option>
+                        <option value="xmrig">
+                          XMRig · advanced CPU controls
+                        </option>
+                      </select>
+                    ) : k === "algorithm" ? (
                       <select
                         id={`config-${type}-${k}`}
                         value={value}
@@ -236,7 +295,10 @@ export default function Configs() {
                           })
                         }
                       >
-                        {algorithms[type].map((a) => (
+                        {(type === "xmrig" && draft.engine === "nanominer"
+                          ? ["rx/0"]
+                          : algorithms[type]
+                        ).map((a) => (
                           <option key={a}>{a}</option>
                         ))}
                       </select>
@@ -296,8 +358,9 @@ export default function Configs() {
                 Local worker name, password, GPU selection, and executable path
                 can override these values. Running processes retain their launch
                 configuration until restarted. CPU controls and backup pools
-                require MineMaster 1.2 or later. Thread percentage is a budget
-                for automatic tuning, not a CPU usage measurement.
+                require MineMaster 1.2 or later; CPU engine selection requires
+                1.3. Thread percentage is a budget for automatic tuning, not a
+                CPU usage measurement.
               </p>
               <div className="op-actions">
                 <button

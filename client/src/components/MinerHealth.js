@@ -1,18 +1,38 @@
-import React from "react";
+import React, { useState } from "react";
 import { formatMinerRate, formatUptime } from "../utils/formatters";
 import "./MinerHealth.css";
+import { engineFor } from "../utils/miningConfig";
+import versionInfo from "../version.json";
 export default function MinerHealth({
   miner,
   onMaintenance,
   onStop,
   compact = false,
 }) {
-  const diagnostic = miner.diagnostic;
+  const [copyMessage, setCopyMessage] = useState("");
+  const copy = async (value, label) => {
+    try {
+      if (!navigator.clipboard) throw Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(value);
+      setCopyMessage(`${label} copied`);
+    } catch {
+      setCopyMessage(
+        "Could not copy. Select the file details below to copy them manually.",
+      );
+    }
+  };
+  const engine = engineFor(
+    miner.type,
+    miner.running ? miner.activeConfig : miner.config,
+  );
+  const differentEngine =
+    miner.diagnostic?.engine && miner.diagnostic.engine !== engine;
+  const diagnostic = differentEngine ? null : miner.diagnostic;
   const pending =
     miner.running &&
     JSON.stringify(miner.activeConfig) !== JSON.stringify(miner.config);
   const problem =
-    miner.error ||
+    (!differentEngine && miner.error) ||
     (diagnostic?.status === "unavailable" ? diagnostic.message : null);
   return (
     <section
@@ -25,14 +45,18 @@ export default function MinerHealth({
           {miner.loading ? "Working…" : formatMinerRate(miner)}
         </strong>
         <span>
-          {miner.minerVersion || diagnostic?.version
-            ? `Engine ${miner.minerVersion || diagnostic.version}`
-            : "Engine not verified"}
+          {engine} ·{" "}
+          {(miner.running && miner.minerVersion) ||
+            diagnostic?.version ||
+            "Files not checked"}
         </span>
         {miner.running && (
           <span>Uptime {formatUptime(Date.now() - miner.startTime)}</span>
         )}
         {miner.pid && <span>PID {miner.pid}</span>}
+        {miner.running && miner.effectiveSettings?.cpuThreads && (
+          <span>{miner.effectiveSettings.cpuThreads} CPU threads</span>
+        )}
         {miner.restartPendingAt && (
           <span className="pending-config">
             Restart scheduled{" "}
@@ -95,19 +119,37 @@ export default function MinerHealth({
           onClick={() => onMaintenance(miner.id, "miner-repair")}
           title="Restore the verified bundled release. Does not start mining."
         >
-          Repair {miner.type}
+          Repair {engine}
         </button>
         {diagnostic?.path && (
-          <button
-            onClick={() =>
-              navigator.clipboard?.writeText(diagnostic.path).catch(() => {})
-            }
-          >
+          <button onClick={() => copy(diagnostic.path, "File path")}>
             Copy file path
           </button>
         )}
+        {diagnostic && (
+          <button
+            onClick={() =>
+              copy(
+                JSON.stringify(
+                  {
+                    appVersion: versionInfo.displayVersion,
+                    processId: miner.id,
+                    engine,
+                    diagnostic,
+                  },
+                  null,
+                  2,
+                ),
+                "Diagnostic report",
+              )
+            }
+          >
+            Copy diagnostic report
+          </button>
+        )}
       </div>
-      {(problem || !compact) && (
+      {copyMessage && <p role="status">{copyMessage}</p>}
+      {(problem || !compact || diagnostic?.windows) && (
         <details className="repair-help">
           <summary>Miner files and Windows troubleshooting</summary>
           <p>
@@ -115,6 +157,49 @@ export default function MinerHealth({
               "Use Check miner files to verify the executable."}
           </p>
           {diagnostic?.path && <code>{diagnostic.path}</code>}
+          {diagnostic?.expectedSha256 && (
+            <p>
+              Expected executable SHA-256
+              <code>{diagnostic.expectedSha256}</code>
+            </p>
+          )}
+          {diagnostic?.windows && (
+            <div className="windows-diagnostic">
+              <strong>Windows check · {diagnostic.windows.status}</strong>
+              <p>
+                Checked{" "}
+                {diagnostic.windows.checkedAt
+                  ? new Date(diagnostic.windows.checkedAt).toLocaleString()
+                  : "Time unavailable"}
+              </p>
+              <p>{diagnostic.windows.message}</p>
+              <p>
+                Executable signature:{" "}
+                {diagnostic.windows.signatureStatus || "Unavailable"}
+              </p>
+              {diagnostic.windows.detections?.map((d, i) => (
+                <div key={i}>
+                  <strong>{d.threatName}</strong>
+                  <p>
+                    {d.detectedAt
+                      ? new Date(d.detectedAt).toLocaleString()
+                      : "Detection time unavailable"}{" "}
+                    · recorded action{" "}
+                    {d.actionSuccess === true
+                      ? "succeeded"
+                      : d.actionSuccess === false
+                        ? "failed"
+                        : "unknown"}
+                  </p>
+                  <code>{d.resource}</code>
+                </div>
+              ))}
+              {diagnostic.windows.status === "available" &&
+                !diagnostic.windows.detections?.length && (
+                  <p>No matching Defender history was returned.</p>
+                )}
+            </div>
+          )}
           <ol>
             <li>
               Open Windows Security → Virus &amp; threat protection → Protection
@@ -139,6 +224,9 @@ export default function MinerHealth({
           </p>
           <button onClick={() => window.electronAPI?.openProtectionHistory()}>
             Microsoft Protection History guidance
+          </button>
+          <button onClick={() => window.electronAPI?.openFileReview()}>
+            Microsoft file review
           </button>
         </details>
       )}

@@ -5,6 +5,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   "diagnose-miner",
   "repair-miner",
   "open-protection-history",
+  "open-file-review",
   "install-update",
   "start-miner",
   "stop-miner",
@@ -39,10 +40,12 @@ function createListenerFactory(channel) {
 }
 
 const api = {
+  platform: process.platform,
   invoke: safeInvoke,
   diagnoseMiner: (request) => safeInvoke("diagnose-miner", request),
   repairMiner: (request) => safeInvoke("repair-miner", request),
   openProtectionHistory: () => safeInvoke("open-protection-history"),
+  openFileReview: () => safeInvoke("open-file-review"),
   installUpdate: () => safeInvoke("install-update"),
   startMiner: (config) => safeInvoke("start-miner", config),
   stopMiner: (config) => safeInvoke("stop-miner", config),

@@ -421,6 +421,10 @@ class MasterServerService {
         sensorHistory: true,
         perGpuControl: false,
         minerMaintenance: true,
+        cpuEngines:
+          window.electronAPI?.platform === "darwin"
+            ? ["xmrig"]
+            : ["xmrig", "nanominer"],
       },
       systemInfo,
       silent, // For silent re-registration on reconnect

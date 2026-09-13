@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const {
   releaseFor,
   targetName,
@@ -11,7 +12,10 @@ const {
   xmrigConfig,
   nanominerConfig,
   parseArguments,
+  engineFor,
+  cpuThreads,
 } = require("../../src/utils/miningConfig");
+const { createWindowsDiagnostics } = require("./windowsDiagnostics");
 function describeError(error, executable) {
   const code = error.code || "START_FAILED";
   const messages = {
@@ -27,7 +31,7 @@ function describeError(error, executable) {
   return {
     code,
     message: messages[code] || error.message,
-    path: executable || null,
+    path: executable || error.path || null,
     observedAt: new Date().toISOString(),
   };
 }
@@ -37,6 +41,8 @@ function createRuntime({
   platform = process.platform,
   arch = process.arch,
   hostname,
+  logicalCores = os.availableParallelism?.() || os.cpus().length,
+  windowsDiagnostics = createWindowsDiagnostics({ platform }),
 }) {
   const directory = (type) =>
     path.join(
@@ -46,10 +52,10 @@ function createRuntime({
       releaseFor(type, platform, arch).version,
     );
   const busy = new Set();
-  async function inspect(type, customPath) {
-    let executable;
+  async function inspectFiles(type, customPath) {
+    let executable, release;
     try {
-      const release = releaseFor(type, platform, arch);
+      release = releaseFor(type, platform, arch);
       executable = customPath || path.join(directory(type), release.binary);
       if (customPath) {
         const stat = await fs.promises.stat(customPath);
@@ -57,6 +63,7 @@ function createRuntime({
           throw Error("Custom path must point to an executable file");
         return {
           status: "custom",
+          engine: type,
           version: null,
           expectedVersion: release.version,
           path: executable,
@@ -68,15 +75,48 @@ function createRuntime({
       await verifyDirectory(directory(type), release);
       return {
         status: "ready",
+        engine: type,
         version: release.version,
         expectedVersion: release.version,
+        sha256: release.files[release.binary],
+        expectedSha256: release.files[release.binary],
+        sourceUrl: release.url,
         path: executable,
         message: "Verified upstream executable",
         observedAt: new Date().toISOString(),
       };
     } catch (error) {
-      return { status: "unavailable", ...describeError(error, executable) };
+      return {
+        status: "unavailable",
+        engine: type,
+        ...describeError(error, error.path || executable),
+        expectedVersion: release?.version || null,
+        expectedSha256: release?.files[release.binary] || null,
+        sourceUrl: release?.url || null,
+      };
     }
+  }
+  async function inspect(type, customPath, { includeWindows = false } = {}) {
+    const diagnostic = await inspectFiles(type, customPath);
+    if (
+      includeWindows &&
+      platform === "win32" &&
+      diagnostic.code !== "UNSUPPORTED_PLATFORM"
+    ) {
+      const release = releaseFor(type, platform, arch);
+      const targets = customPath
+        ? [customPath]
+        : [
+            path.join(directory(type), release.binary),
+            path.join(bundledRoot, type, release.version, release.binary),
+          ];
+      if (!customPath && type === "xmrig")
+        targets.push(
+          ...targets.map((p) => path.join(path.dirname(p), "WinRing0x64.sys")),
+        );
+      diagnostic.windows = await windowsDiagnostics(targets);
+    }
+    return diagnostic;
   }
   async function prepare(type, { repair = false } = {}) {
     if (busy.has(type))
@@ -119,8 +159,9 @@ function createRuntime({
       throw Object.assign(Error(validation.errors.join("; ")), {
         code: "INVALID_CONFIG",
       });
-    if (!config.customPath) await prepare(type);
-    const diagnostic = await inspect(type, config.customPath);
+    const engine = engineFor(type, config);
+    if (!config.customPath) await prepare(engine);
+    const diagnostic = await inspect(engine, config.customPath);
     if (diagnostic.status === "unavailable")
       throw Object.assign(Error(diagnostic.message), {
         code: diagnostic.code,
@@ -130,16 +171,19 @@ function createRuntime({
     await fs.promises.mkdir(workDir, { recursive: true });
     const configPath = path.join(
       workDir,
-      type === "xmrig" ? "config.json" : "config.ini",
+      engine === "xmrig" ? "config.json" : "config.ini",
     );
     const content =
-      type === "xmrig"
+      engine === "xmrig"
         ? JSON.stringify(xmrigConfig(config, hostname), null, 2)
-        : nanominerConfig(config, hostname);
+        : nanominerConfig(config, hostname, {
+            cpu: type === "xmrig",
+            logicalCores,
+          });
     await fs.promises.writeFile(`${configPath}.tmp`, content, { mode: 0o600 });
     await fs.promises.rename(`${configPath}.tmp`, configPath);
     const args =
-      type === "xmrig"
+      engine === "xmrig"
         ? [
             "--config",
             configPath,
@@ -149,7 +193,17 @@ function createRuntime({
             ...parseArguments(config.additionalArgs),
           ]
         : [configPath];
-    return { executable: diagnostic.path, args, cwd: workDir, diagnostic };
+    return {
+      executable: diagnostic.path,
+      args,
+      cwd: workDir,
+      diagnostic,
+      engine,
+      effectiveSettings:
+        type === "xmrig" && engine === "nanominer"
+          ? { cpuThreads: cpuThreads(config, logicalCores), devFeePercent: 2 }
+          : null,
+    };
   }
   return { inspect, prepare, launchSpec, target: targetName(platform, arch) };
 }

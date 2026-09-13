@@ -90,3 +90,15 @@
     width: 100%;
   }
 }
+
+.view-error {
+  padding: 24px;
+  max-width: 65ch;
+}
+.view-error p {
+  margin: 12px 0;
+}
+.view-error button {
+  padding: 8px 16px;
+  cursor: pointer;
+}

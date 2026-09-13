@@ -241,7 +241,12 @@ function Dashboard({
                           miner.enabled !== false && (
                             <div className="device-details-compact">
                               <span className="detail-item">
-                                {miner.type.toUpperCase()}
+                                {(miner.running
+                                  ? miner.engine ||
+                                    miner.activeConfig?.engine ||
+                                    miner.type
+                                  : miner.config.engine || miner.type
+                                ).toUpperCase()}
                               </span>
                               <span className="detail-separator">•</span>
                               <span className="detail-item">

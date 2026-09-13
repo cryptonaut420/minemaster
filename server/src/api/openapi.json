@@ -55,6 +55,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -94,9 +97,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -137,6 +137,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -176,9 +179,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -269,6 +269,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -308,9 +311,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -442,6 +442,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -481,9 +484,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -533,6 +533,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -572,9 +575,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       },
@@ -622,6 +622,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -661,9 +664,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -721,6 +721,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -760,9 +763,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -812,6 +812,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -851,9 +854,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -1012,6 +1012,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1051,9 +1054,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -1150,6 +1150,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1189,9 +1192,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -1288,6 +1288,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1327,9 +1330,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -1440,6 +1440,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1479,9 +1482,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -1585,6 +1585,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1624,9 +1627,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -1737,6 +1737,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1776,9 +1779,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       },
@@ -1826,6 +1826,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1865,9 +1868,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -1927,6 +1927,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -1966,9 +1969,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -2018,6 +2018,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2057,9 +2060,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -2218,6 +2218,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2257,9 +2260,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "description": "resolved=false (default) selects open incidents; true selects only resolved incidents. Rig filters match fleet scope. q and status filter rigs. Stable cursor orders openedAt and ID. Each row includes minerName."
@@ -2310,6 +2310,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2349,9 +2352,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -2392,6 +2392,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2431,9 +2434,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       },
@@ -2472,6 +2472,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2511,9 +2514,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -2564,6 +2564,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2603,9 +2606,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -2663,6 +2663,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2702,9 +2705,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -2764,6 +2764,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2803,9 +2806,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -2855,6 +2855,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -2894,9 +2897,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -2972,6 +2972,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -3011,9 +3014,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -3109,6 +3109,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -3148,9 +3151,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       },
@@ -3198,6 +3198,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -3237,9 +3240,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         },
         "requestBody": {
@@ -3321,6 +3321,9 @@
               }
             }
           },
+          "403": {
+            "description": "A management API key or admin session is required for this operation"
+          },
           "404": {
             "description": "Not found",
             "content": {
@@ -3360,9 +3363,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "A management API key or admin session is required for this operation"
           }
         }
       }
@@ -3477,12 +3477,123 @@
           "diagnostic": {
             "type": "object",
             "nullable": true,
-            "description": "Miner file verification and latest native launch/repair diagnostics. Fields: status, code, message, path, version, expectedVersion, observedAt."
+            "properties": {
+              "status": {
+                "type": "string",
+                "nullable": true
+              },
+              "engine": {
+                "type": "string",
+                "nullable": true
+              },
+              "code": {
+                "type": "string",
+                "nullable": true
+              },
+              "message": {
+                "type": "string",
+                "nullable": true
+              },
+              "path": {
+                "type": "string",
+                "nullable": true
+              },
+              "version": {
+                "type": "string",
+                "nullable": true
+              },
+              "expectedVersion": {
+                "type": "string",
+                "nullable": true
+              },
+              "observedAt": {
+                "type": "string",
+                "nullable": true
+              },
+              "sha256": {
+                "type": "string",
+                "nullable": true
+              },
+              "expectedSha256": {
+                "type": "string",
+                "nullable": true
+              },
+              "sourceUrl": {
+                "type": "string",
+                "nullable": true
+              },
+              "windows": {
+                "type": "object",
+                "nullable": true,
+                "description": "Explicit read-only Windows check, cached for 30 seconds. Path-matched Defender history and Authenticode status. Unavailable/no matching history is not a guarantee that Windows permits execution.",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["available", "unavailable"]
+                  },
+                  "checkedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "signatureStatus": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "detections": {
+                    "type": "array",
+                    "maxItems": 5,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "threatName": {
+                          "type": "string"
+                        },
+                        "resource": {
+                          "type": "string"
+                        },
+                        "detectedAt": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time"
+                        },
+                        "actionSuccess": {
+                          "type": "boolean",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "restartPendingAt": {
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "engine": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["xmrig", "nanominer"],
+            "description": "Actual executable engine, independent of CPU/GPU scope and legacy configuration slot."
+          },
+          "effectiveSettings": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "cpuThreads": {
+                "type": "integer",
+                "nullable": true
+              },
+              "devFeePercent": {
+                "type": "number",
+                "nullable": true
+              }
+            }
           }
         }
       },
@@ -3777,6 +3888,11 @@
             "minimum": 0,
             "maximum": 5,
             "default": 2
+          },
+          "engine": {
+            "type": "string",
+            "enum": ["xmrig", "nanominer"],
+            "description": "CPU configuration only (legacy xmrig slot). New profiles default to nanominer; pre-existing profiles without an engine remain xmrig. Nanominer CPU supports rx/0 and thread limits; XMRig-only overrides are rejected."
           }
         }
       },

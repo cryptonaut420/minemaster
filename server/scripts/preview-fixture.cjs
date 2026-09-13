@@ -111,8 +111,11 @@ const { ObjectId } = require("mongodb");
             systemId: `fixture-${i}`,
             clientName: `Workshop ${String(i + 1).padStart(2, "0")}`,
             protocolVersion: 2,
-            version: "1.1.0+audit-fixture",
-            capabilities: { commandResults: true },
+            version: "1.3.0+audit-fixture",
+            capabilities: {
+              commandResults: true,
+              cpuEngines: ["xmrig", "nanominer"],
+            },
             systemInfo: {
               hostname: `workshop-${i + 1}`,
               cpu: { brand: "AMD Ryzen 9 5950X" },
@@ -157,6 +160,24 @@ const { ObjectId } = require("mongodb");
           {
             id: "xmrig-1",
             type: "xmrig",
+            engine: "nanominer",
+            minerVersion: "3.10.0",
+            effectiveSettings: { cpuThreads: 16, devFeePercent: 2 },
+            diagnostic: {
+              status: "ready",
+              engine: "nanominer",
+              version: "3.10.0",
+              path: "C:/Fixture/MineMaster/miners/nanominer/3.10.0/nanominer.exe",
+              expectedSha256: "a".repeat(64),
+              observedAt: new Date().toISOString(),
+              windows: {
+                status: "available",
+                signatureStatus: "NotSigned",
+                detections: [],
+                checkedAt: new Date().toISOString(),
+                message: "Simulated file check; no matching Defender history.",
+              },
+            },
             deviceType: "CPU",
             running: true,
             enabled: true,
@@ -173,6 +194,8 @@ const { ObjectId } = require("mongodb");
                 {
                   id: "nanominer-1",
                   type: "nanominer",
+                  engine: "nanominer",
+                  minerVersion: "3.10.0",
                   deviceType: "GPU",
                   running: true,
                   enabled: true,

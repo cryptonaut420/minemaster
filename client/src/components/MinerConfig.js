@@ -4,6 +4,7 @@ import "./MinerConfig.css";
 import { formatMinerRate } from "../utils/formatters";
 import { useSystemInfo, useSystemStats } from "../hooks/useSystemInfo";
 import SystemInfoCard from "./SystemInfoCard";
+import { engineFor } from "../utils/miningConfig";
 
 function MinerConfig({
   miner,
@@ -15,6 +16,7 @@ function MinerConfig({
 }) {
   const systemInfo = useSystemInfo();
   const systemStats = useSystemStats();
+  const nanoCpu = engineFor(miner.type, miner.config) === "nanominer";
 
   const handleChange = (field, value) => {
     onConfigChange({
@@ -122,11 +124,15 @@ function MinerConfig({
               disabled={miner.running || isFieldDisabled("algorithm")}
             >
               <option value="rx/0">RandomX (rx/0)</option>
-              <option value="rx/wow">RandomWOW (rx/wow)</option>
-              <option value="rx/arq">RandomARQ (rx/arq)</option>
-              <option value="cn/r">CryptoNight R (cn/r)</option>
-              <option value="cn/half">CryptoNight Half (cn/half)</option>
-              <option value="ghostrider">GhostRider</option>
+              {!nanoCpu && (
+                <>
+                  <option value="rx/wow">RandomWOW (rx/wow)</option>
+                  <option value="rx/arq">RandomARQ (rx/arq)</option>
+                  <option value="cn/r">CryptoNight R (cn/r)</option>
+                  <option value="cn/half">CryptoNight Half (cn/half)</option>
+                  <option value="ghostrider">GhostRider</option>
+                </>
+              )}
             </select>
           </div>
         </div>
@@ -207,8 +213,9 @@ function MinerConfig({
               {miner.config.threadPercentage ?? 100}%
             </span>
             <span className="field-hint">
-              XMRig chooses efficient threads within this budget; this is not a
-              measured CPU utilization limit.
+              {nanoCpu
+                ? "Nanominer uses this percentage of logical CPU threads, rounded down; explicit threads override it."
+                : "XMRig chooses efficient threads within this budget; this is not a measured CPU utilization limit."}
             </span>
           </label>
           <div className="slider-container">
@@ -232,73 +239,91 @@ function MinerConfig({
           </div>
         </div>
 
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="cpu-priority">CPU priority</label>
-            <select
-              id="cpu-priority"
-              value={miner.config.cpuPriority ?? 0}
-              disabled={miner.running || isFieldDisabled("cpuPriority")}
-              onChange={(e) =>
-                handleChange("cpuPriority", Number(e.target.value))
-              }
-            >
-              <option value={0}>Idle (keep this PC responsive)</option>
-              <option value={1}>Below normal</option>
-              <option value={2}>Normal</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label htmlFor="pause-active">Pause while this PC is in use</label>
-            <select
-              id="pause-active"
-              value={miner.config.pauseOnActive ?? 0}
-              disabled={miner.running || isFieldDisabled("pauseOnActive")}
-              onChange={(e) =>
-                handleChange("pauseOnActive", Number(e.target.value))
-              }
-            >
-              <option value={0}>Never</option>
-              <option value={60}>Resume after 1 minute idle</option>
-              <option value={300}>Resume after 5 minutes idle</option>
-            </select>
-          </div>
-        </div>
-        <div className="form-group">
-          <label>
-            <input
-              type="checkbox"
-              checked={miner.config.pauseOnBattery === true}
-              disabled={miner.running || isFieldDisabled("pauseOnBattery")}
-              onChange={(e) => handleChange("pauseOnBattery", e.target.checked)}
-            />{" "}
-            Pause CPU mining on battery
-          </label>
-        </div>
-        <p className="field-hint">
-          Huge pages are used when available. MSR driver tuning is disabled; no
-          kernel driver or administrator launch is required. The official XMRig
-          release has a minimum 1% developer donation.
-        </p>
+        {!nanoCpu && (
+          <>
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="cpu-priority">CPU priority</label>
+                <select
+                  id="cpu-priority"
+                  value={miner.config.cpuPriority ?? 0}
+                  disabled={miner.running || isFieldDisabled("cpuPriority")}
+                  onChange={(e) =>
+                    handleChange("cpuPriority", Number(e.target.value))
+                  }
+                >
+                  <option value={0}>Idle (keep this PC responsive)</option>
+                  <option value={1}>Below normal</option>
+                  <option value={2}>Normal</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label htmlFor="pause-active">
+                  Pause while this PC is in use
+                </label>
+                <select
+                  id="pause-active"
+                  value={miner.config.pauseOnActive ?? 0}
+                  disabled={miner.running || isFieldDisabled("pauseOnActive")}
+                  onChange={(e) =>
+                    handleChange("pauseOnActive", Number(e.target.value))
+                  }
+                >
+                  <option value={0}>Never</option>
+                  <option value={60}>Resume after 1 minute idle</option>
+                  <option value={300}>Resume after 5 minutes idle</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={miner.config.pauseOnBattery === true}
+                  disabled={miner.running || isFieldDisabled("pauseOnBattery")}
+                  onChange={(e) =>
+                    handleChange("pauseOnBattery", e.target.checked)
+                  }
+                />{" "}
+                Pause CPU mining on battery
+              </label>
+            </div>
+            <p className="field-hint">
+              Huge pages are used when available. MSR driver tuning is disabled;
+              no kernel driver or administrator launch is required. The official
+              XMRig release has a minimum 1% developer donation.
+            </p>
+          </>
+        )}
+        {nanoCpu && (
+          <p className="field-hint">
+            Nanominer RandomX has a 2% developer fee. Thread limits and crash
+            recovery are supported. Activity/battery pauses, priority and strict
+            TLS controls require XMRig. Nanominer negotiates SSL with plaintext
+            fallback; no optional kernel driver is installed.
+          </p>
+        )}
         {/* System Info for CPU Miner */}
         {miner.deviceType === "CPU" && (
           <SystemInfoCard systemInfo={systemInfo} systemStats={systemStats} />
         )}
 
-        <div className="form-group">
-          <label htmlFor={`${miner.id}-additional-arguments-optional`}>
-            {" "}
-            Additional Arguments (optional)
-          </label>
-          <input
-            id={`${miner.id}-additional-arguments-optional`}
-            type="text"
-            placeholder="--tls --keepalive"
-            value={miner.config.additionalArgs}
-            onChange={(e) => handleChange("additionalArgs", e.target.value)}
-            disabled={miner.running || isFieldDisabled("additionalArgs")}
-          />
-        </div>
+        {!nanoCpu && (
+          <div className="form-group">
+            <label htmlFor={`${miner.id}-additional-arguments-optional`}>
+              {" "}
+              Additional Arguments (optional)
+            </label>
+            <input
+              id={`${miner.id}-additional-arguments-optional`}
+              type="text"
+              placeholder="--tls --keepalive"
+              value={miner.config.additionalArgs}
+              onChange={(e) => handleChange("additionalArgs", e.target.value)}
+              disabled={miner.running || isFieldDisabled("additionalArgs")}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -8,6 +8,28 @@ import Register from "./components/Register";
 import { authAPI, removeToken } from "./services/auth";
 import "./App.css";
 
+class ViewBoundary extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed)
+      return (
+        <section className="view-error" role="alert">
+          <h2>This view could not load</h2>
+          <p>
+            The connection may have failed or a new admin version may be
+            available. Reload to try again. Unsaved edits in this page may be
+            lost.
+          </p>
+          <button onClick={() => window.location.reload()}>Reload admin</button>
+        </section>
+      );
+    return this.props.children;
+  }
+}
+
 function App() {
   const location = useLocation();
   const [authError, setAuthError] = useState("");
@@ -160,14 +182,16 @@ function App() {
       </nav>
 
       <main className="main-content">
-        <Suspense fallback={<p role="status">Loading view…</p>}>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/configs" element={<Configs />} />
-            <Route path="/api-access" element={<ApiKeys />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+        <ViewBoundary key={location.pathname}>
+          <Suspense fallback={<p role="status">Loading view…</p>}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/configs" element={<Configs />} />
+              <Route path="/api-access" element={<ApiKeys />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ViewBoundary>
       </main>
     </div>
   );

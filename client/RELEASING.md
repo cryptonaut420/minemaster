@@ -1,156 +1,69 @@
-# MineMaster Client — Releasing & Auto-Updates
+# MineMaster desktop 1.3 — releasing and updates
 
-## How Auto-Update Works
+## Build and verify
 
-The MineMaster client uses `electron-updater` with GitHub Releases as the update source.
-
-**Supported targets:**
-
-| Platform | Build Type | Auto-Update | Notes |
-|----------|-----------|-------------|-------|
-| Windows  | NSIS Installer | Yes | Downloads new installer, runs silently, relaunches |
-| Windows  | Portable .exe | No | User must download new version manually |
-| Linux    | AppImage | Yes | Replaces AppImage in-place, relaunches |
-
-**Update lifecycle:**
-1. App checks for updates 15 seconds after launch, then every hour
-2. If a newer version exists on GitHub Releases, the update downloads in the background (mining continues uninterrupted)
-3. Once downloaded, all running miners are gracefully stopped (up to 15 seconds)
-4. Which miners were running is saved to disk
-5. The app quits, the installer runs silently, and the app relaunches
-6. On relaunch, previously-running miners are automatically restarted
-
-## Prerequisites
-
-- The GitHub repository must be **public** (or you need a `GH_TOKEN` env var for private repos)
-- You need a **GitHub Personal Access Token** with `repo` scope, exported as `GH_TOKEN`:
-  ```bash
-  export GH_TOKEN=ghp_your_token_here
-  ```
-- Node.js and npm installed
-- For Windows cross-compilation from Linux: Docker with the `electronuserland/builder:wine` image
-
-## Version Bumping
-
-Before each release, bump the version in `package.json`:
+Run commands inside `client/`. Use the lockfile and Node 20 or later. The renderer build generates `src/version.json` from the package version and current Git metadata.
 
 ```bash
-# Patch: 1.1.0 -> 1.1.1 (bug fixes)
-npm run bump:patch
-
-# Minor: 1.1.0 -> 1.2.0 (new features)
-npm run bump:minor
-
-# Major: 1.1.0 -> 2.0.0 (breaking changes)
-npm run bump:major
-```
-
-The `prebuild` hook automatically generates `src/version.json` with the version + git metadata, so the version displayed in the client header always reflects the build.
-
-## Publishing a Release
-
-### Option A: Publish from Linux (recommended for Linux + Windows)
-
-**Linux AppImage only:**
-```bash
-export GH_TOKEN=ghp_your_token_here
-npm run publish:linux
-```
-
-**Windows NSIS installer only (via Docker cross-compilation):**
-```bash
-export GH_TOKEN=ghp_your_token_here
+npm ci --legacy-peer-deps
+npm test
 npm run build
-sudo docker run --rm \
-  -e GH_TOKEN=$GH_TOKEN \
-  -v "$(pwd):/project" \
-  -v "$(pwd)/node_modules:/project/node_modules" \
-  -v ~/.cache/electron:/root/.cache/electron \
-  -v ~/.cache/electron-builder:/root/.cache/electron-builder \
-  electronuserland/builder:wine \
-  /bin/bash -c "cd /project && npx electron-builder --windows nsis --publish always"
+npm --prefix ../server test
+npm --prefix ../server/public run build
 ```
 
-**Both platforms at once:**
+Tests use fake native processes and disposable data. They never execute mining binaries. See [the audit](../docs/audits/client-2026-09-13/second-pass.md) for package checks and the remaining Windows/hardware trial.
+
+The version is currently 1.3.0. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
+
+Build locally without publishing:
+
 ```bash
-export GH_TOKEN=ghp_your_token_here
-npm run publish:linux
-# Then run the Docker command above for Windows
+npm run build:linux               # Linux AppImage
+npm run build:windows             # Windows portable
+npm run build:windows-installer   # Windows NSIS
+npm run build:mac                 # macOS DMG, on a macOS builder
 ```
 
-### Option B: Publish from Windows (for Windows builds)
+Windows cross builds require the existing Wine/container environment. macOS needs a macOS builder. A local unpacked package is only a layout check; it does not validate installer signing, SmartScreen reputation, successful miner launches or update installation.
 
-```powershell
-$env:GH_TOKEN = "ghp_your_token_here"
+## Miner distribution
+
+`electron/mining/releases.json` pins XMRig 6.26.0 and Nanominer 3.10.0 with official URLs, archive SHA-256 and runtime-file SHA-256. The `beforePack` hook verifies/downloads the actual target's files, including cross builds. Nanominer is available on Windows/Linux x64; XMRig also covers macOS x64/arm64. Only the requested platform/architecture is packaged.
+
+Setup/repair lists the archive, then extracts only manifest-listed runtime files and supplied licenses. Optional drivers are not extracted into temporary directories or installed. Runtime replacement stages and verifies new files before swapping directories. The shared Nanominer executable cannot be repaired while either CPU or GPU uses it. Versioned binaries remain outside Git and writable configurations stay in user data; see [the client guide](README.md).
+
+Changing a pinned engine requires verifying the archive and every selected file, retaining licenses, updating supported configuration options, and rechecking every requested package target. Do not run the binaries during automated verification.
+
+## Publishing
+
+The configured GitHub release source is `cryptonaut420/minemaster`. Publishing needs repository access and a release token supplied through the build environment (`GH_TOKEN`), never embedded into the app. Runtime access to private release assets is a separate distribution concern; the publisher's token is not a client update solution.
+
+Publishing is a separate operator action after review and hardware validation:
+
+```bash
+npm run publish:linux
 npm run publish:windows
 ```
 
-### Option C: Build locally without publishing
+These commands use `--publish always`: they build and upload release assets and update metadata to GitHub. The Windows NSIS feed requires its installer plus `latest.yml`; Linux AppImage requires the AppImage plus `latest-linux.yml`. Verify the actual release assets and metadata before rollout. Current macOS packaging produces DMGs; validate a complete signed/notarized macOS update feed on a Mac before promising automatic distribution there.
 
-Build distributable files to `dist/` without uploading to GitHub:
+Keep signing credentials in the release environment. Authenticode signing helps publisher identity and reputation; it does not guarantee that Windows allows XMRig or Nanominer. Signing the wrapper does not sign a separate upstream miner executable. Do not alter the pinned upstream binaries while continuing to claim their original hashes.
 
-```bash
-# All platforms (Linux native + Windows via Docker)
-npm run release
+## Update behavior
 
-# Or individually
-npm run build:linux              # Linux AppImage
-npm run build:windows            # Windows Portable .exe
-npm run build:windows-installer  # Windows NSIS Setup .exe
-```
+The app checks roughly 15 seconds after launch and hourly afterward. Windows NSIS installations and Linux AppImage runs support application installation; portable Windows, development runs and ordinary unpacked Linux directories report that installation is unavailable. The controller also supports packaged macOS apps subject to a valid platform update feed.
 
-## What `--publish always` Does
+1. An available update downloads while mining continues.
+2. The header offers **Install and restart**. Download completion alone does not stop miners or install anything.
+3. An explicit installation blocks new launches, confirms every owned process stopped and atomically records which enabled processes may resume after the update.
+4. A stop/save/install failure pauses installation and shows the error. Manual starts become available again. Failed installation removes resume intent, so an ordinary later startup cannot unexpectedly resume mining.
+5. Following successful installation, previously running enabled processes are eligible to resume. Ordinary app startup does not start miners automatically.
 
-When you run `electron-builder --publish always`, it:
+Before rollout, test an older installed version on an operator-owned test rig: background download, explicit install, failed-stop recovery, successful relaunch and intended process resumption. Local fake-updater tests cannot establish real installer behavior.
 
-1. Builds the application
-2. Creates a GitHub Release tagged with the version from `package.json` (e.g., `v1.2.0`)
-3. Uploads the built artifacts (`.AppImage`, `.exe`)
-4. Uploads `latest.yml` (Windows) and `latest-linux.yml` (Linux) — these are the metadata files that `electron-updater` reads to detect new versions
+## Windows blocks
 
-## Release Checklist
+Use **Check miner files** and expand the troubleshooting details. The diagnostic includes expected file identity and, when available, a read-only exact-path Defender history/signature check. Copy the diagnostic report and review the matching Windows Security entry. **Microsoft file review** opens the official submission page without uploading anything. A historical detection, unsigned file or missing history does not alone establish the current cause.
 
-1. **Bump version:** `npm run bump:patch` (or minor/major)
-2. **Commit the version change:** `git add -A && git commit -m "release v1.2.0"`
-3. **Push to master:** `git push origin master`
-4. **Ensure miners are downloaded for all platforms:** `node scripts/download-miners.js --all`
-5. **Publish:**
-   - Linux: `GH_TOKEN=... npm run publish:linux`
-   - Windows: Use Docker command above (or publish from a Windows machine)
-6. **Verify on GitHub:** Check that the release appears at `https://github.com/cryptonaut420/minemaster/releases` with the correct artifacts and `latest.yml`/`latest-linux.yml` files
-
-## Verifying Auto-Update
-
-After publishing a release:
-
-1. Install an **older** NSIS version on Windows (or run an older AppImage on Linux)
-2. Launch the app and wait ~15 seconds
-3. The header should show "Preparing update vX.X.X..." then "Updating... XX%"
-4. After download completes, miners stop, and the app restarts with the new version
-5. Previously-running miners should auto-resume
-
-## Troubleshooting
-
-**"No published versions" error in logs:**
-Normal on a fresh repo with no releases yet. The app silently retries.
-
-**Auto-update not working on Windows portable:**
-Expected — portable builds don't support auto-update. Only NSIS installs do.
-
-**Auto-update not working on Linux (non-AppImage):**
-Expected — only AppImage builds support auto-update. The `APPIMAGE` environment variable must be set (the AppImage runtime sets this automatically).
-
-**Update downloads but doesn't install:**
-Check that the GitHub Release has both the installer artifact AND the `latest.yml` / `latest-linux.yml` file. These metadata files are required for `electron-updater` to work.
-
-**Windows Defender blocks xmrig/nanominer after update:**
-Add an exclusion for the MineMaster install directory in Windows Security settings. Miner binaries are commonly flagged as false positives.
-
-**Build fails with "Cannot find module 'electron-updater'":**
-Run `npm install` to ensure dependencies are installed. `electron-updater` is a production dependency.
-
-## Version 1.2 miner packaging
-
-Miner setup now uses `electron/mining/releases.json` and separate platform/architecture directories. `beforePack` verifies/downloads the actual target's files even when cross compiling. Existing unversioned binaries do not satisfy setup. Any requested build that cannot run or verify its miners fails instead of claiming release success.
-
-See [the client guide](README.md) for the pinned versions, stable user-data paths, driver-free CPU configuration and explicit application-update installation. Runtime repair only replaces a stopped miner's verified engine files; it does not install a new MineMaster application release. Verify Windows quarantine behavior and Linux/macOS launch/stop on a small operator-owned test rig before wider rollout. Signing/publishing/installing releases is separate from local tests and was not performed in the client audit.
+A CPU-engine change is an explicit configuration choice. Nanominer RandomX may run on machines where XMRig is blocked, but that is not guaranteed by packaging or signing. Resolve applicable device policy/detection review before repairing blocked files. No broad exclusions, protection changes, renamed binaries or quarantine-repair loops are part of the release process. See [Windows troubleshooting](README.md#windows-cpu-mining-blocked).

@@ -2,6 +2,7 @@ const { spawn, execFile } = require("child_process");
 const { promisify } = require("util");
 const { randomUUID } = require("crypto");
 const { describeError } = require("./runtime");
+const { engineFor } = require("../../src/utils/miningConfig");
 const runFile = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function isProcessRunning(pid) {
@@ -45,6 +46,7 @@ function createProcessManager({
 } = {}) {
   const entries = new Map(),
     queues = new Map(),
+    engineQueues = new Map(),
     generations = new Map(),
     diagnostics = new Map();
   const retryTimers = new Map(),
@@ -75,6 +77,8 @@ function createProcessManager({
       runId: entry?.runId || null,
       startedAt: live ? entry.startedAt : null,
       activeConfig: live ? entry.activeConfig : null,
+      engine: live ? entry.engine : null,
+      effectiveSettings: live ? entry.effectiveSettings : null,
       diagnostic: diagnostics.get(id) || null,
       restartPendingAt: retryTimers.get(id)?.at || null,
       error:
@@ -83,14 +87,14 @@ function createProcessManager({
           : null,
     };
   };
-  function enqueue(id, action) {
-    const next = (queues.get(id) || Promise.resolve())
+  function enqueue(id, action, queue = queues) {
+    const next = (queue.get(id) || Promise.resolve())
       .catch(() => {})
       .then(action);
-    queues.set(id, next);
+    queue.set(id, next);
     next
       .finally(() => {
-        if (queues.get(id) === next) queues.delete(id);
+        if (queue.get(id) === next) queue.delete(id);
       })
       .catch(() => {});
     return next;
@@ -103,141 +107,156 @@ function createProcessManager({
     }
     cancelRetry(id);
     const generation = generations.get(id) || 0;
-    return enqueue(id, async () => {
-      let spec, entry;
-      try {
-        if (closing || generation !== (generations.get(id) || 0))
-          throw Error("Start canceled by stop or shutdown");
-        if (running(entries.get(id)))
-          return { success: true, ...snapshot(id), alreadyRunning: true };
-        const activeConfig = JSON.parse(JSON.stringify(config));
-        spec = await runtime.launchSpec(type, id, activeConfig);
-        if (closing || generation !== (generations.get(id) || 0))
-          throw Error("Start canceled by stop or shutdown");
-        const child = spawnProcess(spec.executable, spec.args, {
-          cwd: spec.cwd,
-          stdio: ["ignore", "pipe", "pipe"],
-          detached: process.platform !== "win32",
-          windowsHide: true,
-        });
-        entry = {
-          process: child,
-          type,
-          activeConfig,
-          startedAt: Date.now(),
-          runId: randomUUID(),
-          expected: false,
-          tail: "",
-          error: null,
-        };
-        entries.set(id, entry);
-        diagnostics.set(id, spec.diagnostic);
-        const owned = () => entries.get(id) === entry;
-        const output = (chunk) => {
-          if (!owned()) return;
-          const data = String(chunk).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-          entry.tail = (entry.tail + data).slice(-8000);
-          emit("miner-output", { minerId: id, runId: entry.runId, data });
-        };
-        for (const stream of [child.stdout, child.stderr]) {
-          stream?.setEncoding?.("utf8");
-          stream?.on("data", output);
-        }
-        child.on("error", (error) => {
-          if (!owned()) return;
-          entry.error = error;
-          const diagnostic = {
-            status: "unavailable",
-            ...describeError(error, spec.executable),
-          };
-          diagnostics.set(id, diagnostic);
-          emit("miner-error", {
-            minerId: id,
-            runId: entry.runId,
-            error: diagnostic.message,
-            diagnostic,
-          });
-          // An error can also describe a failed kill; retain ownership until exit is observed.
-        });
-        child.on("close", (code, signalName) => {
-          if (!owned()) return;
-          if (!entry.expected)
-            diagnostics.set(id, {
-              status: "unavailable",
-              code: entry.error?.code || "PROCESS_EXIT",
-              message:
-                entry.error?.message ||
-                `Miner exited (${code ?? signalName ?? "unknown"}). ${entry.tail.slice(-2000)}`,
-              path: spec.executable,
-              observedAt: new Date().toISOString(),
+    const engine = engineFor(type, config);
+    return enqueue(id, () =>
+      enqueue(
+        engine,
+        async () => {
+          let spec, entry;
+          try {
+            if (closing || generation !== (generations.get(id) || 0))
+              throw Error("Start canceled by stop or shutdown");
+            if (running(entries.get(id)))
+              return { success: true, ...snapshot(id), alreadyRunning: true };
+            const activeConfig = JSON.parse(JSON.stringify(config));
+            spec = await runtime.launchSpec(type, id, activeConfig);
+            if (closing || generation !== (generations.get(id) || 0))
+              throw Error("Start canceled by stop or shutdown");
+            const child = spawnProcess(spec.executable, spec.args, {
+              cwd: spec.cwd,
+              stdio: ["ignore", "pipe", "pipe"],
+              detached: process.platform !== "win32",
+              windowsHide: true,
             });
-          if (
-            !entry.expected &&
-            entry.confirmed &&
-            entry.activeConfig.restartOnCrash === true &&
-            !entry.error &&
-            !closing
-          ) {
-            const history = (restartHistory.get(id) || []).filter(
-              (at) => at > now() - 3600000,
-            );
-            const limit = entry.activeConfig.maxCrashRestartsPerHour ?? 2;
-            if (history.length < limit) {
-              const at =
-                now() +
-                (entry.activeConfig.crashRestartDelaySeconds ?? 30) * 1000;
-              diagnostics.set(id, {
-                ...diagnostics.get(id),
-                status: "retrying",
-                code: "CRASH_RETRY",
-                message: `Unexpected exit. Restart scheduled at ${new Date(at).toISOString()} (${history.length + 1}/${limit} this hour). Stop cancels recovery.`,
-              });
-              const timer = schedule(() => {
-                retryTimers.delete(id);
-                if (closing || generation !== (generations.get(id) || 0))
-                  return;
-                restartHistory.set(id, [...history, now()]);
-                start({
-                  minerId: id,
-                  minerType: type,
-                  config: entry.activeConfig,
-                });
-              }, at - now());
-              retryTimers.set(id, { timer, at });
+            entry = {
+              process: child,
+              type,
+              engine,
+              effectiveSettings: spec.effectiveSettings || null,
+              activeConfig,
+              startedAt: Date.now(),
+              runId: randomUUID(),
+              expected: false,
+              tail: "",
+              error: null,
+            };
+            entries.set(id, entry);
+            diagnostics.set(id, spec.diagnostic);
+            const owned = () => entries.get(id) === entry;
+            const output = (chunk) => {
+              if (!owned()) return;
+              const data = String(chunk).replace(
+                /\x1b\[[0-?]*[ -/]*[@-~]/g,
+                "",
+              );
+              entry.tail = (entry.tail + data).slice(-8000);
+              emit("miner-output", { minerId: id, runId: entry.runId, data });
+            };
+            for (const stream of [child.stdout, child.stderr]) {
+              stream?.setEncoding?.("utf8");
+              stream?.on("data", output);
             }
+            child.on("error", (error) => {
+              if (!owned()) return;
+              entry.error = error;
+              const diagnostic = {
+                status: "unavailable",
+                engine,
+                ...describeError(error, spec.executable),
+              };
+              diagnostics.set(id, diagnostic);
+              emit("miner-error", {
+                minerId: id,
+                runId: entry.runId,
+                error: diagnostic.message,
+                diagnostic,
+              });
+              // An error can also describe a failed kill; retain ownership until exit is observed.
+            });
+            child.on("close", (code, signalName) => {
+              if (!owned()) return;
+              if (!entry.expected)
+                diagnostics.set(id, {
+                  status: "unavailable",
+                  engine,
+                  code: entry.error?.code || "PROCESS_EXIT",
+                  message:
+                    entry.error?.message ||
+                    `Miner exited (${code ?? signalName ?? "unknown"}). ${entry.tail.slice(-2000)}`,
+                  path: spec.executable,
+                  observedAt: new Date().toISOString(),
+                });
+              if (
+                !entry.expected &&
+                entry.confirmed &&
+                entry.activeConfig.restartOnCrash === true &&
+                !entry.error &&
+                !closing
+              ) {
+                const history = (restartHistory.get(id) || []).filter(
+                  (at) => at > now() - 3600000,
+                );
+                const limit = entry.activeConfig.maxCrashRestartsPerHour ?? 2;
+                if (history.length < limit) {
+                  const at =
+                    now() +
+                    (entry.activeConfig.crashRestartDelaySeconds ?? 30) * 1000;
+                  diagnostics.set(id, {
+                    ...diagnostics.get(id),
+                    status: "retrying",
+                    code: "CRASH_RETRY",
+                    message: `Unexpected exit. Restart scheduled at ${new Date(at).toISOString()} (${history.length + 1}/${limit} this hour). Stop cancels recovery.`,
+                  });
+                  const timer = schedule(() => {
+                    retryTimers.delete(id);
+                    if (closing || generation !== (generations.get(id) || 0))
+                      return;
+                    restartHistory.set(id, [...history, now()]);
+                    start({
+                      minerId: id,
+                      minerType: type,
+                      config: entry.activeConfig,
+                    });
+                  }, at - now());
+                  retryTimers.set(id, { timer, at, engine });
+                }
+              }
+              emit("miner-closed", {
+                minerId: id,
+                runId: entry.runId,
+                code,
+                signal: signalName,
+                expected: entry.expected,
+                diagnostic: diagnostics.get(id),
+              });
+              entries.delete(id);
+            });
+            await wait(startWaitMs);
+            if (entry.error) throw entry.error;
+            if (!owned() || !running(entry))
+              throw Error(
+                `Miner exited during startup. ${entry.tail.slice(-2000)}`,
+              );
+            entry.confirmed = true;
+            return { success: true, ...snapshot(id) };
+          } catch (error) {
+            const diagnostic = {
+              status: "unavailable",
+              engine,
+              ...describeError(error, error.path || spec?.executable),
+            };
+            diagnostics.set(id, diagnostic);
+            return {
+              success: false,
+              error: diagnostic.message,
+              diagnostic,
+              ...snapshot(id),
+            };
           }
-          emit("miner-closed", {
-            minerId: id,
-            runId: entry.runId,
-            code,
-            signal: signalName,
-            expected: entry.expected,
-            diagnostic: diagnostics.get(id),
-          });
-          entries.delete(id);
-        });
-        await wait(startWaitMs);
-        if (entry.error) throw entry.error;
-        if (!owned() || !running(entry))
-          throw Error(
-            `Miner exited during startup. ${entry.tail.slice(-2000)}`,
-          );
-        entry.confirmed = true;
-        return { success: true, ...snapshot(id) };
-      } catch (error) {
-        const diagnostic = {
-          status: "unavailable",
-          ...describeError(error, error.path || spec?.executable),
-        };
-        diagnostics.set(id, diagnostic);
-        return {
-          success: false,
-          error: diagnostic.message,
-          diagnostic,
-          ...snapshot(id),
-        };
-      }
-    });
+        },
+        engineQueues,
+      ),
+    );
   }
   async function stopEntry(id) {
     const entry = entries.get(id);
@@ -290,30 +309,49 @@ function createProcessManager({
     }
     return runningIds;
   }
-  async function diagnose(id, type, customPath) {
-    const diagnostic = await runtime.inspect(type, customPath);
+  async function diagnose(id, type, customPath, options) {
+    const diagnostic = await runtime.inspect(type, customPath, options);
     diagnostics.set(id, diagnostic);
     return diagnostic;
   }
   function repair(id, type, customPath) {
     cancelRetry(id);
-    return enqueue(id, async () => {
-      try {
-        valid(id, type);
-        if (closing || running(entries.get(id)))
-          throw Error("Stop the miner before repairing its files");
-        if (customPath)
-          throw Error(
-            "A custom executable is selected. Clear its path in local settings before repairing the managed engine.",
-          );
-        await runtime.prepare(type, { repair: true });
-        return { success: true, diagnostic: await diagnose(id, type) };
-      } catch (error) {
-        const diagnostic = { status: "unavailable", ...describeError(error) };
-        diagnostics.set(id, diagnostic);
-        return { success: false, error: diagnostic.message, diagnostic };
-      }
-    });
+    return enqueue(id, () =>
+      enqueue(
+        type,
+        async () => {
+          try {
+            valid(id, type);
+            if (
+              closing ||
+              running(entries.get(id)) ||
+              [...entries.values()].some(
+                (entry) => entry.engine === type && running(entry),
+              ) ||
+              [...retryTimers.values()].some((retry) => retry.engine === type)
+            )
+              throw Error(
+                "Stop every process using this engine before repairing its files (including CPU and GPU Nanominer)",
+              );
+            if (customPath)
+              throw Error(
+                "A custom executable is selected. Clear its path in local settings before repairing the managed engine.",
+              );
+            await runtime.prepare(type, { repair: true });
+            return { success: true, diagnostic: await diagnose(id, type) };
+          } catch (error) {
+            const diagnostic = {
+              status: "unavailable",
+              engine: type,
+              ...describeError(error),
+            };
+            diagnostics.set(id, diagnostic);
+            return { success: false, error: diagnostic.message, diagnostic };
+          }
+        },
+        engineQueues,
+      ),
+    );
   }
   return {
     start,
@@ -322,6 +360,8 @@ function createProcessManager({
     snapshot,
     diagnose,
     repair,
+    prepareEngine: (type) =>
+      enqueue(type, () => runtime.prepare(type), engineQueues),
     allowStarts: () => {
       closing = false;
     },
