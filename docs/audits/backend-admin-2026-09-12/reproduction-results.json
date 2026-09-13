@@ -1,0 +1,82 @@
+{
+  "meaning": "reproduced=true confirms the existing defect; not a regression pass",
+  "environment": "v25.9.0",
+  "productionIO": false,
+  "results": [
+    {
+      "id": "R03",
+      "title": "Old socket disconnect erases the replacement connection",
+      "reproduced": true
+    },
+    {
+      "id": "R04",
+      "title": "Zero hashrate is discarded and previous positive value remains",
+      "reproduced": true
+    },
+    {
+      "id": "R05",
+      "title": "Negative hashrate enters storage without validation",
+      "reproduced": true
+    },
+    {
+      "id": "R06",
+      "title": "Concurrent CPU/GPU messages lose a device update",
+      "reproduced": true
+    },
+    {
+      "id": "R07",
+      "title": "Identical physical GPU models collapse into one hardware entry",
+      "reproduced": true
+    },
+    {
+      "id": "R08",
+      "title": "Stats API omits CPU contribution from a mixed CPU/GPU rig",
+      "reproduced": true
+    },
+    {
+      "id": "R09",
+      "title": "Generic command route sends a payload the shipped client cannot consume",
+      "reproduced": true
+    },
+    {
+      "id": "R10",
+      "title": "Invalid GPU index silently changes all stored GPU enabled states",
+      "reproduced": true
+    },
+    {
+      "id": "R11",
+      "title": "Database failure is returned as an empty successful miners response",
+      "reproduced": true
+    },
+    {
+      "id": "R13",
+      "title": "Hashrate parser drops zero and accepts a per-GPU line as the total",
+      "reproduced": true
+    },
+    {
+      "id": "R14",
+      "title": "History query groups all rigs and algorithms into one device average",
+      "reproduced": true
+    },
+    {
+      "id": "R15",
+      "title": "Two disconnected model records explicitly emit duplicate null index values",
+      "reproduced": true
+    },
+    {
+      "id": "R16",
+      "title": "Per-GPU disable command stops the entire GPU miner",
+      "reproduced": true
+    },
+    {
+      "id": "R17",
+      "title": "A failed stop still reports the mining process as stopped",
+      "reproduced": true
+    },
+    {
+      "id": "R18",
+      "title": "Scheduled restart survives a subsequent stop request",
+      "reproduced": true
+    }
+  ]
+}

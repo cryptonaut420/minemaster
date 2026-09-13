@@ -76,48 +76,8 @@ function loadAndClearUpdateResumeState() {
   }
 }
 
-function isLikelyIntegratedGpu(gpu = {}) {
-  const model = (gpu.model || '').toLowerCase();
-  const vendor = (gpu.vendor || '').toLowerCase();
-
-  // Intel GPUs are typically integrated unless explicitly Arc (discrete line).
-  if (vendor.includes('intel') && !model.includes('arc')) {
-    return true;
-  }
-
-  // AMD APU graphics
-  if ((vendor.includes('amd') || vendor.includes('ati')) &&
-      (model.includes('vega') || model.includes('radeon graphics') ||
-       model.includes('raphael') || model.includes('renoir') ||
-       model.includes('cezanne') || model.includes('lucienne'))) {
-    return true;
-  }
-
-  // Microsoft fallback/virtual display adapter
-  if (
-    vendor.includes('microsoft') ||
-    model.includes('basic display') ||
-    model.includes('virtual') ||
-    model.includes('integrated')
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-function mapDiscreteGpus(controllers = []) {
-  return controllers
-    .filter(gpu => !isLikelyIntegratedGpu(gpu))
-    .filter((gpu) => !gpu.vram || gpu.vram > 512)
-    .map((gpu, idx) => ({
-      id: idx,
-      vendor: gpu.vendor || '',
-      model: gpu.model || 'Unknown GPU',
-      vram: gpu.vram || null,
-      bus: gpu.bus || null
-    }));
-}
+const { integrated: isLikelyIntegratedGpu, inventory: mapDiscreteGpus, identity: gpuIdentity, pci } = require('./hardware');
+const processOperations = new Set();
 
 function buildBasicSystemInfo() {
   const cpus = os.cpus();
@@ -205,7 +165,7 @@ async function refreshSystemInfoCache() {
           release: osInfo.release,
           arch: osInfo.arch
         },
-        gpus: discreteGpus.length > 0 ? discreteGpus : null,
+        gpus: discreteGpus,
         gpuDetectionStatus: 'complete',
         lastUpdatedAt: Date.now()
       };
@@ -344,7 +304,7 @@ app.on('before-quit', () => {
 
   // Ensure all miners are stopped before app quits
   Object.values(miners).forEach(minerData => {
-    if (minerData && minerData.process && !minerData.process.killed) {
+    if (!!(minerData?.process && isProcessRunning(minerData.process.pid))) {
       const pid = minerData.process.pid;
       try {
         if (process.platform === 'win32') {
@@ -441,14 +401,16 @@ ipcMain.handle('get-update-resume-state', () => {
 // IPC Handlers for miner control
 
 ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
+  if (processOperations.has(minerId)) return { success: false, error: 'Process operation already pending' };
+  processOperations.add(minerId);
   try {
     // Check if miner is already tracked and running
     const existingMiner = miners[minerId];
-    if (existingMiner && existingMiner.process && !existingMiner.process.killed) {
+    if (existingMiner && existingMiner.process) {
       const existingPid = existingMiner.process.pid;
       // Check if process is actually still alive
       if (isProcessRunning(existingPid)) {
-        return { success: true, pid: existingPid, message: 'Already running' };
+        return { success: true, pid: existingPid, startedAt: existingMiner.startedAt, activeConfig: existingMiner.activeConfig, message: 'Already running' };
       } else {
         delete miners[minerId];
       }
@@ -486,6 +448,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       }
 
       minerProcess.stdout.on('data', (data) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         sendToRenderer('miner-output', {
           minerId,
           data: stripAnsi(data.toString())
@@ -493,6 +456,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       });
 
       minerProcess.stderr.on('data', (data) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         sendToRenderer('miner-output', {
           minerId,
           data: stripAnsi(data.toString())
@@ -500,6 +464,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       });
 
       minerProcess.on('error', (error) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         sendToRenderer('miner-error', {
           minerId,
           error: error.message
@@ -507,10 +472,11 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         delete miners[minerId];
       });
 
-      minerProcess.on('close', (code) => {
+      minerProcess.on('close', (code, signal) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         sendToRenderer('miner-closed', {
           minerId,
-          code
+          code, signal, expected: minerProcess._expectedStop === true
         });
         delete miners[minerId];
       });
@@ -518,6 +484,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       miners[minerId] = {
         process: minerProcess,
         executable: xmrigPath,
+        startedAt: Date.now(), activeConfig: { ...config },
         type: 'xmrig'
       };
 
@@ -531,11 +498,11 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         }, 200);
       });
 
-      if (!spawnOk) {
+      if (!spawnOk || !isProcessRunning(minerProcess.pid) || miners[minerId]?.process !== minerProcess) {
         return { success: false, error: `Failed to launch ${xmrigPath}` };
       }
 
-      return { success: true, pid: minerProcess.pid };
+      return { success: true, pid: minerProcess.pid, startedAt: miners[minerId].startedAt, activeConfig: miners[minerId].activeConfig };
     } else if (minerType === 'nanominer') {
       // Determine nanominer executable path (throws if not found)
       const nanominerPath = getNanominerPath(config.customPath);
@@ -564,6 +531,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       }
 
       minerProcess.stdout.on('data', (data) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         sendToRenderer('miner-output', {
           minerId,
           data: stripAnsi(data.toString())
@@ -571,6 +539,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       });
 
       minerProcess.stderr.on('data', (data) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         sendToRenderer('miner-output', {
           minerId,
           data: stripAnsi(data.toString())
@@ -660,6 +629,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
       minerProcess._logSetupTimeout = logSetupTimeout;
 
       minerProcess.on('error', (error) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         clearTimeout(logSetupTimeout);
         sendToRenderer('miner-error', {
           minerId,
@@ -668,7 +638,8 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         delete miners[minerId];
       });
 
-      minerProcess.on('close', (code) => {
+      minerProcess.on('close', (code, signal) => {
+        if (miners[minerId]?.process !== minerProcess) return;
         clearTimeout(logSetupTimeout);
         if (minerProcess._logWatcher) {
           try { minerProcess._logWatcher.close(); } catch (e) {}
@@ -679,7 +650,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         
         sendToRenderer('miner-closed', {
           minerId,
-          code
+          code, signal, expected: minerProcess._expectedStop === true
         });
         delete miners[minerId];
       });
@@ -688,6 +659,7 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         process: minerProcess,
         configPath: configPath,
         executable: nanominerPath,
+        startedAt: Date.now(), activeConfig: { ...config },
         type: 'nanominer'
       };
 
@@ -701,26 +673,27 @@ ipcMain.handle('start-miner', async (event, { minerId, minerType, config }) => {
         }, 200);
       });
 
-      if (!spawnOk) {
+      if (!spawnOk || !isProcessRunning(minerProcess.pid) || miners[minerId]?.process !== minerProcess) {
         return { success: false, error: `Failed to launch ${nanominerPath}` };
       }
 
-      return { success: true, pid: minerProcess.pid };
+      return { success: true, pid: minerProcess.pid, startedAt: miners[minerId].startedAt, activeConfig: miners[minerId].activeConfig };
     } else {
       throw new Error(`Unsupported miner type: ${minerType}`);
     }
   } catch (error) {
     return { success: false, error: error.message };
-  }
+  } finally { processOperations.delete(minerId); }
 });
 
 // Check if process is still running
 function isProcessRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
   try {
     process.kill(pid, 0); // Signal 0 checks if process exists without killing it
     return true;
   } catch (e) {
-    return false;
+    return e.code === 'EPERM';
   }
 }
 
@@ -792,11 +765,13 @@ async function killMinerProcess(pid, signal = 'SIGTERM') {
 }
 
 ipcMain.handle('stop-miner', async (event, { minerId }) => {
+  if (processOperations.has(minerId)) return { success: false, error: 'Process operation already pending' };
+  processOperations.add(minerId);
   try {
     const minerData = miners[minerId];
     
     if (!minerData) {
-      return { success: false, error: 'Miner not found' };
+      return { success: true, message: 'No tracked process' };
     }
     
     const minerProcess = minerData.process;
@@ -804,11 +779,12 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
     const executable = minerData.executable;
     const minerType = minerData.type;
     
-    if (minerProcess.killed) {
+    if (!isProcessRunning(minerProcess.pid)) {
       delete miners[minerId];
       return { success: true, message: 'Miner was already stopped' };
     }
     
+    minerProcess._expectedStop = true;
     const mainPID = minerProcess.pid;
     
     // Clean up log watcher and poll interval (for nanominer)
@@ -822,7 +798,7 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
     }
     
     // Find ALL related PIDs (in case of orphaned processes)
-    const relatedPIDs = configPath ? await findProcessPIDs(minerType, configPath) : [];
+    const relatedPIDs = []; // Process-tree termination is scoped to the tracked PID.
     const allPIDs = [mainPID, ...relatedPIDs].filter((pid, index, self) => self.indexOf(pid) === index);
     
     // Step 1: Try graceful shutdown with SIGTERM
@@ -878,10 +854,6 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
           await execAsync(`taskkill /PID ${pid} /T /F 2>nul`).catch(() => {});
         }
       } else {
-        // Only kill by config path to avoid killing other miner instances
-        if (configPath) {
-          await execAsync(`pkill -9 -f "${configPath}"`).catch(() => {});
-        }
         for (const pid of remaining) {
           await execAsync(`kill -9 ${pid}`).catch(() => {});
         }
@@ -899,8 +871,8 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
       return { success: true, message: 'Miner stopped (pkill)' };
     }
     
-    // If STILL running, give up but clean up tracking - platform-specific message
-    delete miners[minerId];
+    // Keep tracking a process whose exit could not be confirmed.
+    minerProcess._expectedStop = false;
     const killCmd = process.platform === 'win32' 
       ? `taskkill /F /PID ${finalCheck.join(' /PID ')}`
       : `kill -9 ${finalCheck.join(' ')}`;
@@ -910,17 +882,18 @@ ipcMain.handle('stop-miner', async (event, { minerId }) => {
     };
     
   } catch (error) {
-    delete miners[minerId]; // Clean up even on error
+    if (miners[minerId]?.process) miners[minerId].process._expectedStop = false;
     return { success: false, error: error.message };
-  }
+  } finally { processOperations.delete(minerId); }
 });
 
 ipcMain.handle('get-miner-status', async (event, { minerId }) => {
   const minerData = miners[minerId];
-  const isRunning = minerData && minerData.process && !minerData.process.killed;
+  const isRunning = !!(minerData?.process && isProcessRunning(minerData.process.pid));
   return { 
     running: isRunning,
-    pid: isRunning ? minerData.process.pid : null
+    pid: isRunning ? minerData.process.pid : null,
+      startedAt: isRunning ? minerData.startedAt : null, activeConfig: isRunning ? minerData.activeConfig : null
   };
 });
 
@@ -928,10 +901,11 @@ ipcMain.handle('get-all-miners-status', async () => {
   const statuses = {};
   Object.keys(miners).forEach(minerId => {
     const minerData = miners[minerId];
-    const isRunning = minerData && minerData.process && !minerData.process.killed;
+    const isRunning = !!(minerData?.process && isProcessRunning(minerData.process.pid));
     statuses[minerId] = {
       running: isRunning,
-      pid: isRunning ? minerData.process.pid : null
+      pid: isRunning ? minerData.process.pid : null,
+      startedAt: isRunning ? minerData.startedAt : null, activeConfig: isRunning ? minerData.activeConfig : null
     };
   });
   return statuses;
@@ -943,7 +917,7 @@ ipcMain.handle('get-system-info', async () => {
   }
 
   // Ensure one startup refresh is in progress if detection is still pending.
-  if (systemInfoCache.gpuDetectionStatus !== 'complete') {
+  if (systemInfoCache.gpuDetectionStatus !== 'complete' || Date.now() - (systemInfoCache.lastUpdatedAt || 0) > 60000) {
     refreshSystemInfoCache();
   }
 
@@ -952,6 +926,7 @@ ipcMain.handle('get-system-info', async () => {
 
 // Cache for slow-changing stats (updated in background)
 let cachedCpuTemp = null;
+let cpuTempObservedAt = null, gpuObservedAt = null, cpuUsageObservedAt = null;
 let cachedGpuStats = []; // Array to support multiple GPUs
 let tempUpdateInProgress = false;
 let gpuUpdateInProgress = false;
@@ -960,87 +935,25 @@ let gpuUpdateInProgress = false;
 function updateCpuTempAsync() {
   if (tempUpdateInProgress) return;
   tempUpdateInProgress = true;
-  
-  setTimeout(async () => {
+  (async () => {
+    let temperature = null;
     try {
       if (process.platform === 'linux') {
-        // Linux: Read directly from sysfs
-        const zones = [
-          '/sys/class/thermal/thermal_zone0/temp',
-          '/sys/class/hwmon/hwmon0/temp1_input',
-          '/sys/class/hwmon/hwmon1/temp1_input',
-          '/sys/class/hwmon/hwmon2/temp1_input'
-        ];
-        
-        for (const zone of zones) {
-          try {
-            if (fs.existsSync(zone)) {
-              const temp = parseInt(fs.readFileSync(zone, 'utf8')) / 1000;
-              cachedCpuTemp = temp;
-              break;
-            }
-          } catch (e) {}
-        }
-      } else if (process.platform === 'win32') {
-        // Windows: Try multiple methods for CPU temperature
-        let tempFound = false;
-        
-        // Method 1: systeminformation library (works with Open Hardware Monitor / LibreHardwareMonitor)
-        try {
-          const cpuTemp = await si.cpuTemperature();
-          if (cpuTemp && cpuTemp.main !== null && cpuTemp.main !== -1 && cpuTemp.main > 0) {
-            cachedCpuTemp = cpuTemp.main;
-            tempFound = true;
+        const values = [];
+        for (const name of fs.readdirSync('/sys/class/hwmon')) {
+          const dir = `/sys/class/hwmon/${name}`;
+          let driver = ''; try { driver = fs.readFileSync(`${dir}/name`, 'utf8').trim(); } catch (_) {}
+          if (!['coretemp', 'k10temp', 'zenpower'].includes(driver)) continue;
+          for (const file of fs.readdirSync(dir).filter(f => /^temp\d+_input$/.test(f))) {
+            const value = Number(fs.readFileSync(`${dir}/${file}`, 'utf8')) / 1000;
+            if (Number.isFinite(value) && value > 0 && value < 150) values.push(value);
           }
-        } catch (e) {}
-        
-        // Method 2: WMI ThermalZone (requires admin on some systems)
-        if (!tempFound) {
-          try {
-            const { stdout } = await execAsync('wmic /namespace:\\\\root\\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature 2>nul', { timeout: 3000 });
-            const lines = stdout.split('\n').filter(l => l.trim() && !isNaN(l.trim()));
-            if (lines.length > 0) {
-              // WMI returns temp in tenths of Kelvin
-              const tempKelvin = parseInt(lines[0].trim()) / 10;
-              const tempCelsius = tempKelvin - 273.15;
-              // Validate reasonable temperature range (10°C to 110°C)
-              if (tempCelsius > 10 && tempCelsius < 110) {
-                cachedCpuTemp = tempCelsius;
-                tempFound = true;
-              }
-            }
-          } catch (e2) {}
         }
-        
-        // Method 3: PowerShell with CIM (modern Windows)
-        if (!tempFound) {
-          try {
-            const psCmd = 'powershell -NoProfile -Command "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty CurrentTemperature"';
-            const { stdout } = await execAsync(psCmd, { timeout: 5000 });
-            const tempValue = parseInt(stdout.trim());
-            if (tempValue && !isNaN(tempValue)) {
-              const tempCelsius = (tempValue / 10) - 273.15;
-              if (tempCelsius > 10 && tempCelsius < 110) {
-                cachedCpuTemp = tempCelsius;
-              }
-            }
-          } catch (e3) {}
-        }
-      } else if (process.platform === 'darwin') {
-        // macOS: Use systeminformation
-        try {
-          const cpuTemp = await si.cpuTemperature();
-          if (cpuTemp && cpuTemp.main !== null && cpuTemp.main !== -1) {
-            cachedCpuTemp = cpuTemp.main;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {
-      // Silent fail - CPU temp not available
-    } finally {
-      tempUpdateInProgress = false;
-    }
-  }, 0);
+        if (values.length) temperature = Math.max(...values);
+      } else { const value = (await si.cpuTemperature()).main; if (Number.isFinite(value) && value > 0 && value < 150) temperature = value; }
+    } catch (_) {}
+    cachedCpuTemp = temperature; cpuTempObservedAt = Date.now(); tempUpdateInProgress = false;
+  })();
 }
 
 // Background update for GPU info (non-blocking) - Cross-platform
@@ -1054,10 +967,11 @@ function updateGpuInfoAsync() {
       
       if (process.platform === 'linux') {
         // Linux: Read AMD GPUs from sysfs
-        for (let cardNum = 0; cardNum < 8; cardNum++) {
+        for (const card of fs.readdirSync('/sys/class/drm').filter(name => /^card\d+$/.test(name))) {
+          const cardNum = Number(card.slice(4));
           const amdPath = `/sys/class/drm/card${cardNum}/device`;
-          if (fs.existsSync(amdPath)) {
-            const gpuInfo = { id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
+          if (fs.existsSync(amdPath) && fs.readFileSync(`${amdPath}/vendor`, 'utf8').trim() === '0x1002') {
+            const gpuInfo = { deviceId: `pci:${pci(path.basename(fs.realpathSync(amdPath)))}`, observedAt: new Date().toISOString(), id: cardNum, usage: null, temperature: null, vramUsed: null, vramTotal: null, type: 'AMD' };
             
             // Try to read temp
             try {
@@ -1065,6 +979,8 @@ function updateGpuInfoAsync() {
               if (fs.existsSync(hwmonPath)) {
                 const hwmons = fs.readdirSync(hwmonPath);
                 if (hwmons.length > 0) {
+                  const powerFile = `${hwmonPath}/${hwmons[0]}/power1_average`;
+                  if (fs.existsSync(powerFile)) gpuInfo.powerWatts = Number(fs.readFileSync(powerFile, 'utf8')) / 1000000;
                   const tempFile = `${hwmonPath}/${hwmons[0]}/temp1_input`;
                   if (fs.existsSync(tempFile)) {
                     gpuInfo.temperature = parseInt(fs.readFileSync(tempFile, 'utf8')) / 1000;
@@ -1114,11 +1030,12 @@ function updateGpuInfoAsync() {
               // Discrete GPU detected
               const vendor = (gpu.vendor || '').toLowerCase();
               const gpuInfo = {
+                deviceId: gpuIdentity(gpu, gpuIndex), observedAt: new Date().toISOString(),
                 id: gpuIndex++,
-                temperature: gpu.temperatureGpu || null,
-                usage: gpu.utilizationGpu || null,
-                vramUsed: gpu.memoryUsed || null,
-                vramTotal: gpu.vram || null,
+                temperature: gpu.temperatureGpu ?? null,
+                usage: gpu.utilizationGpu ?? null,
+                vramUsed: gpu.memoryUsed ?? null,
+                vramTotal: gpu.vram ?? null,
                 type: vendor.includes('nvidia') ? 'NVIDIA' : 'AMD',
                 model: gpu.model || 'Unknown GPU'
               };
@@ -1152,7 +1069,7 @@ function updateGpuInfoAsync() {
       }
 
       const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null';
-      const nvidiaSmiCmd = `${nvidiaSmiExe} --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>${nullDev}`;
+      const nvidiaSmiCmd = `${nvidiaSmiExe} --query-gpu=index,temperature.gpu,utilization.gpu,memory.used,memory.total,pci.bus_id,uuid,power.draw --format=csv,noheader,nounits 2>${nullDev}`;
       
       exec(nvidiaSmiCmd, { timeout: 5000 }, (error, stdout) => {
         if (!error && stdout && stdout.trim()) {
@@ -1168,7 +1085,7 @@ function updateGpuInfoAsync() {
             const parts = line.split(',').map(p => p.trim());
             if (parts.length >= 5 && !isNaN(parts[0])) {
               detectedGpus.push({
-                id: parseInt(parts[0]),
+                id: parseInt(parts[0]), deviceId: `pci:${pci(parts[5])}`, uuid: parts[6], observedAt: new Date().toISOString(), powerWatts: Number.isFinite(parseFloat(parts[7])) ? parseFloat(parts[7]) : null,
                 temperature: parseFloat(parts[1]),
                 usage: parseFloat(parts[2]),
                 vramUsed: parseFloat(parts[3]),
@@ -1179,9 +1096,8 @@ function updateGpuInfoAsync() {
           });
         }
         
-        if (detectedGpus.length > 0) {
-          cachedGpuStats = detectedGpus;
-        }
+        cachedGpuStats = detectedGpus;
+        gpuObservedAt = Date.now();
         
         gpuUpdateInProgress = false;
       });
@@ -1211,7 +1127,7 @@ bgUpdateInitTimeout = setTimeout(() => {
 // Cross-platform CPU usage: sample os.cpus() and compute delta between ticks.
 // os.loadavg() returns [0,0,0] on Windows, so we must use tick-based measurement.
 let prevCpuTimes = null;
-let cachedCpuUsage = 0;
+let cachedCpuUsage = null;
 
 function sampleCpuUsage() {
   const cpus = os.cpus();
@@ -1225,6 +1141,7 @@ function sampleCpuUsage() {
   if (prevCpuTimes) {
     const idleDelta = totals.idle - prevCpuTimes.idle;
     const totalDelta = totals.total - prevCpuTimes.total;
+    cpuUsageObservedAt = Date.now();
     cachedCpuUsage = totalDelta > 0 ? Math.min(((totalDelta - idleDelta) / totalDelta) * 100, 100) : 0;
   }
   prevCpuTimes = totals;
@@ -1236,8 +1153,9 @@ let cpuSampleInitTimeout = setTimeout(sampleCpuUsage, 500);
 
 ipcMain.handle('get-cpu-stats', () => {
   return {
-    usage: cachedCpuUsage,
-    temperature: cachedCpuTemp
+    observedAt: cpuUsageObservedAt, temperatureObservedAt: cpuTempObservedAt,
+    usage: Date.now() - cpuUsageObservedAt <= 30000 ? cachedCpuUsage : null,
+    temperature: Date.now() - cpuTempObservedAt <= 30000 ? cachedCpuTemp : null
   };
 });
 
@@ -1253,7 +1171,7 @@ ipcMain.handle('get-memory-stats', () => {
 });
 
 ipcMain.handle('get-gpu-stats', () => {
-  return cachedGpuStats.length > 0 ? cachedGpuStats : null;
+  return Date.now() - gpuObservedAt <= 30000 ? cachedGpuStats : [];
 });
 
 // Helper functions

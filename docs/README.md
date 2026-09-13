@@ -1,129 +1,35 @@
-# MineMaster Documentation
+# MineMaster documentation
 
-Welcome to the MineMaster documentation! MineMaster is a cross-platform GUI wrapper for cryptocurrency mining software, providing an easy-to-use interface for managing CPU and GPU mining operations.
+MineMaster includes a desktop mining client and a central backend/admin. Start with the documentation for the component you are changing.
 
-## 📚 Documentation Index
+## Backend, admin, and integrations
 
-### Getting Started
-- **[Installation Guide](installation.md)** - How to install and set up MineMaster
-- **[Quick Start](quick-start.md)** - Get mining in 5 minutes
-- **[User Guide](user-guide.md)** - Complete guide to using MineMaster
+- [API access](api-access.md): named keys, permissions, live subscriptions and request examples.
+- [Backend/admin reference](backend-admin.md): current REST and WebSocket contracts, reporting semantics, storage, and setup.
+- [Server setup](../server/README.md): install, development, and production commands.
+- [Client/server binding](client-server-binding.md): connection lifecycle, configuration behavior, and current control limitations.
+- [Backend/admin operational audit](audits/backend-admin-2026-09-12/README.md): original findings, implemented repairs, verification, and remaining validation limits.
+- [Repository guidance](../AGENTS.md): expectations for implementation, validation, and documentation.
 
-### Technical Documentation
-- **[Architecture Overview](architecture.md)** - System design and architecture
-- **[Development Guide](development.md)** - For developers wanting to contribute
-- **[API Reference](api-reference.md)** - IPC communication and API details
+## Desktop client
 
-### Mining Configuration
-- **[Mining Configuration Guide](mining-configuration.md)** - Detailed mining setup
-- **[Supported Algorithms & Coins](supported-coins.md)** - What you can mine
-- **[Pool Configuration](pool-configuration.md)** - Setting up mining pools
+- [Client README](../client/README.md)
+- [Quick start](quick-start.md)
+- [Installation](installation.md)
+- [User guide](user-guide.md)
+- [Mining configuration](mining-configuration.md)
+- [IPC API reference](api-reference.md)
+- [Architecture](architecture.md)
+- [Development](development.md)
+- [Troubleshooting](troubleshooting.md)
+- [FAQ](faq.md)
 
-### Reference
-- **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
-- **[FAQ](faq.md)** - Frequently asked questions
-- **[Performance Optimization](performance.md)** - Tips for better mining performance
+The [backend/admin reference](backend-admin.md) describes the repaired working-tree behavior. The [implementation report](audits/backend-admin-2026-09-12/implementation.md) records validation and remaining hardware limits. Older desktop guides retain historical examples.
 
-## 🎯 What is MineMaster?
+## Data flow
 
-MineMaster is a desktop application that provides:
+An independent desktop client keeps its settings and console locally. When bound to a master, it sends rig identity, hardware, process state, sensor snapshots, and parsed hashrates to that configured server and receives configurations and remote commands. It also communicates with the configured mining pool. The server stores rig snapshots, configuration revisions, command outcomes, sensor/log/event history, and time-weighted hashrate rollups in MongoDB. Raw retention defaults to seven days; rollups and commands retain 90 days.
 
-- **🖥️ Cross-Platform Support** - Works on Linux, Windows, and macOS
-- **⚙️ Multi-Miner Management** - Control multiple miners (CPU & GPU) simultaneously
-- **📊 Real-Time Monitoring** - View hashrates, system stats, and miner output
-- **🎨 User-Friendly Interface** - Easy configuration without command-line complexity
-- **🔄 Auto-Configuration** - Automatic miner binary downloads and setup
+## Known work
 
-## 🏗️ Project Overview
-
-### Technology Stack
-- **Frontend**: React 18 with modern hooks
-- **Desktop Framework**: Electron 28
-- **Mining Software**: XMRig (CPU), Nanominer (GPU)
-- **System Monitoring**: systeminformation library
-- **Process Management**: Node.js child_process
-
-### Supported Miners
-1. **XMRig** - CPU mining for RandomX-based cryptocurrencies (Monero, Wownero, etc.)
-2. **Nanominer** - GPU mining for various algorithms (Ethash, KawPow, Autolykos, etc.)
-
-### Supported Algorithms
-
-**CPU Mining (XMRig)**:
-- RandomX (rx/0) - Monero (XMR)
-- RandomWOW (rx/wow) - Wownero (WOW)
-- RandomARQ (rx/arq) - ArQmA (ARQ)
-- CryptoNight variants
-- GhostRider - Raptoreum (RTM)
-
-**GPU Mining (Nanominer)**:
-- Ethash - Ethereum Classic (ETC), Ubiq (UBQ)
-- Etchash - Ethereum Classic (ETC)
-- KawPow - Ravencoin (RVN)
-- Autolykos - Ergo (ERG)
-- Octopus - Conflux (CFX)
-- Kaspa - Kaspa (KAS)
-- And more...
-
-## 🚀 Quick Links
-
-- **Main Project**: [MineMaster Client](../client/)
-- **Source Code**: [GitHub Repository](https://github.com/xmrig/xmrig) (XMRig), [GitHub Repository](https://github.com/nanopool/nanominer) (Nanominer)
-- **Issue Tracker**: Report issues in the project repository
-
-## 📖 Learning Path
-
-### For End Users
-1. Read the [Installation Guide](installation.md)
-2. Follow the [Quick Start](quick-start.md)
-3. Refer to [User Guide](user-guide.md) for detailed usage
-4. Check [Troubleshooting](troubleshooting.md) if you encounter issues
-
-### For Developers
-1. Review the [Architecture Overview](architecture.md)
-2. Set up your development environment with [Development Guide](development.md)
-3. Explore the [API Reference](api-reference.md)
-4. Contribute to the project!
-
-## 🔒 Security & Privacy
-
-MineMaster:
-- ✅ Does NOT collect any personal data
-- ✅ Does NOT send mining data to external servers
-- ✅ Stores all configuration locally
-- ✅ Uses official miner binaries from trusted sources
-- ⚠️ Wallet addresses and private keys are stored locally (keep them secure!)
-
-## 📝 License
-
-MineMaster uses multiple open-source components:
-- **XMRig**: GPL-3.0 License
-- **Nanominer**: Check official terms of use
-- **Electron**: MIT License
-- **React**: MIT License
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read the [Development Guide](development.md) for details on our development process and how to submit pull requests.
-
-## 💬 Support
-
-Need help?
-1. Check the [FAQ](faq.md)
-2. Read the [Troubleshooting Guide](troubleshooting.md)
-3. Review existing documentation
-4. Search for similar issues in the issue tracker
-5. Open a new issue if your problem isn't already documented
-
-## 🌟 Credits
-
-MineMaster is built on top of excellent open-source mining software:
-- **XMRig Team** - For the powerful XMRig CPU miner
-- **Nanopool Team** - For the versatile Nanominer GPU miner
-- **Electron Community** - For the cross-platform desktop framework
-- **React Team** - For the UI library
-
----
-
-**Last Updated**: January 2026
-**Version**: 1.0.0
+The [implementation report](audits/backend-admin-2026-09-12/implementation.md) records the completed operational repairs and the hardware/deployment checks still needed. The [second pass](audits/backend-admin-2026-09-12/second-pass.md) adds [API keys](api-access.md) and gated observer access while keeping miner reporting public. Broader authentication changes remain outside scope. [FUTURE_UPGRADES.md](../FUTURE_UPGRADES.md) contains older desktop ideas.

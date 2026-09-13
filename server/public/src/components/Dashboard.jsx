@@ -1,744 +1,1349 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend
-} from 'recharts';
-import { minersAPI, statsAPI } from '../services/api';
-import { useWebSocket } from '../hooks/useWebSocket';
-import { useToast } from '../hooks/useToast';
-import ToastContainer from './ToastContainer';
-import './Dashboard.css';
-
-function getGpuHashrate(miner) {
-  const runningGpus = (miner?.devices?.gpus || []).filter((g) => g?.running);
-  const gpuRates = runningGpus
-    .map((g) => (typeof g.hashrate === 'number' ? g.hashrate : null))
-    .filter((h) => h && h > 0);
-
-  if (gpuRates.length === 0) {
-    if (runningGpus.length > 0 && miner?.deviceType === 'GPU' && typeof miner?.hashrate === 'number') {
-      return miner.hashrate;
-    }
-    return 0;
-  }
-
-  if (
-    gpuRates.length > 1 &&
-    typeof miner?.hashrate === 'number' &&
-    gpuRates.every((rate) => Math.abs(rate - miner.hashrate) < 0.0001)
-  ) {
-    return miner.hashrate;
-  }
-
-  return gpuRates.reduce((sum, rate) => sum + rate, 0);
+  CartesianGrid,
+} from "recharts";
+import api from "../services/api";
+import { useWebSocket } from "../hooks/useWebSocket";
+import {
+  ActionDialog,
+  Badge,
+  CommandHistory,
+  ErrorNotice,
+  Records,
+  at,
+  errorText,
+  rate,
+  useResource,
+} from "./Operations";
+import "./Dashboard.css";
+function ageLabel(value) {
+  const age = value
+    ? Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000))
+    : null;
+  return age === null || !Number.isFinite(age)
+    ? "Not reported"
+    : age < 60
+      ? `${age}s ago`
+      : age < 3600
+        ? `${Math.floor(age / 60)}m ago`
+        : `${Math.floor(age / 3600)}h ago`;
 }
-
-function formatHashrate(h) {
-  if (!h) return '0 H/s';
-  if (h >= 1e12) return `${(h / 1e12).toFixed(2)} TH/s`;
-  if (h >= 1e9) return `${(h / 1e9).toFixed(2)} GH/s`;
-  if (h >= 1e6) return `${(h / 1e6).toFixed(2)} MH/s`;
-  if (h >= 1e3) return `${(h / 1e3).toFixed(2)} KH/s`;
-  return `${h.toFixed(2)} H/s`;
-}
-
-function formatUptime(seconds) {
-  if (!seconds) return '—';
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
-
-function getTimeAgo(dateString) {
-  if (!dateString) return '—';
-  const diff = Date.now() - new Date(dateString).getTime();
-  if (isNaN(diff) || diff < 0) return '—';
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (mins > 0) return `${mins}m ago`;
-  return 'Just now';
-}
-
-function Dashboard() {
-  const [miners, setMiners] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
-  const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState('name');
-  const [sortDir, setSortDir] = useState('asc');
-  const [expandedRows, setExpandedRows] = useState(new Set());
-  const [hashrateChartData, setHashrateChartData] = useState([]);
-  const [chartTimeframe, setChartTimeframe] = useState('7d');
-  const { toasts, success, error: showError, dismissToast } = useToast();
-
-  const fetchMiners = useCallback(async () => {
-    try {
-      const response = await minersAPI.getAll();
-      setMiners(response.data.miners || []);
-    } catch (err) {
-      console.error('Error fetching miners:', err);
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchMiners();
-    const interval = setInterval(fetchMiners, 5000);
-    return () => clearInterval(interval);
-  }, [fetchMiners]);
-
-  const fetchHashrateChart = useCallback(async () => {
-    try {
-      const res = await statsAPI.getHashrateTimeseries(chartTimeframe);
-      const raw = res.data?.data || [];
-      setHashrateChartData(raw.map((d) => ({
-        ...d,
-        time: new Date(d.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        date: new Date(d.hour).toLocaleDateString([], { month: 'short', day: 'numeric' })
-      })));
-    } catch (err) {
-      setHashrateChartData([]);
-    }
-  }, [chartTimeframe]);
-
-  useEffect(() => {
-    fetchHashrateChart();
-    const interval = setInterval(fetchHashrateChart, 60000);
-    return () => clearInterval(interval);
-  }, [fetchHashrateChart]);
-
-  const wsRefreshTimerRef = useRef(null);
-  useWebSocket(useCallback((message) => {
-    if (['miner_connected', 'miner_disconnected', 'miner_status_update', 'mining_update', 'miner_device_update'].includes(message.type)) {
-      if (wsRefreshTimerRef.current) clearTimeout(wsRefreshTimerRef.current);
-      wsRefreshTimerRef.current = setTimeout(() => {
-        wsRefreshTimerRef.current = null;
-        fetchMiners();
-      }, 300);
-    }
-  }, [fetchMiners]));
-
-  // Derived stats
-  const stats = useMemo(() => {
-    let cpuHashrate = 0;
-    let gpuHashrate = 0;
-    miners.forEach(miner => {
-      if (miner.devices?.cpu?.running && miner.devices?.cpu?.hashrate) {
-        cpuHashrate += miner.devices.cpu.hashrate;
-      }
-      gpuHashrate += getGpuHashrate(miner);
-    });
-    return {
-      total: miners.length,
-      online: miners.filter(m => m.status === 'online' || m.status === 'mining').length,
-      mining: miners.filter(m => m.status === 'mining').length,
-      offline: miners.filter(m => m.status === 'offline').length,
-      cpuHashrate,
-      gpuHashrate,
-      totalHashrate: cpuHashrate + gpuHashrate
-    };
-  }, [miners]);
-
-  // Filter + search + sort
-  const filteredMiners = useMemo(() => {
-    let result = miners;
-
-    if (filter !== 'all') {
-      if (filter === 'online') result = result.filter(m => m.status === 'online' || m.status === 'mining');
-      else result = result.filter(m => m.status === filter);
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(m =>
-        (m.name || '').toLowerCase().includes(q) ||
-        (m.hostname || '').toLowerCase().includes(q) ||
-        (m.ip || '').toLowerCase().includes(q) ||
-        (m.systemId || '').toLowerCase().includes(q) ||
-        (m.os || '').toLowerCase().includes(q)
-      );
-    }
-
-    result = [...result].sort((a, b) => {
-      let av, bv;
-      switch (sortKey) {
-        case 'name': av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase(); break;
-        case 'status': av = a.status || ''; bv = b.status || ''; break;
-        case 'cpuHashrate': {
-          av = a.devices?.cpu?.running ? a.devices.cpu.hashrate || 0 : 0;
-          bv = b.devices?.cpu?.running ? b.devices.cpu.hashrate || 0 : 0;
-          break;
-        }
-        case 'gpuHashrate': {
-          av = getGpuHashrate(a);
-          bv = getGpuHashrate(b);
-          break;
-        }
-        case 'lastSeen': av = new Date(a.lastSeen || 0).getTime(); bv = new Date(b.lastSeen || 0).getTime(); break;
-        default: av = ''; bv = '';
-      }
-      if (av < bv) return sortDir === 'asc' ? -1 : 1;
-      if (av > bv) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-
-    return result;
-  }, [miners, filter, search, sortKey, sortDir]);
-
-  const handleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
-    }
-  };
-
-  const toggleRow = (id) => {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  // Action handlers
-  const handleRestart = async (id, name) => {
-    try {
-      await minersAPI.restart(id);
-      success(`Restart command sent to ${name}`, 3000);
-    } catch (err) {
-      showError(`Failed to restart ${name}: ${err.response?.data?.error || err.message}`, 5000);
-    }
-  };
-
-  const handleStop = async (id, name) => {
-    try {
-      await minersAPI.stop(id);
-      success(`Stop command sent to ${name}`, 3000);
-    } catch (err) {
-      showError(`Failed to stop ${name}: ${err.response?.data?.error || err.message}`, 5000);
-    }
-  };
-
-  const handleStart = async (id, name) => {
-    try {
-      await minersAPI.start(id, {});
-      success(`Start command sent to ${name}`, 3000);
-    } catch (err) {
-      showError(`Failed to start ${name}: ${err.response?.data?.error || err.message}`, 5000);
-    }
-  };
-
-  const handleToggleCpu = async (id, name, currentEnabled) => {
-    try {
-      await minersAPI.toggleCpu(id, !currentEnabled);
-      success(`CPU mining ${!currentEnabled ? 'enabled' : 'disabled'} on ${name}`, 3000);
-      fetchMiners();
-    } catch (err) {
-      showError(`Failed to toggle CPU on ${name}: ${err.response?.data?.error || err.message}`, 5000);
-    }
-  };
-
-  const handleToggleGpu = async (id, name, currentEnabled) => {
-    try {
-      await minersAPI.toggleGpu(id, !currentEnabled, null);
-      success(`GPU mining ${!currentEnabled ? 'enabled' : 'disabled'} on ${name}`, 3000);
-      fetchMiners();
-    } catch (err) {
-      showError(`Failed to toggle GPU on ${name}: ${err.response?.data?.error || err.message}`, 5000);
-    }
-  };
-
-  const handleDelete = async (id, name) => {
-    if (!confirm(`Remove ${name} from the system? This won't affect the actual miner.`)) return;
-    try {
-      await minersAPI.delete(id);
-      success(`${name} removed from system`, 3000);
-      fetchMiners();
-    } catch (err) {
-      showError(`Failed to remove ${name}: ${err.response?.data?.error || err.message}`, 5000);
-    }
-  };
-
-  const SortIcon = ({ col }) => {
-    if (sortKey !== col) return <span className="sort-icon muted">⇅</span>;
-    return <span className="sort-icon active">{sortDir === 'asc' ? '↑' : '↓'}</span>;
-  };
-
-  if (loading) {
-    return (
-      <div className="dash-loading">
-        <div className="loading-spinner"></div>
-        <p>Loading dashboard...</p>
-      </div>
-    );
-  }
-
+function RateChart({ series, group }) {
+  const rows = series.data
+    .filter((p) => p.key === group.key)
+    .map((p) => ({ ...p, time: Date.parse(p.timestamp) }));
   return (
-    <div className="dashboard">
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-
-      <div className="dash-header">
-        <div>
-          <h2>Dashboard</h2>
-          <p className="subtitle">Monitor and control your mining operation</p>
-        </div>
+    <div className="op-chart">
+      <ResponsiveContainer width="100%" height={170}>
+        <LineChart
+          data={rows}
+          margin={{ right: 15, left: 0, top: 12, bottom: 0 }}
+        >
+          <CartesianGrid stroke="#355069" vertical={false} />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={(t) =>
+              new Date(t).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            }
+            minTickGap={60}
+            stroke="#9eafbe"
+          />
+          <YAxis width={75} tickFormatter={rate} stroke="#9eafbe" />
+          <Tooltip
+            labelFormatter={at}
+            formatter={(value, name, item) => [
+              `${rate(value)} · ${Math.round(item.payload.coverage * 100)}% coverage`,
+              group.algorithm,
+            ]}
+            contentStyle={{
+              background: "#1c3043",
+              border: "1px solid #58718a",
+              color: "#edf4fa",
+            }}
+          />
+          <Line
+            dataKey="hashrate"
+            type="linear"
+            stroke="#68bde9"
+            strokeWidth={2}
+            dot={false}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+function RigDetail({ id, close, onAction, onChanged }) {
+  const { data, error, reload } = useResource(`rigs/${id}`, {}, 15000),
+    r = data?.data;
+  const [tab, setTab] = useState("Overview"),
+    [edit, setEdit] = useState(null),
+    [saveError, setSaveError] = useState(""),
+    [saving, setSaving] = useState(false);
+  const sensors = useResource(
+    "metrics/sensors",
+    { minerId: id, limit: 120 },
+    30000,
+  );
+  async function update(changes) {
+    setSaving(true);
+    try {
+      await api.patch(`/v1/rigs/${id}`, changes);
+      setEdit(null);
+      setSaveError("");
+      reload();
+      onChanged();
+    } catch (e) {
+      setSaveError(errorText(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <aside className="op-detail" aria-label="Rig details">
+      <div className="op-section-title">
+        <h2>{r?.name || "Rig details"}</h2>
+        <button onClick={close}>Close</button>
       </div>
-
-      {/* Stats cards */}
-      <div className="stats-grid">
-        <div className="stat-card total">
-          <div className="stat-icon">🖥️</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.total}</div>
-            <div className="stat-label">Total Miners</div>
+      <ErrorNotice error={error || saveError} retry={reload} />
+      {r && (
+        <>
+          <div className="op-row">
+            <Badge status={r.status} />
+            <span>{r.reason}</span>
           </div>
-        </div>
-        <div className="stat-card mining">
-          <div className="stat-icon">⚡</div>
-          <div className="stat-content">
-            <div className="stat-value">{stats.mining}</div>
-            <div className="stat-label">Mining</div>
+          <p className="op-muted">Last telemetry {at(r.telemetryReceivedAt)}</p>
+          <div className="op-actions">
+            <button
+              className="op-primary"
+              disabled={
+                !r.freshness.connected ||
+                r.protocolVersion < 2 ||
+                !!r.archivedAt ||
+                !!r.forgottenAt
+              }
+              onClick={() => onAction([r])}
+            >
+              Control processes
+            </button>
+            <button
+              onClick={() =>
+                setEdit({
+                  name: r.name,
+                  group: r.group || "",
+                  tags: (r.tags || []).join(", "),
+                })
+              }
+            >
+              Edit rig
+            </button>
           </div>
-        </div>
-        <div className="stat-card cpu-hash">
-          <div className="stat-icon">🖥️</div>
-          <div className="stat-content">
-            <div className="stat-value mono">{formatHashrate(stats.cpuHashrate)}</div>
-            <div className="stat-label">CPU Hashrate</div>
-          </div>
-        </div>
-        <div className="stat-card gpu-hash">
-          <div className="stat-icon">🎮</div>
-          <div className="stat-content">
-            <div className="stat-value mono">{formatHashrate(stats.gpuHashrate)}</div>
-            <div className="stat-label">GPU Hashrate</div>
-          </div>
-        </div>
-      </div>
-
-      {/* 7-day Hashrate Graph */}
-      <div className="hashrate-chart-section">
-        <div className="chart-header">
-          <h3>Hashrate History</h3>
-          <div className="chart-timeframe-tabs">
-            {['24h', '7d'].map((tf) => (
+          <div className="op-tabs" role="tablist" aria-label="Rig sections">
+            {["Overview", "Commands", "Logs", "Events"].map((t) => (
               <button
-                key={tf}
-                className={chartTimeframe === tf ? 'active' : ''}
-                onClick={() => setChartTimeframe(tf)}
+                role="tab"
+                aria-selected={tab === t}
+                key={t}
+                onClick={() => setTab(t)}
               >
-                {tf === '24h' ? '24 Hours' : '7 Days'}
+                {t}
               </button>
             ))}
           </div>
-        </div>
-        <div className="hashrate-chart-wrap">
-          {hashrateChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={hashrateChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="fillTotal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--accent-purple)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="var(--accent-purple)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" opacity={0.5} />
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
-                  tickFormatter={(_, i) => (hashrateChartData[i]?.date || '')}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
-                  tickFormatter={(v) => formatHashrate(v)}
-                  width={70}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-md)'
+          {tab === "Overview" && (
+            <>
+              <dl className="op-facts">
+                <dt>Agent version</dt>
+                <dd>
+                  {r.version || "Not reported"}
+                  {r.protocolVersion < 2 &&
+                    " · Upgrade for acknowledged commands"}
+                </dd>
+                <dt>Hostname / address</dt>
+                <dd>
+                  {r.hostname} / {r.ip || "Unknown"}
+                </dd>
+                <dt>Group</dt>
+                <dd>{r.group || "Ungrouped"}</dd>
+                <dt>Tags</dt>
+                <dd>{r.tags?.join(", ") || "None"}</dd>
+                <dt>CPU</dt>
+                <dd>
+                  {r.hardware.cpu?.brand ||
+                    r.hardware.cpu?.model ||
+                    "Not reported"}
+                </dd>
+                <dt>Memory</dt>
+                <dd>
+                  {r.stats?.memory?.usage == null
+                    ? "Not reported"
+                    : `${r.stats.memory.usage.toFixed(1)}% used`}
+                </dd>
+                <dt>Maintenance until</dt>
+                <dd>{at(r.maintenanceUntil)}</dd>
+              </dl>
+              {r.processes.map((p) => (
+                <section className="op-process" key={p.id}>
+                  <div className="op-row">
+                    <h3>
+                      {p.deviceType} · {p.type}
+                    </h3>
+                    <Badge status={p.running ? p.quality : "online"}>
+                      {p.running ? p.quality : "Stopped"}
+                    </Badge>
+                  </div>
+                  <strong>
+                    {p.running && ["valid", "zero"].includes(p.quality)
+                      ? rate(p.hashrate)
+                      : "No current rate"}
+                  </strong>
+                  <p>
+                    {p.algorithm || "Algorithm not reported"} ·{" "}
+                    {p.uptime == null
+                      ? "Uptime unknown"
+                      : `${Math.floor(p.uptime / 60)} min uptime`}
+                  </p>
+                  <p className="op-muted">
+                    Observed {at(p.hashrateObservedAt)}
+                  </p>
+                  <dl className="op-facts">
+                    <dt>Desired version</dt>
+                    <dd>{p.desiredConfigVersion || "Local configuration"}</dd>
+                    <dt>Loaded version</dt>
+                    <dd>{p.loadedConfigVersion || "Not reported"}</dd>
+                    <dt>Running version</dt>
+                    <dd>{p.appliedConfigVersion || "Not reported"}</dd>
+                    <dt>Local overrides</dt>
+                    <dd>{p.localOverrides?.join(", ") || "None reported"}</dd>
+                    <dt>Miner version</dt>
+                    <dd>{p.minerVersion || "Not reported"}</dd>
+                    <dt>Process ID</dt>
+                    <dd>{p.pid || "Not reported"}</dd>
+                    <dt>Pool</dt>
+                    <dd>
+                      {p.pool
+                        ? `${p.pool.status} ${p.pool.address || ""} · ${at(p.pool.observedAt)}`
+                        : "Not reported"}
+                    </dd>
+                    <dt>Shares</dt>
+                    <dd>
+                      {p.shares
+                        ? `${p.shares.accepted} accepted / ${p.shares.rejected} rejected`
+                        : "Unavailable"}
+                    </dd>
+                  </dl>
+                  <details>
+                    <summary>Configuration used at launch</summary>
+                    <pre>
+                      {JSON.stringify(p.activeConfig, null, 2) ||
+                        "Not reported"}
+                    </pre>
+                  </details>
+                  {p.error && <p className="op-warning">{p.error}</p>}
+                </section>
+              ))}
+              <div className="op-row">
+                <h3>Hardware & sensors</h3>
+                <Badge status={r.stats?.quality || "unavailable"} />
+              </div>
+              <p>
+                CPU:{" "}
+                {r.stats?.cpu?.temperature == null
+                  ? "Temperature unavailable"
+                  : `${r.stats.cpu.temperature}°C`}{" "}
+                ·{" "}
+                {r.stats?.cpu?.usage == null
+                  ? "Usage unavailable"
+                  : `${r.stats.cpu.usage.toFixed(1)}% usage`}
+              </p>
+              <p className="op-muted">
+                Sensor observation {at(r.stats?.observedAt)}
+                {r.stats?.quality !== "observed" && " · Last known readings"}
+              </p>
+              <ul className="op-feed">
+                {(r.expectedDeviceIds || [])
+                  .filter(
+                    (id) => !r.hardware.gpus.some((g) => g.deviceId === id),
+                  )
+                  .map((id) => (
+                    <li key={`missing:${id}`}>
+                      <Badge status="critical">Missing GPU</Badge>
+                      <small>{id}</small>
+                    </li>
+                  ))}
+                {r.hardware.gpus.map((g) => {
+                  const s = r.stats?.gpus?.find(
+                    (s) => s.deviceId === g.deviceId,
+                  );
+                  return (
+                    <li key={g.deviceId}>
+                      <strong>{g.model}</strong>
+                      <small>
+                        {g.deviceId} · {g.identityQuality} identity
+                      </small>
+                      <span>
+                        {s?.temperature == null
+                          ? "Temperature unavailable"
+                          : `${s.temperature}°C`}{" "}
+                        ·{" "}
+                        {s?.powerWatts == null
+                          ? "Power unavailable"
+                          : `${s.powerWatts.toFixed(0)} W`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <details>
+                <summary>
+                  Sensor history ({sensors.data?.data.length || 0} samples)
+                </summary>
+                <ErrorNotice error={sensors.error} retry={sensors.reload} />
+                <div className="op-log">
+                  {sensors.data?.data.map((s) => (
+                    <div key={s._id}>
+                      <time>{at(s.observedAt || s.timestamp)}</time>
+                      <span>
+                        CPU{" "}
+                        {s.cpu?.temperature == null
+                          ? "—"
+                          : `${s.cpu.temperature}°C`}{" "}
+                        · Memory {s.memory?.usage?.toFixed(1) ?? "—"}% · GPU{" "}
+                        {s.gpus
+                          ?.map((g) => `${g.temperature ?? "—"}°C`)
+                          .join(", ") || "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+              <div className="op-actions">
+                <button
+                  disabled={saving}
+                  onClick={() =>
+                    update({
+                      maintenanceUntil: new Date(
+                        Date.now() + 3600000,
+                      ).toISOString(),
+                    })
+                  }
+                >
+                  Maintenance for 1 hour
+                </button>
+                {r.maintenanceUntil && (
+                  <button
+                    disabled={saving}
+                    onClick={() => update({ maintenanceUntil: null })}
+                  >
+                    End maintenance
+                  </button>
+                )}
+                <button
+                  disabled={saving}
+                  onClick={() => update({ acknowledgeInventory: true })}
+                >
+                  Accept current GPU inventory
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={() => update({ archived: !r.archivedAt })}
+                >
+                  {r.archivedAt ? "Restore from archive" : "Archive rig"}
+                </button>
+                {r.forgottenAt && (
+                  <button
+                    disabled={saving}
+                    onClick={() => update({ restore: true })}
+                  >
+                    Restore forgotten rig
+                  </button>
+                )}
+              </div>
+              <details>
+                <summary>
+                  Automatic recovery · {r.recovery?.enabled ? "Enabled" : "Off"}
+                </summary>
+                <p>
+                  Restart a process still running at zero for{" "}
+                  {(r.recovery?.zeroSeconds || 300) / 60} minutes, with a{" "}
+                  {r.recovery?.cooldownMinutes || 30}-minute cooldown and at
+                  most {r.recovery?.maxPerDay || 2} attempts per day.
+                  Maintenance, operator stops, and unknown command outcomes
+                  block recovery.
+                </p>
+                <button
+                  disabled={saving}
+                  onClick={() =>
+                    update({
+                      recovery: {
+                        enabled: !r.recovery?.enabled,
+                        zeroSeconds: r.recovery?.zeroSeconds || 300,
+                        cooldownMinutes: r.recovery?.cooldownMinutes || 30,
+                        maxPerDay: r.recovery?.maxPerDay || 2,
+                      },
+                    })
+                  }
+                >
+                  {r.recovery?.enabled
+                    ? "Disable recovery"
+                    : "Enable bounded recovery"}
+                </button>
+              </details>
+              <details>
+                <summary>Forget this rig</summary>
+                <p>
+                  Disconnect this agent and prevent automatic registration until
+                  restored. History is retained.
+                </p>
+                <button
+                  className="op-danger"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await api.delete(`/v1/rigs/${id}`);
+                      onChanged();
+                      close();
+                    } catch (e) {
+                      setSaveError(errorText(e));
+                    } finally {
+                      setSaving(false);
+                    }
                   }}
-                  labelStyle={{ color: 'var(--text-primary)' }}
-                  formatter={(value) => [formatHashrate(value), 'Hashrate']}
-                  labelFormatter={(_, payload) => {
-                    const p = payload?.[0]?.payload;
-                    return p ? `${p.date} ${p.time}` : '';
+                >
+                  Forget and disconnect
+                </button>
+              </details>
+            </>
+          )}
+          {tab === "Commands" && <CommandHistory minerId={id} />}
+          {tab === "Logs" && <Records kind="logs" minerId={id} />}
+          {tab === "Events" && <Records kind="events" minerId={id} />}
+          {edit && (
+            <form
+              className="op-edit"
+              onSubmit={(e) => {
+                e.preventDefault();
+                update({ ...edit, tags: edit.tags.split(",") });
+              }}
+            >
+              <h3>Edit rig</h3>
+              {["name", "group", "tags"].map((k) => (
+                <label key={k}>
+                  {k}
+                  <input
+                    value={edit[k]}
+                    onChange={(e) => setEdit({ ...edit, [k]: e.target.value })}
+                    required={k === "name"}
+                  />
+                </label>
+              ))}
+              <div className="op-actions">
+                <button disabled={saving} type="submit">
+                  {saving ? "Saving…" : "Save rig"}
+                </button>
+                <button type="button" onClick={() => setEdit(null)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </>
+      )}
+    </aside>
+  );
+}
+function Monitoring({ filters = {}, onSelect }) {
+  const [resolved, setResolved] = useState("false"),
+    [severity, setSeverity] = useState(""),
+    [cursor, setCursor] = useState(null),
+    [pages, setPages] = useState([]);
+  const resource = useResource("monitoring/rules"),
+    incidents = useResource(
+      "incidents",
+      { ...filters, resolved, severity, limit: 50, cursor },
+      cursor ? 0 : 30000,
+    );
+  const [draft, setDraft] = useState(null),
+    [error, setError] = useState(""),
+    [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (resource.data) setDraft(resource.data.data);
+  }, [resource.data]);
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put("/v1/monitoring/rules", draft);
+      setError("");
+      setSaved(true);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  return (
+    <section className="op-surface">
+      <h2>Monitoring rules</h2>
+      <p className="op-muted">
+        Incident scope:{" "}
+        {Object.entries(filters)
+          .filter(([, value]) => value)
+          .map(([name, value]) => `${name}: ${value}`)
+          .join(", ") || "All rigs"}
+        . Change scope in Fleet.
+      </p>
+      <p>
+        Incidents are evaluated every 30 seconds. Maintenance suppresses alerts
+        while preserving their history. Recovery is off by default. Enable
+        bounded recovery for individual rigs in their overview.
+      </p>
+      <ErrorNotice
+        error={error || resource.error || incidents.error}
+        retry={resource.reload}
+      />
+      {draft && (
+        <form onSubmit={save} className="op-rule-form">
+          {Object.entries(draft).map(([k, v]) => (
+            <label key={k}>
+              {k.replace(/([A-Z])/g, " $1").replaceAll("_", " ")}
+              {typeof v === "boolean" ? (
+                <input
+                  type="checkbox"
+                  checked={v}
+                  onChange={(e) => {
+                    setDraft({ ...draft, [k]: e.target.checked });
+                    setSaved(false);
                   }}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="total"
-                  stroke="var(--accent-purple)"
-                  strokeWidth={2}
-                  fill="url(#fillTotal)"
-                  name="Total Hashrate"
+              ) : (
+                <input
+                  type="number"
+                  min={resource.data?.limits?.[k]?.min ?? 1}
+                  max={resource.data?.limits?.[k]?.max ?? 86400}
+                  step={resource.data?.limits?.[k]?.integer ? 1 : "any"}
+                  value={v}
+                  onChange={(e) => {
+                    setDraft({ ...draft, [k]: Number(e.target.value) });
+                    setSaved(false);
+                  }}
                 />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="chart-empty">
-              <span>No hashrate data yet. Data will appear as miners report.</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Toolbar: search + filters */}
-      <div className="toolbar">
-        <div className="search-box">
-          <span className="search-icon">🔍</span>
-          <input
-            type="text"
-            placeholder="Search by name, hostname, IP, MAC..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {search && (
-            <button className="search-clear" onClick={() => setSearch('')}>✕</button>
-          )}
-        </div>
-        <div className="filter-tabs">
-          {[
-            ['all', `All (${stats.total})`],
-            ['online', `Online (${stats.online})`],
-            ['mining', `Mining (${stats.mining})`],
-            ['offline', `Offline (${stats.offline})`],
-          ].map(([key, label]) => (
-            <button key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>
-              {label}
-            </button>
+              )}
+            </label>
           ))}
-        </div>
+          <button className="op-primary">Save rules</button>
+          {saved && <span role="status">Rules saved</span>}
+        </form>
+      )}
+      <div className="op-toolbar">
+        <label>
+          Incident state
+          <select
+            value={resolved}
+            onChange={(e) => {
+              setResolved(e.target.value);
+              setCursor(null);
+              setPages([]);
+            }}
+          >
+            <option value="false">Open</option>
+            <option value="true">Resolved</option>
+          </select>
+        </label>
+        <label>
+          Severity
+          <select
+            value={severity}
+            onChange={(e) => {
+              setSeverity(e.target.value);
+              setCursor(null);
+              setPages([]);
+            }}
+          >
+            <option value="">All severities</option>
+            <option value="critical">Critical</option>
+            <option value="warning">Warning</option>
+          </select>
+        </label>
       </div>
-
-      {/* Main table */}
-      {filteredMiners.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">📡</div>
-          <h4>{miners.length === 0 ? 'No miners registered' : 'No miners match your filters'}</h4>
-          <p>{miners.length === 0 ? 'Miners will appear here when they connect to the server.' : 'Try adjusting your search or filter.'}</p>
+      <IncidentList
+        incidents={incidents}
+        resolved={resolved === "true"}
+        onSelect={onSelect}
+      />
+      <div className="op-pagination">
+        <button
+          disabled={!pages.length}
+          onClick={() => {
+            setCursor(pages.at(-1));
+            setPages(pages.slice(0, -1));
+          }}
+        >
+          Previous
+        </button>
+        <span>Page {pages.length + 1}</span>
+        <button
+          disabled={!incidents.data?.nextCursor}
+          onClick={() => {
+            setPages([...pages, cursor]);
+            setCursor(incidents.data.nextCursor);
+          }}
+        >
+          Next
+        </button>
+      </div>
+    </section>
+  );
+}
+function IncidentList({ incidents, resolved = false, onSelect }) {
+  const [error, setError] = useState("");
+  return (
+    <section>
+      <h3>{resolved ? "Resolved incidents" : "Open incidents"}</h3>
+      <ErrorNotice error={error || incidents.error} retry={incidents.reload} />
+      <ul className="op-feed">
+        {incidents.data?.data.map((i) => (
+          <li key={i.key}>
+            <div className="op-row">
+              <strong>{i.message}</strong>
+              <Badge status={i.suppressed ? "suppressed" : i.severity} />
+            </div>
+            <small>
+              {onSelect ? (
+                <button onClick={() => onSelect(i.minerId)}>
+                  {i.minerName || i.minerId}
+                </button>
+              ) : (
+                i.minerName || i.minerId
+              )}{" "}
+              · Since {at(i.openedAt)}
+            </small>
+            {i.resolvedAt ? (
+              <span className="op-muted">Resolved {at(i.resolvedAt)}</span>
+            ) : i.acknowledgedAt ? (
+              <span className="op-muted">
+                Acknowledged {at(i.acknowledgedAt)}
+              </span>
+            ) : (
+              <button
+                onClick={async () => {
+                  try {
+                    await api.post(
+                      `/v1/incidents/${encodeURIComponent(i.key)}/acknowledge`,
+                    );
+                    setError("");
+                    incidents.reload();
+                  } catch (e) {
+                    setError(errorText(e));
+                  }
+                }}
+              >
+                Acknowledge
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {incidents.data?.data.length === 0 && (
+        <p className="op-empty">
+          No {resolved ? "resolved" : "open"} incidents in this view.
+        </p>
+      )}
+    </section>
+  );
+}
+export default function Dashboard() {
+  const [columns, setColumns] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("minemaster-columns") || "{}");
+    } catch (_) {
+      return {};
+    }
+  });
+  const [search, setSearch] = useSearchParams(),
+    [screen, setScreen] = useState("Fleet"),
+    [selected, setSelected] = useState({}),
+    [detail, setDetail] = useState(null),
+    [action, setAction] = useState(null),
+    [cursor, setCursor] = useState(null),
+    [pageStack, setPageStack] = useState([]),
+    [timeframe, setTimeframe] = useState("24h");
+  const [savedViews, setSavedViews] = useState(() => {
+      try {
+        return JSON.parse(localStorage.getItem("minemaster-views") || "[]");
+      } catch (_) {
+        return [];
+      }
+    }),
+    [viewName, setViewName] = useState("");
+  const params = Object.fromEntries(search),
+    filters = {
+      q: params.q || "",
+      status: params.status || "",
+      attention: params.attention || "",
+      group: params.group || "",
+      tag: params.tag || "",
+      includeArchived: params.includeArchived || "",
+      includeForgotten: params.includeForgotten || "",
+    };
+  const summary = useResource("fleet/summary", filters, 15000),
+    fleet = useResource(
+      "rigs",
+      {
+        ...filters,
+        sort: params.sort || "name",
+        order: params.order || "asc",
+        limit: 50,
+        cursor,
+      },
+      30000,
+    ),
+    history = useResource("metrics/hashrate", { ...filters, timeframe }, 60000),
+    incidents = useResource("incidents", { ...filters, limit: 8 }, 30000);
+  const [socketError, setSocketError] = useState("");
+  const reloadRef = useRef(),
+    invalidation = useRef(null);
+  reloadRef.current = () => {
+    summary.reload();
+    fleet.reload();
+    incidents.reload();
+  };
+  const { connected } = useWebSocket((message) => {
+    if (
+      message.type === "service_error" ||
+      message.code === "authentication_required"
+    )
+      setSocketError(message.error);
+    if (message.type === "monitoring_updated") setSocketError("");
+    if (
+      [
+        "miner_updated",
+        "miner_deleted",
+        "command_updated",
+        "subscribed",
+        "monitoring_updated",
+      ].includes(message.type)
+    ) {
+      if (!invalidation.current)
+        invalidation.current = setTimeout(() => {
+          invalidation.current = null;
+          reloadRef.current();
+        }, 3000);
+    }
+  });
+  useEffect(() => () => clearTimeout(invalidation.current), []);
+  const rows = fleet.data?.data || [];
+  const counts = summary.data?.counts;
+  function filter(key, value) {
+    const next = new URLSearchParams(search);
+    value ? next.set(key, value) : next.delete(key);
+    setSearch(next, { replace: true });
+    setCursor(null);
+    setPageStack([]);
+    setSelected({});
+  }
+  const picked = Object.values(selected);
+  return (
+    <div className="operations">
+      <header className="op-header">
+        <div>
+          <h1>Fleet operations</h1>
+          <p>Mining rigs, observed performance, and remote controls.</p>
         </div>
-      ) : (
-        <div className="miners-table-wrap">
-          <table className="miners-table">
-            <thead>
-              <tr>
-                <th className="col-expand"></th>
-                <th className="col-name sortable" onClick={() => handleSort('name')}>
-                  Name <SortIcon col="name" />
-                </th>
-                <th className="col-status sortable" onClick={() => handleSort('status')}>
-                  Status <SortIcon col="status" />
-                </th>
-                <th className="col-devices">Devices</th>
-                <th className="col-hashrate sortable" onClick={() => handleSort('cpuHashrate')}>
-                  CPU H/s <SortIcon col="cpuHashrate" />
-                </th>
-                <th className="col-hashrate sortable" onClick={() => handleSort('gpuHashrate')}>
-                  GPU H/s <SortIcon col="gpuHashrate" />
-                </th>
-                <th className="col-stats">System</th>
-                <th className="col-seen sortable" onClick={() => handleSort('lastSeen')}>
-                  Last Seen <SortIcon col="lastSeen" />
-                </th>
-                <th className="col-actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredMiners.map(miner => {
-                const isExpanded = expandedRows.has(miner.id);
-                const cpuRunning = miner.devices?.cpu?.running;
-                const cpuEnabled = miner.devices?.cpu?.enabled !== false;
-                const gpuEnabled = miner.devices?.gpus?.some(g => g.enabled !== false) ?? true;
-                const anyGpuRunning = miner.devices?.gpus?.some(g => g.running) ?? false;
-                const cpuHash = cpuRunning ? miner.devices?.cpu?.hashrate || 0 : 0;
-                const gpuHash = getGpuHashrate(miner);
-                const isOnline = miner.status === 'online' || miner.status === 'mining';
-                const hasGpus = miner.hardware?.gpus?.length > 0;
-
-                return (
-                  <React.Fragment key={miner.id}>
-                    <tr className={`miner-row ${miner.status} ${isExpanded ? 'expanded' : ''}`}>
-                      <td className="col-expand">
-                        <button className={`expand-btn ${isExpanded ? 'open' : ''}`} onClick={() => toggleRow(miner.id)} title="Expand details">
-                          ›
-                        </button>
-                      </td>
-                      <td className="col-name">
-                        <div className="name-cell">
-                          <span className={`status-dot-sm ${miner.status}`}></span>
-                          <div>
-                            <span className="miner-name">{miner.name}</span>
-                            <span className="miner-host mono">{miner.hostname}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="col-status">
-                        <span className={`status-badge ${miner.status}`}>
-                          {miner.status === 'mining' && '⚡ '}
-                          {miner.status === 'online' && '🟢 '}
-                          {miner.status === 'offline' && '⭕ '}
-                          {miner.status}
-                        </span>
-                        {miner.uptime > 0 && miner.status === 'mining' && (
-                          <span className="uptime-tag">{formatUptime(miner.uptime)}</span>
-                        )}
-                      </td>
-                      <td className="col-devices">
-                        <div className="device-chips">
-                          {miner.hardware?.cpu && (
-                            <span className={`device-chip ${cpuRunning ? 'active' : ''}`}>
-                              🖥️ CPU {cpuRunning ? '⚡' : ''}
-                            </span>
-                          )}
-                          {hasGpus && (
-                            <span className={`device-chip ${anyGpuRunning ? 'active' : ''}`}>
-                              🎮 GPU{miner.hardware.gpus.length > 1 ? ` ×${miner.hardware.gpus.length}` : ''} {anyGpuRunning ? '⚡' : ''}
-                            </span>
-                          )}
-                          {!miner.hardware?.cpu && !hasGpus && <span className="text-muted">—</span>}
-                        </div>
-                      </td>
-                      <td className="col-hashrate">
-                        {cpuHash > 0 ? (
-                          <span className="hashrate-val cpu mono">{formatHashrate(cpuHash)}</span>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="col-hashrate">
-                        {gpuHash > 0 ? (
-                          <span className="hashrate-val gpu mono">{formatHashrate(gpuHash)}</span>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="col-stats">
-                        <div className="stats-mini">
-                          {miner.stats?.cpu?.usage != null && (
-                            <span className="stat-mini" title="CPU Usage">🖥️ {Math.round(miner.stats.cpu.usage)}%</span>
-                          )}
-                          {miner.stats?.cpu?.temperature != null && (
-                            <span className="stat-mini temp" title="CPU Temp">{Math.round(miner.stats.cpu.temperature)}°C</span>
-                          )}
-                          {miner.stats?.memory?.usagePercent != null && (
-                            <span className="stat-mini" title="RAM Usage">💾 {Math.round(miner.stats.memory.usagePercent)}%</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="col-seen">
-                        {getTimeAgo(miner.lastSeen)}
-                      </td>
-                      <td className="col-actions">
-                        {isOnline && miner.bound ? (
-                          <div className="action-btns">
-                            {miner.status === 'mining' ? (
-                              <button
-                                className="btn-sm btn-stop"
-                                onClick={() => handleStop(miner.id, miner.name)}
-                                title="Stop mining"
-                                aria-label={`Stop mining on ${miner.name}`}
-                              >
-                                ■
-                              </button>
-                            ) : (
-                              <button
-                                className="btn-sm btn-start"
-                                onClick={() => handleStart(miner.id, miner.name)}
-                                title="Start mining"
-                                aria-label={`Start mining on ${miner.name}`}
-                              >
-                                ▶
-                              </button>
-                            )}
-                            <button
-                              className="btn-sm btn-restart"
-                              onClick={() => handleRestart(miner.id, miner.name)}
-                              title="Restart miner"
-                              aria-label={`Restart ${miner.name}`}
-                            >
-                              ↻
-                            </button>
-                            <button className="btn-sm btn-delete" onClick={() => handleDelete(miner.id, miner.name)} title="Remove">✕</button>
-                          </div>
-                        ) : (
-                          <div className="action-btns">
-                            <button className="btn-sm btn-delete" onClick={() => handleDelete(miner.id, miner.name)} title="Remove">✕</button>
-                          </div>
-                        )}
-                      </td>
+        <div className="op-connection">
+          <Badge status={connected ? "online" : "offline"}>
+            {connected
+              ? "Live updates connected"
+              : "Reconnecting · periodic refresh active"}
+          </Badge>
+          <small>Summary updated {at(summary.data?.asOf)}</small>
+        </div>
+      </header>
+      <ErrorNotice
+        error={summary.error || fleet.error || socketError}
+        retry={() => {
+          summary.reload();
+          fleet.reload();
+          setSocketError("");
+        }}
+      />
+      {(summary.error || fleet.error) && summary.data && (
+        <p className="op-warning">
+          Showing last received data from {at(summary.data.asOf)}. Status and
+          totals may be out of date.
+        </p>
+      )}
+      {summary.data?.monitoring && (
+        <p
+          className={
+            ["healthy", "starting"].includes(summary.data.monitoring.status)
+              ? "op-muted"
+              : "op-warning"
+          }
+          role="status"
+        >
+          Monitoring {summary.data.monitoring.status} · Last sweep{" "}
+          {at(summary.data.monitoring.lastSweepAt)}
+          {summary.data.monitoring.failedRigs > 0 &&
+            ` · ${summary.data.monitoring.failedRigs} rigs could not be checked`}
+        </p>
+      )}
+      <div className="op-tabs" role="tablist" aria-label="Operations views">
+        {["Fleet", "Activity", "Monitoring"].map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={screen === t}
+            onClick={() => setScreen(t)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      {screen === "Activity" && (
+        <div className="op-surface">
+          <h2>Fleet-wide activity</h2>
+          <p className="op-muted">
+            Activity across all rigs. Open a rig’s detail panel for its own
+            command history and logs.
+          </p>
+          <CommandHistory />
+          <Records kind="events" />
+          <Records kind="logs" />
+        </div>
+      )}
+      {screen === "Monitoring" && (
+        <Monitoring
+          filters={filters}
+          onSelect={(id) => {
+            setDetail(id);
+            setScreen("Fleet");
+          }}
+        />
+      )}
+      {screen === "Fleet" && (
+        <>
+          <div className="op-toolbar op-filters">
+            <label className="op-search">
+              Find rigs
+              <input
+                value={filters.q}
+                onChange={(e) => filter("q", e.target.value)}
+                placeholder="Name, host, address, tag…"
+              />
+            </label>
+            <label>
+              Status
+              <select
+                value={filters.status}
+                onChange={(e) => filter("status", e.target.value)}
+              >
+                <option value="">All statuses</option>
+                {[
+                  "mining",
+                  "online",
+                  "offline",
+                  "stale",
+                  "error",
+                  "archived",
+                  "forgotten",
+                ].map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Group
+              <input
+                value={filters.group}
+                onChange={(e) => filter("group", e.target.value)}
+                placeholder="Any group"
+              />
+            </label>
+            <label>
+              Tag
+              <input
+                value={filters.tag}
+                onChange={(e) => filter("tag", e.target.value)}
+                placeholder="Any tag"
+              />
+            </label>
+            <label className="op-check">
+              <input
+                type="checkbox"
+                checked={filters.attention === "true"}
+                onChange={(e) =>
+                  filter("attention", e.target.checked ? "true" : "")
+                }
+              />
+              Needs attention
+            </label>
+            <details>
+              <summary>Saved views & archive</summary>
+              <label>
+                Saved view
+                <select
+                  value=""
+                  onChange={(e) => {
+                    setSearch(savedViews[Number(e.target.value)].query);
+                    setCursor(null);
+                    setPageStack([]);
+                    setSelected({});
+                  }}
+                >
+                  <option value="">Choose view…</option>
+                  {savedViews.map((v, i) => (
+                    <option key={i} value={i}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                View name
+                <input
+                  value={viewName}
+                  maxLength={60}
+                  onChange={(e) => setViewName(e.target.value)}
+                />
+              </label>
+              <button
+                disabled={!viewName.trim()}
+                onClick={() => {
+                  const next = [
+                    ...savedViews.filter((v) => v.name !== viewName.trim()),
+                    { name: viewName.trim(), query: search.toString() },
+                  ].slice(-20);
+                  setSavedViews(next);
+                  localStorage.setItem(
+                    "minemaster-views",
+                    JSON.stringify(next),
+                  );
+                  setViewName("");
+                }}
+              >
+                Save current view
+              </button>
+              <label className="op-check">
+                <input
+                  type="checkbox"
+                  checked={filters.includeArchived === "true"}
+                  onChange={(e) =>
+                    filter("includeArchived", e.target.checked ? "true" : "")
+                  }
+                />
+                Include archived
+              </label>
+              <label className="op-check">
+                <input
+                  type="checkbox"
+                  checked={filters.includeForgotten === "true"}
+                  onChange={(e) =>
+                    filter("includeForgotten", e.target.checked ? "true" : "")
+                  }
+                />
+                Include forgotten
+              </label>
+            </details>
+          </div>
+          <div className="op-counts" aria-label="Filtered fleet summary">
+            {[
+              ["total", "Active rigs"],
+              ["mining", "Mining"],
+              ["online", "Connected"],
+              ["offline", "Offline"],
+              ["stale", "Telemetry overdue"],
+              ["attention", "Need attention"],
+            ].map(([key, label]) => (
+              <div key={key}>
+                <strong>{counts?.[key] ?? "—"}</strong>
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="op-performance">
+            <div
+              className="op-health-strip"
+              aria-label="Fleet hardware and health"
+            >
+              <span>
+                <strong>{summary.data?.hardware?.gpus ?? "—"} GPUs</strong>
+                <small>Reported inventory</small>
+              </span>
+              <span>
+                <strong>
+                  {summary.data?.hardware?.gpuPowerWatts == null
+                    ? "Power unavailable"
+                    : `${summary.data.hardware.gpuPowerWatts.toLocaleString(undefined, { maximumFractionDigits: 0 })} W`}
+                </strong>
+                <small>
+                  GPU power ·{" "}
+                  {summary.data?.hardware?.gpuPowerReportingDevices ?? 0}/
+                  {summary.data?.hardware?.gpus ?? 0} cards reporting
+                </small>
+              </span>
+              <span>
+                <strong>
+                  {summary.data?.hardware?.maxTemperatureC == null
+                    ? "Temperature unavailable"
+                    : `${summary.data.hardware.maxTemperatureC}°C`}
+                </strong>
+                <small>Highest fresh sensor</small>
+              </span>
+              <span>
+                <strong>
+                  {summary.data?.incidents?.critical ?? "—"} critical ·{" "}
+                  {summary.data?.incidents?.open ?? "—"} open
+                </strong>
+                <small>Current filtered incidents</small>
+              </span>
+              <span>
+                <strong>{counts?.maintenance ?? "—"} in maintenance</strong>
+                <small>
+                  {counts?.configDrift ?? "—"} rigs with configuration drift
+                </small>
+              </span>
+            </div>
+            <div className="op-section-title">
+              <div>
+                <h2>Observed hashrate</h2>
+                <p className="op-muted">
+                  Current filters apply to rates and history. Algorithms remain
+                  separate.
+                </p>
+              </div>
+              <label>
+                History
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                >
+                  {["1h", "24h", "7d", "30d", "90d"].map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <ErrorNotice error={history.error} retry={history.reload} />
+            <div className="op-rates">
+              {[
+                ...(summary.data?.algorithms || []),
+                ...(history.data?.series || [])
+                  .filter(
+                    (g) =>
+                      !summary.data?.algorithms.some((a) => a.key === g.key),
+                  )
+                  .map((g) => ({
+                    ...g,
+                    reportingProcesses: 0,
+                    runningProcesses: 0,
+                  })),
+              ].map((g) => (
+                <section key={g.key}>
+                  <div className="op-row">
+                    <h3>
+                      {g.deviceType} · {g.algorithm}
+                    </h3>
+                    <Badge
+                      status={g.unavailableProcesses ? "warning" : "online"}
+                    >
+                      {g.reportingProcesses}/{g.runningProcesses} reporting
+                    </Badge>
+                  </div>
+                  <strong className="op-rate">
+                    {g.reportingProcesses ? rate(g.hashrate) : "Unavailable"}
+                  </strong>
+                  {history.data && (
+                    <RateChart series={history.data} group={g} />
+                  )}
+                </section>
+              ))}
+            </div>
+            {summary.data?.algorithms.length === 0 &&
+              !history.data?.series?.length && (
+                <p className="op-empty">
+                  No algorithms reported in this view. Connect an agent and
+                  start a configured process to see rates.
+                </p>
+              )}
+            <p className="op-muted">
+              Chart gaps mean unknown data. Partial buckets show observed
+              contribution; hover for coverage. Rates are held for at most 60
+              seconds.
+            </p>
+          </div>
+          <div className={`op-workspace ${detail ? "op-has-detail" : ""}`}>
+            <section className="op-surface">
+              <div className="op-section-title">
+                <h2>
+                  Rigs{" "}
+                  <span className="op-muted">{fleet.data?.total ?? "—"}</span>
+                </h2>
+                <div className="op-actions">
+                  <details>
+                    <summary>Columns</summary>
+                    {["sensors", "identity"].map((key) => (
+                      <label className="op-check" key={key}>
+                        <input
+                          type="checkbox"
+                          checked={!!columns[key]}
+                          onChange={(e) => {
+                            const next = {
+                              ...columns,
+                              [key]: e.target.checked,
+                            };
+                            setColumns(next);
+                            localStorage.setItem(
+                              "minemaster-columns",
+                              JSON.stringify(next),
+                            );
+                          }}
+                        />
+                        {key}
+                      </label>
+                    ))}
+                  </details>
+                  <span>{picked.length} selected across pages</span>
+                  {!!picked.length && (
+                    <button onClick={() => setSelected({})}>
+                      Clear selection
+                    </button>
+                  )}
+                  <button
+                    disabled={!picked.length}
+                    onClick={() => setAction(picked)}
+                  >
+                    Control selected
+                  </button>
+                  <button onClick={fleet.reload}>Refresh</button>
+                </div>
+              </div>
+              {fleet.loading && <p className="op-empty">Loading rigs…</p>}
+              {fleet.data?.data.length === 0 && (
+                <p className="op-empty">
+                  No rigs match these filters. Clear filters or register an
+                  agent.
+                </p>
+              )}
+              <div className="op-table-wrap">
+                <table className="op-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        <input
+                          type="checkbox"
+                          aria-label="Select all rigs on this page"
+                          checked={
+                            !!rows.length && rows.every((r) => selected[r.id])
+                          }
+                          onChange={(e) =>
+                            setSelected((prev) => {
+                              const next = { ...prev };
+                              rows.forEach((r) => {
+                                if (e.target.checked) next[r.id] = r;
+                                else delete next[r.id];
+                              });
+                              return next;
+                            })
+                          }
+                        />
+                      </th>
+                      {[
+                        ["name", "Rig"],
+                        ["status", "State"],
+                      ].map(([k, label]) => (
+                        <th
+                          key={k}
+                          aria-sort={
+                            params.sort === k
+                              ? params.order === "desc"
+                                ? "descending"
+                                : "ascending"
+                              : "none"
+                          }
+                        >
+                          <button
+                            onClick={() => {
+                              const next = new URLSearchParams(search);
+                              next.set("sort", k);
+                              next.set(
+                                "order",
+                                params.sort === k && params.order !== "desc"
+                                  ? "desc"
+                                  : "asc",
+                              );
+                              setSearch(next);
+                              setCursor(null);
+                              setPageStack([]);
+                            }}
+                          >
+                            {label} ↕
+                          </button>
+                        </th>
+                      ))}
+                      <th>Process rates</th>
+                      <th>Last telemetry</th>
+                      {columns.sensors && <th>Sensors</th>}
+                      {columns.identity && <th>Identity</th>}
                     </tr>
-
-                    {/* Expanded detail row */}
-                    {isExpanded && (
-                      <tr className="detail-row">
-                        <td colSpan="9">
-                          <div className="detail-panel">
-                            {/* System info */}
-                            <div className="detail-section">
-                              <h4>System Info</h4>
-                              <div className="detail-grid">
-                                <div className="detail-item">
-                                  <span className="detail-label">IP Address</span>
-                                  <span className="detail-value mono">{miner.ip !== 'unknown' ? miner.ip : '—'}</span>
-                                </div>
-                                <div className="detail-item">
-                                  <span className="detail-label">MAC Address</span>
-                                  <span className="detail-value mono">{miner.systemId || '—'}</span>
-                                </div>
-                                <div className="detail-item">
-                                  <span className="detail-label">OS</span>
-                                  <span className="detail-value">{miner.os || '—'}</span>
-                                </div>
-                                <div className="detail-item">
-                                  <span className="detail-label">Version</span>
-                                  <span className="detail-value">{miner.version || '—'}</span>
-                                </div>
-                                {miner.hardware?.ram && (
-                                  <div className="detail-item">
-                                    <span className="detail-label">RAM</span>
-                                    <span className="detail-value mono">
-                                      {(miner.hardware.ram.total / (1024 ** 3)).toFixed(1)} GB
-                                      {miner.stats?.memory?.used != null && miner.stats?.memory?.total != null && (
-                                        <> ({(miner.stats.memory.used / (1024 ** 3)).toFixed(1)} used)</>
-                                      )}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Device controls */}
-                            {isOnline && miner.bound && (
-                              <div className="detail-section">
-                                <h4>Mining Devices</h4>
-                                <div className="device-controls">
-                                  {/* CPU */}
-                                  {miner.hardware?.cpu && (
-                                    <div className={`device-control-row ${cpuRunning ? 'running' : ''}`}>
-                                      <label className="toggle-switch">
-                                        <input type="checkbox" checked={cpuEnabled} onChange={() => handleToggleCpu(miner.id, miner.name, cpuEnabled)} />
-                                        <span className="toggle-slider"></span>
-                                      </label>
-                                      <div className="dc-info">
-                                        <span className="dc-name">🖥️ CPU</span>
-                                        <span className="dc-model mono">{miner.hardware.cpu.brand || 'CPU'} ({miner.hardware.cpu.cores || 0} cores)</span>
-                                      </div>
-                                      <div className="dc-stats">
-                                        {cpuRunning && miner.devices?.cpu?.hashrate && (
-                                          <span className="dc-hashrate mono">{formatHashrate(miner.devices.cpu.hashrate)}</span>
-                                        )}
-                                        {cpuRunning && miner.devices?.cpu?.algorithm && (
-                                          <span className="dc-algo mono">{miner.devices.cpu.algorithm}</span>
-                                        )}
-                                        <span className={`dc-state ${cpuRunning ? 'active' : 'idle'}`}>
-                                          {cpuRunning ? '⚡ Mining' : '⏸ Idle'}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* GPU */}
-                                  {hasGpus && (
-                                    <div className={`device-control-row ${anyGpuRunning ? 'running' : ''}`}>
-                                      <label className="toggle-switch">
-                                        <input type="checkbox" checked={gpuEnabled} onChange={() => handleToggleGpu(miner.id, miner.name, gpuEnabled)} />
-                                        <span className="toggle-slider"></span>
-                                      </label>
-                                      <div className="dc-info">
-                                        <span className="dc-name">🎮 GPU Mining{miner.hardware.gpus.length > 1 ? ` (${miner.hardware.gpus.length} GPUs)` : ''}</span>
-                                        <span className="dc-model mono">
-                                          {miner.hardware.gpus.map(g => g.model || g.name || 'GPU').join(', ')}
-                                        </span>
-                                      </div>
-                                      <div className="dc-stats">
-                                        {anyGpuRunning && getGpuHashrate(miner) > 0 && (
-                                          <span className="dc-hashrate mono">{formatHashrate(getGpuHashrate(miner))}</span>
-                                        )}
-                                        {anyGpuRunning && miner.devices?.gpus?.find(g => g.algorithm) && (
-                                          <span className="dc-algo mono">{miner.devices.gpus.find(g => g.algorithm)?.algorithm}</span>
-                                        )}
-                                        <span className={`dc-state ${anyGpuRunning ? 'active' : 'idle'}`}>
-                                          {anyGpuRunning ? '⚡ Mining' : '⏸ Idle'}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* GPU detail stats */}
-                                  {hasGpus && miner.stats?.gpus && miner.stats.gpus.length > 0 && (
-                                    <div className="gpu-detail-stats">
-                                      {miner.hardware.gpus.map((gpu, idx) => (
-                                        <div key={idx} className="gpu-detail-item">
-                                          <span className="gpu-detail-name mono">GPU {idx}: {gpu.model || gpu.name || 'Unknown'}</span>
-                                          <div className="gpu-detail-metrics">
-                                            {miner.stats.gpus[idx]?.usage != null && (
-                                              <span>Usage: {Math.round(miner.stats.gpus[idx].usage)}%</span>
-                                            )}
-                                            {miner.stats.gpus[idx]?.temperature != null && (
-                                              <span className="temp">Temp: {Math.round(miner.stats.gpus[idx].temperature)}°C</span>
-                                            )}
-                                            {miner.stats.gpus[idx]?.vramUsed != null && miner.stats.gpus[idx]?.vramTotal != null && (
-                                              <span>VRAM: {(miner.stats.gpus[idx].vramUsed / 1024).toFixed(1)}/{(miner.stats.gpus[idx].vramTotal / 1024).toFixed(1)} GB</span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Offline/unbound hardware info */}
-                            {(!isOnline || !miner.bound) && miner.hardware && (
-                              <div className="detail-section">
-                                <h4>Hardware</h4>
-                                <div className="detail-grid">
-                                  {miner.hardware.cpu && (
-                                    <div className="detail-item">
-                                      <span className="detail-label">CPU</span>
-                                      <span className="detail-value mono">{miner.hardware.cpu.brand || 'Unknown'} ({miner.hardware.cpu.cores || 0} cores)</span>
-                                    </div>
-                                  )}
-                                  {hasGpus && (
-                                    <div className="detail-item">
-                                      <span className="detail-label">GPU</span>
-                                      <span className="detail-value mono">{miner.hardware.gpus.map(g => g.model || g.name || 'GPU').join(', ')}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr
+                        key={r.id}
+                        className={detail === r.id ? "op-selected" : ""}
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${r.name}`}
+                            checked={!!selected[r.id]}
+                            onChange={(e) =>
+                              setSelected((prev) => {
+                                const next = { ...prev };
+                                e.target.checked
+                                  ? (next[r.id] = r)
+                                  : delete next[r.id];
+                                return next;
+                              })
+                            }
+                          />
                         </td>
+                        <td>
+                          <button
+                            className="op-rig-name"
+                            onClick={() => setDetail(r.id)}
+                          >
+                            {r.name}
+                          </button>
+                          <small>{r.group || r.hostname}</small>
+                        </td>
+                        <td>
+                          <Badge status={r.status} />
+                          {r.maintenance && (
+                            <Badge status="suppressed">Maintenance</Badge>
+                          )}
+                          {!!r.openIncidents?.length && (
+                            <small>
+                              {r.openIncidents.length} open incident
+                              {r.openIncidents.length === 1 ? "" : "s"}
+                            </small>
+                          )}
+                          <small>{r.reason}</small>
+                          {r.pendingCommands?.map((c) => (
+                            <small key={c.id}>
+                              {c.action} {c.deviceType}: {c.status}
+                            </small>
+                          ))}
+                        </td>
+                        <td>
+                          {r.processes.map((p) => (
+                            <div className="op-process-rate" key={p.id}>
+                              <span>
+                                {p.deviceType} {p.algorithm || ""}
+                              </span>
+                              <strong>
+                                {!p.running
+                                  ? "Stopped"
+                                  : ["valid", "zero"].includes(p.quality)
+                                    ? rate(p.hashrate)
+                                    : p.quality}
+                              </strong>
+                            </div>
+                          ))}
+                        </td>
+                        <td>
+                          <time title={at(r.telemetryReceivedAt)}>
+                            {ageLabel(r.telemetryReceivedAt)}
+                          </time>
+                          <small>{r.version || "Version unknown"}</small>
+                        </td>
+                        {columns.sensors && (
+                          <td>
+                            {r.stats?.quality === "stale"
+                              ? "Stale sensors"
+                              : `CPU ${r.stats?.cpu?.temperature ?? "—"}°C`}
+                            <small>{r.hardware.gpus.length} GPUs</small>
+                          </td>
+                        )}
+                        {columns.identity && (
+                          <td>
+                            {r.hostname}
+                            <small>{r.ip}</small>
+                          </td>
+                        )}
                       </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="op-pagination">
+                <button
+                  disabled={!pageStack.length}
+                  onClick={() => {
+                    setCursor(pageStack.at(-1));
+                    setPageStack(pageStack.slice(0, -1));
+                  }}
+                >
+                  Previous
+                </button>
+                <span>Page {pageStack.length + 1} · Up to 50 rigs</span>
+                <button
+                  disabled={!fleet.data?.nextCursor}
+                  onClick={() => {
+                    setPageStack([...pageStack, cursor]);
+                    setCursor(fleet.data.nextCursor);
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </section>
+            {detail ? (
+              <RigDetail
+                key={detail}
+                id={detail}
+                close={() => setDetail(null)}
+                onAction={setAction}
+                onChanged={() => {
+                  fleet.reload();
+                  summary.reload();
+                }}
+              />
+            ) : (
+              <aside className="op-detail">
+                <IncidentList incidents={incidents} onSelect={setDetail} />
+                <p className="op-muted">
+                  Recent fleet incidents. Open Monitoring for rules and the full
+                  list.
+                </p>
+              </aside>
+            )}
+          </div>
+        </>
+      )}
+      {action && (
+        <ActionDialog
+          rigs={action}
+          onClose={() => setAction(null)}
+          onDone={() => {
+            fleet.reload();
+            summary.reload();
+          }}
+        />
       )}
     </div>
   );
 }
-
-export default Dashboard;

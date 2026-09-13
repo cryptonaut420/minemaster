@@ -1,6 +1,18 @@
 # Development Guide
 
-Guide for developers who want to contribute to or extend MineMaster.
+Guide for developers who want to contribute to or extend MineMaster. Start with [AGENTS.md](../AGENTS.md). The older sections below focus on the desktop client; use [backend-admin.md](backend-admin.md) as the current backend/API reference.
+
+## Backend/admin workflow
+
+There is no root application package. Install in `server/` and `server/public/`, then run the API and admin in separate terminals as described in the [server README](../server/README.md). The admin build command from the repository root is `npm --prefix server/public run build`.
+
+Server code is CommonJS. Admin source uses React JSX and Vite. Desktop telemetry and commands cross `client/src/App.js`, `client/src/services/masterServer.js`, and `client/electron/main.js`; server-only changes may require coordinated client work.
+
+The September 2026 audit built the admin on Node 25.9.0. The Dockerfile currently pins Node 18; a local build is not a container compatibility test. Validate the target runtime when changing dependencies or deployment.
+
+Run `npm --prefix server test` from the repository root for expected-correctness regressions, including disposable MongoDB integration, protocol races, reporting, fake native processes, and cancelable command execution. The initial MongoDB test binary is downloaded by the test dependency. Build the admin, then run `node server/scripts/preview-fixture.cjs` for a loopback-only, disposable browser fixture. Never exercise live miners for admin tests.
+
+Update the current API/protocol documentation and the [audit status](audits/backend-admin-2026-09-12/README.md) together with behavior changes.
 
 ## 📋 Table of Contents
 
@@ -16,7 +28,7 @@ Guide for developers who want to contribute to or extend MineMaster.
 
 ### Prerequisites
 
-- **Node.js**: v16.x or higher
+- **Node.js**: use a runtime compatible with the package being built; the admin Vite 5 toolchain requires Node 18 or newer compatible versions. Do not use the old Node 16 baseline for the admin.
 - **npm**: v7.x or higher
 - **Git**: Latest version
 - **Code Editor**: VS Code recommended

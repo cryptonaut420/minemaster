@@ -1,155 +1,71 @@
 # MineMaster Server
 
-Centralized mining management server with REST API and web dashboard for monitoring and controlling multiple mining clients.
+Central backend and React admin for the MineMaster desktop clients. The active admin pages are Dashboard and Global Configurations. It uses Express, MongoDB, WebSocket, and a Vite build.
 
-## Features
+The [backend/admin reference](../docs/backend-admin.md) documents every current REST route, message envelope, telemetry interval, storage unit, and known contract limitation. The [September 2026 operational audit](../docs/audits/backend-admin-2026-09-12/README.md) records the original findings. The [implementation report](../docs/audits/backend-admin-2026-09-12/implementation.md) tracks the repair and validation.
 
-- **📊 Dashboard** - Real-time overview of all connected miners
-- **💻 Miners Management** - View, control, and monitor individual miners
-- **⚙️ Global Configurations** - Set pool, wallet, and algorithm settings for XMRig and Nanominer
-- **🔄 Real-time Updates** - WebSocket-based live status updates
-- **🔗 Auto-sync** - Clients automatically receive configuration updates
+## Setup
 
-## Installation
+Use Node.js 20.19 or newer for the development and test tools. The verified local runtime was Node 25.9.0.
 
-```bash
+From the repository root:
+
+```sh
+npm --prefix server ci
+npm --prefix server/public ci
+```
+
+Create `server/.env` from `server/env.example` if it does not exist. Configure `MONGO_HOST`, `MONGO_PORT`, `MONGO_USERNAME`, `MONGO_PASSWORD`, and `MONGO_DB_NAME`. `PORT` defaults to 3001. MongoDB is a separate service; this directory's Compose file does not provision it.
+
+## Development
+
+Run the API and admin in separate terminals:
+
+```sh
 cd server
-
-# Install server dependencies
-npm install
-
-# Install dashboard dependencies
-cd public
-npm install
+NODE_ENV=development npm run dev
 ```
 
-## Running
-
-### Development Mode
-
-```bash
-# Terminal 1: Start API server
-npm run dev
-
-# Terminal 2: Start dashboard (Vite)
-cd public
+```sh
+cd server/public
 npm run dev
 ```
 
-- **API Server**: http://localhost:3001
-- **Dashboard Dev**: http://localhost:3002
+API: [localhost:3001](http://localhost:3001). Admin: [localhost:3002](http://localhost:3002).
 
-### Production Mode
+Vite proxies `/api` and `/ws`. Observers subscribe for incremental rig updates; periodic REST reconciliation handles missed messages and reconnects.
 
-```bash
-# Build dashboard
-cd public
-npm run build
-cd ..
+## Production
 
-# Start server
+```sh
+npm --prefix server/public run build
+cd server
 NODE_ENV=production npm start
 ```
 
-Server runs on http://localhost:3001 (serves both API and built dashboard)
+Express serves `public/build` in production. The current Dockerfile builds the admin and runs the server on Node 18. The local audit build used Node 25.9.0 and does not verify the container image.
 
-## Global Configuration Options
+## Operational behavior
 
-### XMRig (CPU Mining)
+- `/api/v1/fleet/summary` and `/api/v1/rigs` provide shared, freshness-aware fleet data with filters and rig pagination.
+- `/api/v1/metrics/hashrate` returns per-algorithm time-weighted history, null gaps, coverage, and configurable ranges/resolution.
+- `/api/v1/commands` provides single/bulk acknowledged process control, persistent outcomes, deadlines, cancellation, and idempotency.
+- `/api/v1/configs` provides validated desired settings, revisions, rollback, and explicit per-rig rollout.
+- `/api/v1/logs`, `/events`, `/metrics/sensors`, `/incidents`, and `/monitoring/rules` support central operations and matching UI/API views.
+- The admin includes attention filters, saved views, groups/tags, column preferences, mobile rig rows, central logs, command history, maintenance, and optional bounded recovery.
+- `/api/live` is liveness; `/api/health` verifies database/index readiness.
+- Raw history defaults to seven days; hashrate rollups and commands retain 90 days. Individual GPU control remains explicitly unsupported.
 
-| Field | Description |
-|-------|-------------|
-| `coin` | Cryptocurrency symbol (e.g., XMR) |
-| `algorithm` | Mining algorithm (rx/0, rx/wow, rx/arq, cn/r, cn/half, ghostrider) |
-| `pool` | Pool address with port |
-| `user` | Wallet address |
-| `password` | Pool password (usually 'x') |
-| `threadPercentage` | CPU usage percentage (10-100%) |
-| `additionalArgs` | Extra command line arguments |
+Operational REST routes accept the admin bearer token or a named API key. Create read-only or full-management keys in the admin’s API access page; see [API access](../docs/api-access.md). Miner WebSocket registration/reporting remain unauthenticated. Observer subscriptions require credentials. First admin setup uses the registration screen; subsequent sessions use login. Password maintenance is documented by `scripts/reset-password.js`.
 
-### Nanominer (GPU Mining)
+## Validation
 
-| Field | Description |
-|-------|-------------|
-| `coin` | Cryptocurrency symbol (e.g., RVN) |
-| `algorithm` | Mining algorithm (ethash, etchash, kawpow, autolykos, conflux, ton, kaspa, karlsenhash, nexa) |
-| `pool` | Pool address with port |
-| `user` | Wallet address |
-| `rigName` | Worker/rig identifier |
+Run from the repository root:
 
-*Note: GPU selection is configured on each client individually.*
-
-## API Endpoints
-
-### Miners
-
-- `GET /api/miners` - List all registered miners
-- `GET /api/miners/:id` - Get miner details
-- `POST /api/miners` - Register a new miner
-- `PUT /api/miners/:id` - Update miner
-- `DELETE /api/miners/:id` - Remove miner
-- `POST /api/miners/:id/restart` - Restart miner
-- `POST /api/miners/:id/stop` - Stop mining
-- `POST /api/miners/:id/start` - Start mining with config
-
-### Configs
-
-- `GET /api/configs` - Get all global configs
-- `GET /api/configs/:type` - Get config for miner type
-- `PUT /api/configs/:type` - Update config (auto-broadcasts to clients)
-- `POST /api/configs/:type/apply` - Apply config and restart all miners using it
-
-## WebSocket Events
-
-### From Server
-
-- `connected` - Connection established
-- `config_updated` - Global config was updated
-- `command` - Command from server (start, stop, restart, restart_with_config)
-
-### From Client
-
-- `register` - Register miner with server
-- `status_update` - Update miner status
-- `mining_update` - Update mining statistics
-- `heartbeat` - Keep-alive ping
-
-## Authentication
-
-The server includes a built-in authentication system:
-
-### First-Time Setup
-1. Navigate to the dashboard
-2. Create your admin account on the registration screen
-3. Only one admin account can exist
-
-### Features
-- JWT-based authentication (7-day token expiration)
-- Rate limiting: 5 login attempts per 15 minutes
-- API rate limiting: 100 requests per minute
-- bcrypt password hashing
-
-### Password Reset
-```bash
-cd server
-node scripts/reset-password.js admin@example.com NewPassword123
+```sh
+npm --prefix server test
+npm --prefix server/public run build
+node server/scripts/preview-fixture.cjs
 ```
 
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | 3001 | Server port |
-| `NODE_ENV` | development | Environment mode |
-| `JWT_SECRET` | (auto-generated) | JWT signing key - set for production |
-| `MONGO_HOST` | localhost | MongoDB host |
-| `MONGO_PORT` | 27017 | MongoDB port |
-| `MONGO_DB_NAME` | minemaster | Database name |
-
-## Data Storage
-
-Uses MongoDB for persistent storage:
-- `miners` collection - Registered miners
-- `configs` collection - Global configurations  
-- `admins` collection - Admin users
-- `hashrates` collection - Historical hashrate data
+The tests create a disposable MongoDB and synthetic agents; no real miner executes. The browser fixture binds to `127.0.0.1:43188`, uses temporary data, and simulates commands. See [AGENTS.md](../AGENTS.md), the [API reference](../docs/backend-admin.md), and the [implementation report](../docs/audits/backend-admin-2026-09-12/implementation.md).

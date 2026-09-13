@@ -1,6 +1,6 @@
 # MineMaster - Future Upgrade Suggestions
 
-Prioritized recommendations for further improving MineMaster.
+Historical desktop recommendations. For current backend/admin priorities, use the [September 2026 operational audit](docs/audits/backend-admin-2026-09-12/README.md). Basic server history/chart functionality already exists but needs correctness repairs; do not treat these older suggestions as the current backend implementation status.
 
 ## 🔥 High-Value Upgrades (Recommended Next)
 

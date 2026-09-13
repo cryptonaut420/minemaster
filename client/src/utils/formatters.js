@@ -1,3 +1,4 @@
+import { parseAggregate } from './telemetry';
 /**
  * Shared formatting utilities for consistent display across the app
  */
@@ -49,7 +50,7 @@ export function formatPercent(value, decimals = 1) {
  * @returns {string|null} Formatted hashrate (e.g., "1.23 MH/s")
  */
 export function formatHashrate(hashrate) {
-  if (!hashrate || hashrate === 0) return null;
+  if (hashrate === null || hashrate === undefined || hashrate < 0) return null;
   if (typeof hashrate !== 'number' || !isFinite(hashrate)) return null;
   
   const absHashrate = Math.abs(hashrate);
@@ -72,37 +73,7 @@ export function formatHashrate(hashrate) {
  * @param {string} output - Miner output line
  * @returns {number|null} Hashrate in H/s or null if not found
  */
-export function parseHashrate(output) {
-  if (!output || typeof output !== 'string') return null;
-
-  // XMRig format: "speed 10s/60s/15m 123.4 456.7 789.0 H/s" - capture first hashrate value after the label
-  const xmrigPattern = /speed\s+\S+\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
-  
-  // Nanominer format: "Total: 25.5 Mh/s"
-  const nanominerPattern = /Total:\s*([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|Mh\/s|GH\/s|TH\/s)/i;
-
-  // Generic fallback: any number followed by hashrate unit
-  const genericPattern = /([\d.]+)\s*(H\/s|kH\/s|KH\/s|MH\/s|GH\/s|TH\/s)/i;
-  
-  const match = output.match(xmrigPattern) || output.match(nanominerPattern) || output.match(genericPattern);
-  
-  if (!match) return null;
-  
-  const value = parseFloat(match[1]);
-  if (isNaN(value) || value === 0) return null;
-  const unit = match[2].toLowerCase();
-  
-  // Convert to base H/s
-  const multipliers = {
-    'h/s': 1,
-    'kh/s': 1000,
-    'mh/s': 1000000,
-    'gh/s': 1000000000,
-    'th/s': 1000000000000
-  };
-  
-  return value * (multipliers[unit] || 1);
-}
+export function parseHashrate(output) { return parseAggregate(output); }
 
 /**
  * Format uptime duration

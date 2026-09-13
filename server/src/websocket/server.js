@@ -1,830 +1,564 @@
-const Miner = require('../models/Miner');
-const HashRate = require('../models/HashRate');
-const { v4: uuidv4 } = require('uuid');
-
-let wss = null;
-const connections = new Map(); // connectionId -> { ws, minerId }
-
-function isLikelyIntegratedGpu(gpu = {}) {
-  const model = (gpu.model || gpu.name || '').toLowerCase();
-  const vendor = (gpu.vendor || '').toLowerCase();
-
-  if (vendor.includes('intel') && !model.includes('arc')) return true;
-  if (
-    (vendor.includes('amd') || vendor.includes('ati')) &&
-    (model.includes('radeon graphics') ||
-      model.includes('vega') ||
-      model.includes('renoir') ||
-      model.includes('cezanne') ||
-      model.includes('lucienne') ||
-      model.includes('raphael'))
-  ) {
-    return true;
-  }
-  if (
-    vendor.includes('microsoft') ||
-    model.includes('basic display') ||
-    model.includes('virtual') ||
-    model.includes('integrated')
-  ) {
-    return true;
-  }
-  return false;
+const { randomUUID } = require("crypto");
+const Miner = require("../models/Miner");
+const Config = require("../models/Config");
+const HashRate = require("../models/HashRate");
+const { getDb } = require("../db/mongodb");
+const {
+  normalizeGpus,
+  normalizeProcesses,
+  viewRig,
+  date,
+} = require("../services/telemetry");
+const commands = require("../services/commands");
+const monitoring = require("../services/monitoring");
+const { authenticateAccess } = require("../middleware/auth");
+const connections = new Map(),
+  queues = new Map();
+let timer,
+  sweepBusy = false;
+let monitorState = {
+  status: "starting",
+  lastSweepAt: null,
+  lastSuccessfulSweepAt: null,
+  failedRigs: 0,
+};
+function monitoringStatus() {
+  const overdue =
+    monitorState.lastSweepAt &&
+    Date.now() - date(monitorState.lastSweepAt) > 90000;
+  return {
+    ...monitorState,
+    status: overdue ? "overdue" : monitorState.status,
+    running: sweepBusy,
+    intervalSeconds: 30,
+  };
 }
-
-function normalizeGpuList(gpus = []) {
-  const seen = new Set();
-  return (Array.isArray(gpus) ? gpus : [])
-    .filter(Boolean)
-    .filter((gpu) => !isLikelyIntegratedGpu(gpu))
-    .filter((gpu) => !gpu.vram || gpu.vram > 512)
-    .filter((gpu) => {
-      const key = `${(gpu.vendor || '').toLowerCase()}|${(gpu.model || gpu.name || '').toLowerCase()}`;
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+function serialize(key, work) {
+  const previous = queues.get(key) || Promise.resolve();
+  const next = previous.catch(() => {}).then(work);
+  queues.set(key, next);
+  next
+    .finally(() => {
+      if (queues.get(key) === next) queues.delete(key);
+    })
+    .catch(() => {});
+  return next;
 }
-
-// Stale-connection reaper interval (cleaned up on shutdown)
-let staleConnectionTimer = null;
-const STALE_CONNECTION_MS = 90000; // 90 seconds without a heartbeat
-
-function initialize(webSocketServer) {
-  wss = webSocketServer;
-  
-  wss.on('connection', (ws, req) => {
-    const connectionId = uuidv4();
-    const ip = req.socket.remoteAddress || 
-               req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
-               req.connection?.remoteAddress || 
-               'unknown';
-    connections.set(connectionId, { ws, minerId: null, ip, lastSeen: Date.now() });
-    
-    ws.send(JSON.stringify({
-      type: 'connected',
-      connectionId
-    }));
-    
-    ws.on('message', async (message) => {
-      try {
-        const conn = connections.get(connectionId);
-        if (conn) conn.lastSeen = Date.now();
-
-        const data = JSON.parse(message);
-        await handleMessage(connectionId, data);
-      } catch (error) {
-        sendToConnection(connectionId, {
-          type: 'error',
-          error: error.message
-        });
-      }
-    });
-    
-    // Guard: only the first of close/error should trigger disconnect logic
-    let disconnected = false;
-    const safeDisconnect = async () => {
-      if (disconnected) return;
-      disconnected = true;
-      try {
-        await handleDisconnect(connectionId);
-      } catch (err) {
-        console.error(`[WS] Error in handleDisconnect for ${connectionId}:`, err);
-        connections.delete(connectionId);
-      }
-    };
-
-    ws.on('close', safeDisconnect);
-    ws.on('error', safeDisconnect);
-  });
-
-  // Periodically reap stale connections whose clients silently disappeared
-  staleConnectionTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [connectionId, conn] of connections.entries()) {
-      if (now - conn.lastSeen > STALE_CONNECTION_MS) {
-        console.log(`[WS] Reaping stale connection ${connectionId}`);
-        try { conn.ws.terminate(); } catch (_) {}
-        handleDisconnect(connectionId).catch(() => connections.delete(connectionId));
-      }
+function sendToMiner(connectionId, message) {
+  const c = connections.get(connectionId);
+  if (!c || c.closed || c.ws.readyState !== 1) return false;
+  if (c.ws.bufferedAmount > 1024 * 1024) {
+    c.ws.close(1013, "Consumer too slow");
+    return false;
+  }
+  c.ws.send(JSON.stringify(message));
+  return true;
+}
+function broadcast(message) {
+  // Agents receive only their own protocol messages. Observer updates are incremental.
+  for (const [id, c] of connections)
+    if (c.observer && !c.minerId) {
+      if (c.principal?.expiresAt && c.principal.expiresAt <= Date.now()) {
+        c.observer = false;
+        c.ws.close(4001, "Observer credentials expired");
+      } else sendToMiner(id, message);
     }
-  }, 30000);
 }
-
-async function handleMessage(connectionId, data) {
-  const connection = connections.get(connectionId);
-  if (!connection) {
+function revokeKeyObservers(id) {
+  for (const c of connections.values())
+    if (
+      c.observer &&
+      c.principal?.kind === "api-key" &&
+      c.principal.id === id
+    ) {
+      c.observer = false;
+      c.ws.close(4001, "API key revoked");
+    }
+}
+function broadcastMiner(miner) {
+  if (miner) broadcast({ type: "miner_updated", miner: miner.toJSON() });
+}
+async function register(c, data) {
+  if (c.observer) throw Error("Open a separate connection to register a miner");
+  if (
+    typeof data.systemId !== "string" ||
+    !data.systemId.trim() ||
+    data.systemId.length > 200
+  )
+    throw Error("A stable systemId is required");
+  if (c.minerId && c.systemId !== data.systemId)
+    throw Error("A connection cannot change rig identity");
+  let miner = await Miner.getBySystemId(data.systemId);
+  if (miner?.forgottenAt) {
+    sendToMiner(c.id, {
+      type: "error",
+      error: "Rig was forgotten. Restore it in admin before registering again.",
+    });
+    c.ws.close(1000, "Rig forgotten");
     return;
   }
-  
-  switch (data.type) {
-    case 'register':
-      await handleRegister(connectionId, data);
-      break;
-    
-    case 'status-update':
-    case 'status_update':
-      await handleStatusUpdate(connectionId, data);
-      break;
-    
-    case 'hashrate-update':
-    case 'mining_update':
-      await handleMiningUpdate(connectionId, data);
-      break;
-    
-    case 'heartbeat':
-      await handleHeartbeat(connectionId, data);
-      break;
-    
-    case 'request-configs':
-      await handleRequestConfigs(connectionId, data);
-      break;
-    
-    case 'unbound':
-      await handleUnbind(connectionId, data);
-      break;
-    
-    default:
-      // Unknown message type - send pong to acknowledge
-      sendToConnection(connectionId, {
-        type: 'pong'
-      });
-  }
-}
-
-async function handleRegister(connectionId, data) {
-  const {systemId, systemInfo, silent, clientName } = data.data || data;
-  const Config = require('../models/Config');
-  
-  // Get IP from connection
-  const connection = connections.get(connectionId);
-  const ip = connection?.ip || 'unknown';
-  
-  // Find or create miner by systemId (MAC address)
-  let miner = await Miner.getBySystemId(systemId);
-  
-  // Extract system details
-  const hostname = systemInfo?.hostname || systemInfo?.os?.hostname || 'unknown';
-  const platform = systemInfo?.platform || systemInfo?.os?.platform || 'unknown';
-  // Get full OS name if available
-  const osName = systemInfo?.os?.distro || 
-                 systemInfo?.os?.release || 
-                 systemInfo?.os?.name || 
-                 platform;
-  const cpuInfo = systemInfo?.cpu || systemInfo?.hardware?.cpu || null;
-  const rawGpuInfo = systemInfo?.gpus || systemInfo?.gpu?.controllers || [];
-  const gpuInfo = normalizeGpuList(rawGpuInfo);
-  const memoryInfo = systemInfo?.memory || systemInfo?.mem || null;
-  
-  // Extract device states from client if provided
-  const clientDevices = systemInfo?.devices || data.data?.devices || null;
-  
-  const isReconnect = !!miner; // Check if this is a reconnect
-  
-  // Build initial device states based on hardware
-  const buildDeviceStates = (existingDevices) => {
-    const devices = {
-      cpu: {
-        // Priority: 1) Existing DB state, 2) Client-provided state, 3) Default to enabled
-        enabled: existingDevices?.cpu?.enabled !== undefined
-          ? existingDevices.cpu.enabled
-          : (clientDevices?.cpu?.enabled !== undefined 
-              ? clientDevices.cpu.enabled 
-              : true),
-        running: clientDevices?.cpu?.running || false,
-        hashrate: clientDevices?.cpu?.hashrate || null,
-        algorithm: clientDevices?.cpu?.algorithm || null
-      },
-      gpus: []
-    };
-    
-    // Build GPU states from hardware info (only if GPUs are detected)
-    if (gpuInfo && gpuInfo.length > 0) {
-      devices.gpus = gpuInfo.map((gpu, idx) => {
-        const existingGpu = existingDevices?.gpus?.[idx];
-        const clientGpu = clientDevices?.gpus?.[idx];
-        return {
-          id: idx,
-          model: gpu.model || gpu.name || `GPU ${idx}`,
-          // Priority: 1) Existing DB state, 2) Client-provided state, 3) Default to enabled
-          enabled: existingGpu?.enabled !== undefined
-            ? existingGpu.enabled
-            : (clientGpu?.enabled !== undefined 
-                ? clientGpu.enabled 
-                : true),
-          running: clientGpu?.running || false,
-          hashrate: clientGpu?.hashrate || null,
-          algorithm: clientGpu?.algorithm || null
-        };
-      });
-    } else {
-      // No GPUs detected - clear GPU devices array
-      devices.gpus = [];
-    }
-    
-    return devices;
+  if (c.closed) return;
+  const info = data.systemInfo || {},
+    gpus = normalizeGpus(info.gpus || info.gpu?.controllers || []);
+  const hostname = info.hostname || info.os?.hostname || "unknown";
+  const changes = {
+    systemId: data.systemId,
+    hostname,
+    name: miner?.name || data.clientName || hostname,
+    reportedName: data.clientName || hostname,
+    os: info.os?.distro || info.os?.release || info.platform || "unknown",
+    hardware: {
+      cpu: info.cpu || null,
+      gpus,
+      memory: info.memory || info.mem || null,
+    },
+    connectionId: c.id,
+    connectionLastSeen: new Date().toISOString(),
+    lastSeen: new Date().toISOString(),
+    telemetryReceivedAt: null,
+    bound: true,
+    protocolVersion: data.protocolVersion === 2 ? 2 : 1,
+    version: data.version || null,
+    bootId: data.bootId || null,
+    capabilities: data.capabilities || {},
+    ip: c.ip,
+    observedPeerIp: c.peerIp,
+    addressSource:
+      process.env.TRUST_PROXY_IP === "true" ? "forwarded" : "socket",
   };
-  
+  const previousId = miner?.connectionId;
   if (!miner) {
-    // Create new miner
-    const devices = buildDeviceStates(null);
-    
-    // Derive status from device running states
-    const isAnyRunning = devices.cpu?.running || devices.gpus?.some(g => g.running);
-    
-    miner = await Miner.create({
-      systemId,
-      name: clientName || (hostname !== 'unknown' ? hostname : `Miner-${systemId.substring(0, 8)}`),
-      hostname,
-      ip: ip,
-      os: osName,
-      version: '1.0.0',
-      hardware: {
-        cpu: cpuInfo,
-        gpus: gpuInfo,
-        ram: memoryInfo
-      },
-      devices,
-      systemInfo,
-      connectionId,
-      status: isAnyRunning ? 'mining' : 'online',
-      mining: isAnyRunning,
-      bound: true // Automatically bind when registering
-    });
-    
-  } else {
-    // Update existing miner
-    
-    // Update device states (preserve enabled settings, update running states)
-    const updatedDevices = buildDeviceStates(miner.devices);
-    
-    // Derive status from device running states instead of always resetting to 'online'
-    const isAnyRunning = updatedDevices.cpu?.running || updatedDevices.gpus?.some(g => g.running);
-    
-    const updateData = {
-      connectionId,
-      status: isAnyRunning ? 'mining' : 'online',
-      mining: isAnyRunning,
-      bound: true,
-      systemInfo,
-      lastSeen: new Date().toISOString(),
-      ip: ip // Update IP address
-    };
-    
-    // Update hostname (always track the real hostname)
-    if (hostname !== 'unknown') {
-      updateData.hostname = hostname;
+    changes.expectedDeviceIds = gpus.map((g) => g.deviceId);
+    miner = await Miner.create(changes);
+  } else miner = await Miner.update(miner.id, changes);
+  c.minerId = miner.id;
+  c.systemId = data.systemId;
+  c.observer = false;
+  if (previousId && previousId !== c.id) {
+    const previous = connections.get(previousId);
+    if (previous) {
+      previous.closed = true;
+      previous.ws.close(1000, "Replaced by newer connection");
+      connections.delete(previousId);
     }
-    
-    // Use clientName as display name if provided, otherwise use hostname
-    if (clientName) {
-      updateData.name = clientName;
-    } else if (hostname !== 'unknown') {
-      updateData.name = hostname;
-    }
-    
-    // Update OS if available
-    if (osName !== 'unknown') {
-      updateData.os = osName;
-    }
-    
-    // Update hardware info
-    updateData.hardware = {
-      cpu: cpuInfo || miner.hardware?.cpu,
-      gpus: gpuInfo.length > 0 ? gpuInfo : (miner.hardware?.gpus || []),
-      ram: memoryInfo || miner.hardware?.ram
-    };
-    
-    updateData.devices = updatedDevices;
-    
-    const updatedMiner = await Miner.update(miner.id, updateData);
-    
-    if (!updatedMiner) {
-      sendToConnection(connectionId, {
-        type: 'error',
-        error: 'Failed to update miner'
+  }
+  const configs = miner.desiredConfigs || (await Config.getAll());
+  if (!miner.desiredConfigs)
+    await Miner.update(miner.id, { desiredConfigs: configs });
+  sendToMiner(c.id, {
+    type: data.silent ? "registered" : "bound",
+    data: {
+      minerId: miner.id,
+      configs,
+      protocolVersion: 2,
+      capabilities: { commandResults: true, logs: true },
+    },
+  });
+  await monitoring.event(miner.id, "agent-connected", {
+    version: miner.version,
+    bootId: miner.bootId,
+  });
+  broadcastMiner(miner);
+}
+async function owned(c) {
+  if (c.closed || !c.minerId) return null;
+  const m = await Miner.getById(c.minerId);
+  return m && m.connectionId === c.id && !m.forgottenAt ? m : null;
+}
+async function status(c, data) {
+  const miner = await owned(c);
+  if (!miner) return;
+  const now = new Date().toISOString();
+  const payload = { ...data, protocolVersion: miner.protocolVersion };
+  const processes = normalizeProcesses(payload);
+  for (const process of processes) {
+    process.loadedConfigVersion = process.desiredConfigVersion;
+    process.desiredConfigVersion =
+      miner.desiredConfigs?.[process.type]?.version ||
+      process.desiredConfigVersion;
+    const previous = miner.processes?.find((p) => p.id === process.id);
+    process.zeroSince =
+      process.running && process.quality === "zero"
+        ? previous?.quality === "zero" &&
+          previous.startedAt === process.startedAt
+          ? previous.zeroSince || process.hashrateObservedAt
+          : process.hashrateObservedAt
+        : null;
+    // Out-of-order cached readings cannot replace a newer observation in this session.
+    if (
+      previous &&
+      date(process.hashrateObservedAt) !== null &&
+      date(process.hashrateObservedAt) < date(previous.hashrateObservedAt) &&
+      process.running === previous.running
+    ) {
+      Object.assign(process, {
+        hashrate: previous.hashrate,
+        hashrateObservedAt: previous.hashrateObservedAt,
+        quality: previous.quality,
       });
+    }
+    const closedInterval =
+      previous?.running && !process.running
+        ? {
+            ...process,
+            hashrateObservedAt: now,
+            hashrate: null,
+            quality: "unavailable",
+            algorithm: previous.algorithm,
+          }
+        : process;
+    await HashRate.record(miner.id, closedInterval, previous);
+  }
+  for (const previous of miner.processes || [])
+    if (!processes.some((p) => p.id === previous.id))
+      await HashRate.record(
+        miner.id,
+        {
+          ...previous,
+          running: false,
+          hashrate: null,
+          hashrateObservedAt: now,
+          quality: "unavailable",
+        },
+        previous,
+      );
+  const gpuInfo = data.systemInfo?.gpus;
+  const hardware = gpuInfo
+    ? { ...miner.hardware, gpus: normalizeGpus(gpuInfo) }
+    : miner.hardware;
+  const stats = monitoring.sensors(payload);
+  const devices = {
+    cpu: processes.find((p) => p.deviceType === "CPU") || { running: false },
+    gpus: hardware.gpus.map((g) => ({
+      ...g,
+      hashrate: null,
+      telemetry: stats.gpus.find((s) => s.deviceId === g.deviceId) || null,
+    })),
+    gpuProcess: processes.find((p) => p.deviceType === "GPU") || null,
+  };
+  // History is persisted before the snapshot; replaying a failed update is safe.
+  if (!miner.lastMetricAt || Date.now() - date(miner.lastMetricAt) >= 30000)
+    await getDb()
+      .collection("metrics")
+      .insertOne({ minerId: miner.id, timestamp: new Date(), ...stats });
+  const updated = await Miner.update(
+    miner.id,
+    {
+      processes,
+      hardware,
+      devices,
+      stats,
+      telemetryReceivedAt: now,
+      connectionLastSeen: now,
+      lastSeen: now,
+      lastMetricAt:
+        !miner.lastMetricAt || Date.now() - date(miner.lastMetricAt) >= 30000
+          ? now
+          : miner.lastMetricAt,
+      reportedName: data.clientName || miner.reportedName,
+    },
+    { connectionId: c.id, forgottenAt: null },
+  );
+  if (updated) broadcastMiner(updated);
+}
+async function handle(c, message) {
+  const data = message.data || message;
+  if (message.type === "register") return register(c, data);
+  if (message.type === "subscribe") {
+    if (!c.minerId) {
+      const principal = await authenticateAccess({
+        token: data.token,
+        apiKey: data.apiKey,
+      });
+      if (!principal) {
+        c.observer = false;
+        sendToMiner(c.id, {
+          type: "error",
+          code: "authentication_required",
+          error:
+            "An admin session or valid API key is required for fleet subscriptions",
+        });
+        c.ws.close(4001, "Observer authentication required");
+        return;
+      }
+      c.principal = principal;
+      c.observer = true;
+      sendToMiner(c.id, { type: "subscribed", protocolVersion: 2 });
+    }
+    return;
+  }
+  if (message.type === "heartbeat" || message.type === "ping") {
+    const miner = await owned(c);
+    if (miner)
+      await Miner.update(
+        miner.id,
+        { connectionLastSeen: new Date().toISOString() },
+        { connectionId: c.id },
+      );
+    sendToMiner(c.id, { type: "pong" });
+    return;
+  }
+  const miner = await owned(c);
+  if (!miner) return;
+  switch (message.type) {
+    case "status-update":
+      return status(c, data);
+    case "hashrate-update": {
+      // Legacy agent compatibility only. V2 reports original observations in its process snapshot.
+      if (miner.protocolVersion >= 2) return;
+      const h = data.hashrate || {},
+        id = h.minerId || (h.deviceType === "GPU" ? "nanominer-1" : "xmrig-1");
+      const next = normalizeProcesses({
+        miners: [{ ...h, id, running: true }],
+      })[0];
+      await HashRate.record(
+        miner.id,
+        next,
+        miner.processes?.find((p) => p.id === id),
+      );
+      const processes = (miner.processes || [])
+        .filter((p) => p.id !== id)
+        .concat(next);
+      broadcastMiner(
+        await Miner.update(miner.id, { processes }, { connectionId: c.id }),
+      );
       return;
     }
-    
-    miner = updatedMiner;
-  }
-  
-  // Update connection mapping (preserve existing ws and ip)
-  const existingConn = connections.get(connectionId);
-  if (!existingConn) return; // Connection disappeared during async registration
-  connections.set(connectionId, { 
-    ...existingConn,
-    minerId: miner.id,
-    systemId
-  });
-  
-  // Get global configs
-  const configs = await Config.getAll();
-  
-  // Only send 'registered' for silent auto-reconnects
-  // If silent is false, it's an explicit bind action, so always send 'bound'
-  if (silent) {
-    sendToConnection(connectionId, {
-      type: 'registered',
-      data: {
-        miner: miner.toJSON(),
-        configs
-      }
-    });
-  } else {
-    // For explicit binds (user clicked Bind button), always send 'bound'
-    sendToConnection(connectionId, {
-      type: 'bound',
-      data: {
-        miner: miner.toJSON(),
-        configs
-      }
-    });
-  }
-  
-  // Broadcast to all dashboard clients
-  broadcast({
-    type: 'miner_connected',
-    miner: miner.toJSON()
-  });
-}
-
-async function handleStatusUpdate(connectionId, data) {
-  const connection = connections.get(connectionId);
-  if (!connection || !connection.minerId) return;
-  
-  const statusData = data.data || data;
-  const updateData = {
-    lastSeen: new Date().toISOString()
-  };
-  
-  // Update display name from client
-  if (statusData.clientName) {
-    // Client has a custom name set
-    updateData.name = statusData.clientName;
-  } else if (statusData.clientName !== undefined) {
-    // Client explicitly sent empty clientName - revert to hostname
-    const hostname = statusData.systemInfo?.hostname || statusData.systemInfo?.os?.hostname;
-    if (hostname && hostname !== 'unknown') {
-      updateData.name = hostname;
-    }
-  }
-  
-  // Get current miner data to preserve device enabled settings
-  const currentMiner = await Miner.getById(connection.minerId);
-  
-  if (statusData.systemInfo) {
-    updateData.systemInfo = statusData.systemInfo;
-    updateData.hardware = {
-      cpu: statusData.systemInfo.cpu || null,
-      gpus: normalizeGpuList(statusData.systemInfo.gpus || []),
-      ram: statusData.systemInfo.memory || null
-    };
-  }
-  
-  // Update system stats (CPU/GPU usage, RAM, temps) - ALWAYS update if provided
-  if (statusData.stats !== undefined) {
-    // Store stats exactly as received from client
-    updateData.stats = statusData.stats;
-  }
-  
-  // Update device states from client status
-  if (statusData.devices) {
-    const devices = {
-      cpu: {
-        // Preserve existing enabled state if not provided by client
-        enabled: statusData.devices.cpu?.enabled !== undefined 
-          ? statusData.devices.cpu.enabled 
-          : (currentMiner?.devices?.cpu?.enabled ?? true),
-        running: statusData.devices.cpu?.running || false,
-        hashrate: statusData.devices.cpu?.hashrate !== undefined ? statusData.devices.cpu?.hashrate : null,
-        algorithm: statusData.devices.cpu?.algorithm || null
-      },
-      gpus: []
-    };
-    
-    // Update GPU states (only if GPUs are detected)
-    if (statusData.devices.gpus && Array.isArray(statusData.devices.gpus) && statusData.devices.gpus.length > 0) {
-      devices.gpus = statusData.devices.gpus.map((gpu, idx) => {
-        const existingGpu = currentMiner?.devices?.gpus?.[idx];
-        return {
-          id: idx,
-          model: gpu.model || existingGpu?.model || `GPU ${idx}`,
-          // Preserve existing enabled state if not provided by client
-          // All GPUs should have the same enabled state (controlled by nanominer on/off)
-          enabled: gpu.enabled !== undefined 
-            ? gpu.enabled 
-            : (existingGpu?.enabled ?? true),
-          running: gpu.running || false,
-          hashrate: gpu.hashrate !== undefined ? gpu.hashrate : null,
-          algorithm: gpu.algorithm || null
-        };
+    case "command-result":
+      return commands.report(miner.id, data);
+    case "logs":
+      return monitoring.ingestLogs(miner.id, data.entries);
+    case "event":
+      return monitoring.event(miner.id, data.kind, data.details || {});
+    case "request-configs":
+      sendToMiner(c.id, {
+        type: "config-update",
+        data: miner.desiredConfigs || (await Config.getAll()),
       });
-    } else {
-      // No GPUs detected - preserve existing GPU device states if they exist
-      devices.gpus = currentMiner?.devices?.gpus || [];
+      return;
+    case "unbound": {
+      broadcastMiner(
+        await Miner.update(
+          miner.id,
+          { bound: false, connectionId: null },
+          { connectionId: c.id },
+        ),
+      );
+      sendToMiner(c.id, { type: "unbound" });
+      c.ws.close(1000, "Unbound");
+      return;
     }
-    
-    updateData.devices = devices;
+    default:
+      throw Error("Unsupported message type");
   }
-  
-  if (statusData.miners) {
-    // Update mining status based on client miners (legacy format)
-    const anyMining = statusData.miners.some(m => m.running);
-    updateData.mining = anyMining;
-    updateData.status = anyMining ? 'mining' : 'online';
-    
-    // Prefer GPU aggregate hashrate when GPU miner is running.
-    // This prevents CPU-first ordering from intermittently overriding GPU display.
-    const runningGpuMiner = statusData.miners.find(
-      (m) => m.running && m.deviceType === 'GPU' && m.hashrate
+}
+async function close(c) {
+  c.closed = true;
+  connections.delete(c.id);
+  if (!c.minerId) return;
+  await serialize(c.systemId, async () => {
+    const miner = await Miner.update(
+      c.minerId,
+      { connectionId: null, disconnectedAt: new Date().toISOString() },
+      { connectionId: c.id },
     );
-    const runningCpuMiner = statusData.miners.find(
-      (m) => m.running && m.deviceType === 'CPU' && m.hashrate
-    );
-    const preferredMiner = runningGpuMiner || runningCpuMiner || null;
-
-    if (preferredMiner) {
-      updateData.hashrate = preferredMiner.hashrate;
-      updateData.algorithm = preferredMiner.algorithm;
-      updateData.deviceType = preferredMiner.deviceType;
-      updateData.currentMiner = preferredMiner.type;
-    } else if (!anyMining) {
-      // No miners running - explicitly clear hashrate and related fields
-      updateData.hashrate = null;
-      updateData.algorithm = null;
-      updateData.deviceType = null;
-      updateData.currentMiner = null;
-    }
-    
-    // Also update device states from miners array if devices not provided directly
-    if (!statusData.devices) {
-      const cpuMiner = statusData.miners.find(m => m.type === 'xmrig');
-      const gpuMiner = statusData.miners.find(m => m.type === 'nanominer');
-      
-      const devices = currentMiner?.devices || { cpu: { enabled: true }, gpus: [] };
-      
-      if (cpuMiner) {
-        devices.cpu = {
-          // Sync enabled state from client if provided
-          enabled: cpuMiner.enabled !== undefined ? cpuMiner.enabled : (devices.cpu?.enabled !== false),
-          running: cpuMiner.running || false,
-          hashrate: cpuMiner.hashrate !== undefined ? cpuMiner.hashrate : null,
-          algorithm: cpuMiner.algorithm || null
-        };
-      }
-      
-      if (gpuMiner) {
-        // Sync enabled state from client if provided
-        const gpuEnabled = gpuMiner.enabled !== undefined ? gpuMiner.enabled : true;
-        
-        // Only update GPU states if GPUs are actually detected in hardware
-        if (updateData.hardware?.gpus && updateData.hardware.gpus.length > 0) {
-          if (gpuMiner.running) {
-            // Mark all GPUs as running if nanominer is running
-            devices.gpus = (devices.gpus || []).map(gpu => ({
-              ...gpu,
-              enabled: gpuEnabled,
-              running: true,
-              // GPU miner hashrate is aggregate; avoid writing full total to each GPU entry.
-              hashrate: null,
-              algorithm: gpuMiner.algorithm || null
-            }));
-          } else {
-            devices.gpus = (devices.gpus || []).map(gpu => ({
-              ...gpu,
-              enabled: gpuEnabled,
-              running: false,
-              hashrate: null,
-              algorithm: null
-            }));
-          }
-        } else {
-          // No GPUs detected - clear GPU devices array
-          devices.gpus = [];
-        }
-      } else if (!updateData.hardware?.gpus || updateData.hardware.gpus.length === 0) {
-        // No GPU miner and no GPUs detected - clear GPU devices
-        devices.gpus = [];
-      }
-      
-      updateData.devices = devices;
-    }
-  }
-  
-  // Determine overall status from device states
-  const devices = updateData.devices || currentMiner?.devices;
-  if (devices) {
-    const cpuRunning = devices.cpu?.running;
-    const anyGpuRunning = devices.gpus?.some(g => g.running);
-    const newMiningState = cpuRunning || anyGpuRunning;
-    
-    // Track mining start time for uptime calculation
-    if (newMiningState && !currentMiner?.mining) {
-      // Mining just started
-      updateData.miningStartTime = new Date().toISOString();
-    } else if (!newMiningState && currentMiner?.mining) {
-      // Mining just stopped
-      updateData.miningStartTime = null;
-      updateData.uptime = 0;
-    }
-    
-    updateData.mining = newMiningState;
-    updateData.status = newMiningState ? 'mining' : 'online';
-  }
-  
-  const miner = await Miner.update(connection.minerId, updateData);
-  
-  if (miner) {
-    // Broadcast update
-    broadcast({
-      type: 'miner_status_update',
-      miner: miner.toJSON()
-    });
-  }
-}
-
-async function handleMiningUpdate(connectionId, data) {
-  const connection = connections.get(connectionId);
-  if (!connection || !connection.minerId) return;
-  
-  const rawData = data.data || data;
-  
-  // The client wraps hashrate data inside a 'hashrate' property:
-  // { systemId, hashrate: { minerId, deviceType, algorithm, hashrate }, timestamp }
-  // Unwrap the nested structure if present
-  const hashData = (rawData.hashrate && typeof rawData.hashrate === 'object' && rawData.hashrate.deviceType)
-    ? rawData.hashrate
-    : rawData;
-  
-  // Record hash rate if available
-  if (hashData.hashrate && hashData.deviceType && hashData.algorithm) {
-    try {
-      await HashRate.record(connection.minerId, {
-        deviceType: hashData.deviceType,
-        algorithm: hashData.algorithm,
-        hashrate: hashData.hashrate
-      });
-      
-      const currentMiner = await Miner.getById(connection.minerId);
-      const updateData = {
-        mining: true,
-        status: 'mining',
-        lastSeen: new Date().toISOString()
-      };
-      
-      // Set mining start time if not already set
-      if (!currentMiner?.miningStartTime) {
-        updateData.miningStartTime = new Date().toISOString();
-      }
-      
-      // Write hashrate into the correct device entry so the dashboard
-      // can always read it from devices.cpu.hashrate / devices.gpus[].hashrate
-      // without depending on the top-level hashrate + deviceType combo.
-      if (currentMiner?.devices) {
-        const devices = JSON.parse(JSON.stringify(currentMiner.devices));
-        
-        if (hashData.deviceType === 'CPU' && devices.cpu) {
-          devices.cpu.hashrate = hashData.hashrate;
-          devices.cpu.algorithm = hashData.algorithm;
-          devices.cpu.running = true;
-        } else if (hashData.deviceType === 'GPU' && devices.gpus?.length > 0) {
-          // Place aggregate hashrate on first GPU entry
-          devices.gpus = devices.gpus.map((gpu, idx) => ({
-            ...gpu,
-            hashrate: idx === 0 ? hashData.hashrate : gpu.hashrate,
-            algorithm: hashData.algorithm,
-            running: true
-          }));
-        }
-        
-        updateData.devices = devices;
-      }
-      
-      // Keep top-level fields for backward compatibility
-      updateData.hashrate = hashData.hashrate;
-      updateData.algorithm = hashData.algorithm;
-      updateData.deviceType = hashData.deviceType;
-      
-      const miner = await Miner.update(connection.minerId, updateData);
-      
-      // Broadcast update to dashboard clients
-      if (miner) {
-        broadcast({
-          type: 'miner_status_update',
-          miner: miner.toJSON()
-        });
-      }
-    } catch (error) {
-      // Silent fail - status updates will correct this
-    }
-  }
-}
-
-async function handleHeartbeat(connectionId, data) {
-  const connection = connections.get(connectionId);
-  if (!connection || !connection.minerId) return;
-  
-  await Miner.update(connection.minerId, {
-    lastSeen: new Date().toISOString()
-  });
-  
-  // Send pong response
-  sendToConnection(connectionId, {
-    type: 'pong'
-  });
-}
-
-async function handleRequestConfigs(connectionId, data) {
-  const connection = connections.get(connectionId);
-  if (!connection || !connection.minerId) {
-    return;
-  }
-  
-  const Config = require('../models/Config');
-  const configs = await Config.getAll();
-  
-  sendToConnection(connectionId, {
-    type: 'config-update',
-    data: configs
-  });
-}
-
-async function handleUnbind(connectionId, data) {
-  const connection = connections.get(connectionId);
-  if (!connection || !connection.minerId) return;
-  
-  const miner = await Miner.getById(connection.minerId);
-  if (miner) {
-    await miner.unbind();
-    
-    sendToConnection(connectionId, {
-      type: 'unbound'
-    });
-    
-    // Broadcast to dashboard
-    broadcast({
-      type: 'miner_unbound',
-      miner: miner.toJSON()
-    });
-  }
-}
-
-async function handleDisconnect(connectionId) {
-  const connection = connections.get(connectionId);
-  if (connection && connection.minerId) {
-    // Clear all running/hashrate states so the dashboard doesn't show stale data
-    const currentMiner = await Miner.getById(connection.minerId);
-    const cleanDevices = currentMiner?.devices
-      ? JSON.parse(JSON.stringify(currentMiner.devices))
-      : { cpu: { enabled: true, running: false, hashrate: null, algorithm: null }, gpus: [] };
-    
-    if (cleanDevices.cpu) {
-      cleanDevices.cpu.running = false;
-      cleanDevices.cpu.hashrate = null;
-    }
-    if (cleanDevices.gpus && cleanDevices.gpus.length > 0) {
-      cleanDevices.gpus = cleanDevices.gpus.map(gpu => ({
-        ...gpu,
-        running: false,
-        hashrate: null
-      }));
-    }
-
-    const miner = await Miner.update(connection.minerId, {
-      status: 'offline',
-      mining: false,
-      hashrate: null,
-      miningStartTime: null,
-      connectionId: null,
-      devices: cleanDevices
-    });
-    
     if (miner) {
-      // Broadcast disconnect
-      broadcast({
-        type: 'miner_disconnected',
-        miner: miner.toJSON()
-      });
-    }
-  }
-  
-  connections.delete(connectionId);
-}
-
-// Send command to specific miner(s)
-async function sendCommand(minerIds, command) {
-  const Config = require('../models/Config');
-  let sent = 0;
-  
-  // If minerIds is 'all', send to all bound miners
-  if (minerIds === 'all') {
-    const boundMiners = await Miner.getAllBound();
-    minerIds = boundMiners.map(m => m.id);
-  }
-  
-  // Ensure minerIds is an array
-  if (!Array.isArray(minerIds)) {
-    minerIds = [minerIds];
-  }
-  
-  for (const minerId of minerIds) {
-    const miner = await Miner.getById(minerId);
-    if (!miner || !miner.connectionId) {
-      continue;
-    }
-    
-    // If command is config update, include configs
-    if (command.action === 'config-update') {
-      const configs = await Config.getAll();
-      const success = sendToConnection(miner.connectionId, {
-        type: 'config-update',
-        data: configs
-      });
-      if (success) sent++;
-    } else if (command.action === 'device-enable' || command.action === 'device-disable') {
-      // Send device enable/disable command with current device states
-      const success = sendToConnection(miner.connectionId, {
-        type: 'command',
-        data: {
-          ...command,
-          devices: miner.devices // Include current device states
-        }
-      });
-      if (success) sent++;
-    } else {
-      const success = sendToConnection(miner.connectionId, {
-        type: 'command',
-        data: command
-      });
-      if (success) sent++;
-    }
-  }
-  
-  return sent;
-}
-
-function sendToConnection(connectionId, message) {
-  const connection = connections.get(connectionId);
-  if (connection && connection.ws.readyState === 1) { // WebSocket.OPEN
-    try {
-      connection.ws.send(JSON.stringify(message));
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-  return false;
-}
-
-function sendToMiner(connectionId, message) {
-  return sendToConnection(connectionId, message);
-}
-
-function broadcast(message) {
-  if (!wss) return;
-  
-  const data = JSON.stringify(message);
-  let sent = 0;
-  
-  wss.clients.forEach((client) => {
-    if (client.readyState === 1) { // WebSocket.OPEN
-      try {
-        client.send(data);
-        sent++;
-      } catch (error) {
-        // Silent fail - client may have disconnected
-      }
+      broadcastMiner(miner);
+      await monitoring.event(miner.id, "agent-disconnected");
     }
   });
-  
-  return sent;
 }
-
-function getConnectionCount() {
-  return connections.size;
-}
-
-async function getConnectedMiners() {
-  const miners = await Miner.getAll();
-  return miners.filter(m => m.connectionId && (m.status === 'online' || m.status === 'mining'));
-}
-
-function shutdown() {
-  if (staleConnectionTimer) {
-    clearInterval(staleConnectionTimer);
-    staleConnectionTimer = null;
+async function sweep() {
+  if (sweepBusy) return;
+  sweepBusy = true;
+  const started = Date.now();
+  let failedRigs = 0;
+  try {
+    for (const c of connections.values()) {
+      if (c.observer && c.principal?.kind === "api-key") {
+        const active = await getDb()
+          .collection("apiKeys")
+          .findOne({
+            id: c.principal.id,
+            revokedAt: null,
+            $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+          });
+        if (!active) {
+          revokeKeyObservers(c.principal.id);
+          continue;
+        }
+      }
+      if (!c.alive) {
+        c.ws.terminate();
+        continue;
+      }
+      c.alive = false;
+      c.ws.ping();
+    }
+    await commands.expire();
+    const settings = await monitoring.rules();
+    for (const miner of await Miner.getAll()) {
+      try {
+        await serialize(miner.systemId || miner.id, async () => {
+          const latest = await Miner.getById(miner.id);
+          if (!latest) return;
+          // Close observed intervals even if no more samples arrive; never hold a rate beyond its freshness limit.
+          for (const p of latest.processes || [])
+            if (Date.now() - date(p.hashrateObservedAt) >= 60000)
+              await HashRate.record(
+                latest.id,
+                { ...p, hashrateObservedAt: null, quality: "unavailable" },
+                p,
+              );
+          await monitoring.check(latest, settings);
+          await require("../services/recovery").check(latest);
+        });
+      } catch (error) {
+        failedRigs++;
+        console.error(`Monitoring rig ${miner.id} failed:`, error.message);
+      }
+    }
+    monitorState = {
+      status: failedRigs ? "degraded" : "healthy",
+      lastSweepAt: new Date().toISOString(),
+      lastSuccessfulSweepAt: failedRigs
+        ? monitorState.lastSuccessfulSweepAt
+        : new Date().toISOString(),
+      failedRigs,
+      durationMs: Date.now() - started,
+    };
+    broadcast({
+      type: "monitoring_updated",
+      asOf: monitorState.lastSweepAt,
+      monitoring: monitoringStatus(),
+    });
+  } catch (error) {
+    monitorState = {
+      ...monitorState,
+      status: "unavailable",
+      lastSweepAt: new Date().toISOString(),
+      failedRigs,
+      durationMs: Date.now() - started,
+    };
+    console.error("Monitoring sweep failed:", error.message);
+    broadcast({ type: "service_error", error: "Monitoring unavailable" });
+  } finally {
+    sweepBusy = false;
   }
 }
-
+function initialize(wss) {
+  commands.configure(sendToMiner, broadcast);
+  wss.on("connection", (ws, req) => {
+    const c = {
+      id: randomUUID(),
+      ws,
+      alive: true,
+      observer: false,
+      closed: false,
+      ip:
+        process.env.TRUST_PROXY_IP === "true"
+          ? String(req.headers["x-forwarded-for"] || req.socket.remoteAddress)
+              .split(",")[0]
+              .trim()
+          : req.socket.remoteAddress,
+      peerIp: req.socket.remoteAddress,
+      pending: 0,
+    };
+    connections.set(c.id, c);
+    sendToMiner(c.id, {
+      type: "connected",
+      connectionId: c.id,
+      protocolVersion: 2,
+    });
+    ws.on("pong", () => {
+      c.alive = true;
+      if (c.minerId)
+        serialize(c.systemId, () =>
+          Miner.update(
+            c.minerId,
+            { connectionLastSeen: new Date().toISOString() },
+            { connectionId: c.id },
+          ),
+        ).catch((e) => console.error("Pong update failed:", e.message));
+    });
+    ws.on("message", (raw) => {
+      if (c.closed) return;
+      try {
+        const message = JSON.parse(raw.toString());
+        if (!message || typeof message !== "object")
+          throw Error("Invalid message");
+        if (++c.pending > 100) {
+          c.ws.close(1013, "Message queue full");
+          return;
+        }
+        const registrationKey =
+          message.type === "register"
+            ? (message.data || message).systemId
+            : null;
+        if (typeof registrationKey === "string" && !c.systemId)
+          c.systemId = registrationKey;
+        serialize(c.systemId || c.id, () =>
+          c.closed ? null : handle(c, message),
+        )
+          .catch((error) => {
+            console.error("Rig message failed:", error.message);
+            sendToMiner(c.id, { type: "error", error: error.message });
+          })
+          .finally(() => c.pending--);
+      } catch (error) {
+        sendToMiner(c.id, { type: "error", error: "Invalid JSON message" });
+      }
+    });
+    ws.on("close", () =>
+      close(c).catch((error) =>
+        console.error("Disconnect update failed:", error.message),
+      ),
+    );
+    ws.on("error", (error) => console.error("WebSocket error:", error.message));
+  });
+  timer = setInterval(sweep, 30000);
+  timer.unref();
+}
+async function forget(id) {
+  const miner = await Miner.getById(id);
+  if (!miner) return false;
+  return serialize(miner.systemId || id, async () => {
+    const pending = await getDb()
+      .collection("commands")
+      .find({ minerId: id, status: { $in: commands.ACTIVE } })
+      .toArray();
+    for (const command of pending)
+      await commands.cancel(command.id, "Rig forgotten");
+    await Miner.delete(id);
+    await monitoring.check(
+      { ...miner, forgottenAt: new Date().toISOString() },
+      await monitoring.rules(),
+    );
+    await monitoring.event(id, "rig-forgotten", { historyPreserved: true });
+    const c = connections.get(miner.connectionId);
+    if (c) {
+      c.closed = true;
+      c.ws.close(1000, "Rig forgotten");
+      connections.delete(c.id);
+    }
+    broadcast({ type: "miner_deleted", minerId: id });
+    return true;
+  });
+}
+function shutdown() {
+  clearInterval(timer);
+}
 module.exports = {
   initialize,
   shutdown,
-  sendToMiner,
-  sendToConnection,
-  sendCommand,
   broadcast,
-  getConnectionCount,
-  getConnectedMiners
+  sendToMiner,
+  sendToConnection: sendToMiner,
+  forget,
+  serialize,
+  sweep,
+  connections,
+  revokeKeyObservers,
+  monitoringStatus,
+  viewRig,
 };

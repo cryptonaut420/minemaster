@@ -1,119 +1,63 @@
-const express = require('express');
+const express = require("express");
+const Config = require("../models/Config");
+const commands = require("../services/commands");
+const { requireAccess, accessActor } = require("../middleware/auth");
+const { route } = require("./v1");
 const router = express.Router();
-const Config = require('../models/Config');
-const Miner = require('../models/Miner');
-const websocketServer = require('../websocket/server');
-const { requireAuth } = require('../middleware/auth');
-
-// Apply authentication to all routes
-router.use(requireAuth);
-
-// Get all configs
-router.get('/', async (req, res) => {
-  try {
-    const configs = await Config.getAll();
-    res.json({ success: true, configs });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Get config by type
-router.get('/:type', async (req, res) => {
-  try {
+router.use(requireAccess);
+router.get(
+  "/",
+  route(async (req, res) =>
+    res.json({ success: true, configs: await Config.getAll() }),
+  ),
+);
+router.get(
+  "/:type",
+  route(async (req, res) => {
     const config = await Config.get(req.params.type);
-    if (!config) {
-      return res.status(404).json({ success: false, error: 'Config type not found' });
-    }
+    if (!config) return res.status(404).json({ error: "Unknown type" });
     res.json({ success: true, config });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Update config by type
-router.put('/:type', async (req, res) => {
-  try {
-    const validTypes = ['xmrig', 'nanominer'];
-    if (!validTypes.includes(req.params.type)) {
-      return res.status(400).json({ success: false, error: `Invalid config type: ${req.params.type}` });
-    }
-    const config = await Config.update(req.params.type, req.body);
-    
-    // Automatically send config update to all bound clients
-    await websocketServer.sendCommand('all', {
-      action: 'config-update'
+  }),
+);
+router.put(
+  "/:type",
+  route(async (req, res) =>
+    res.json({
+      success: true,
+      config: await Config.update(
+        req.params.type,
+        req.body,
+        accessActor(req),
+        req.body.version,
+      ),
+      message:
+        "Saved desired configuration. Apply to selected rigs separately.",
+    }),
+  ),
+);
+router.post(
+  "/:type/apply",
+  route(async (req, res) => {
+    if (!Config.DEFAULTS[req.params.type])
+      return res.status(400).json({ error: "Unknown type" });
+    if (!Array.isArray(req.body.minerIds))
+      return res
+        .status(400)
+        .json({ error: "Provide explicit minerIds for the rollout" });
+    res.status(202).json({
+      success: true,
+      ...(await commands.bulk(
+        req.body.minerIds,
+        {
+          action: "restart",
+          deviceType: req.params.type === "xmrig" ? "CPU" : "GPU",
+          configType: req.params.type,
+          restartRunningOnly: true,
+        },
+        accessActor(req),
+        req.get("Idempotency-Key"),
+      )),
     });
-    
-    res.json({ success: true, config });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Apply config and restart only the relevant miners (CPU for xmrig, GPU for nanominer)
-router.post('/:type/apply', async (req, res) => {
-  try {
-    const configType = req.params.type; // 'xmrig' or 'nanominer'
-    const config = await Config.get(configType);
-    if (!config) {
-      return res.status(404).json({ success: false, error: 'Config type not found' });
-    }
-    
-    // Get all bound miners
-    const boundMiners = await Miner.getAllBound();
-    const connectedMiners = boundMiners.filter(m => m.connectionId && (m.status === 'online' || m.status === 'mining'));
-    
-    if (connectedMiners.length === 0) {
-      return res.json({ 
-        success: true, 
-        message: 'No connected bound miners to restart',
-        restarted: 0
-      });
-    }
-    
-    // Send config update to all bound miners first
-    await websocketServer.sendCommand('all', {
-      action: 'config-update'
-    });
-    
-    // Determine which device type to restart based on config type
-    const deviceType = configType === 'xmrig' ? 'CPU' : 'GPU';
-    
-    // Send targeted restart command to only the relevant device type
-    let restartedCount = 0;
-    
-    for (const miner of connectedMiners) {
-      // Check if this miner has the relevant device running
-      let shouldRestart = false;
-      
-      if (deviceType === 'CPU' && miner.devices?.cpu?.running) {
-        shouldRestart = true;
-      } else if (deviceType === 'GPU' && miner.devices?.gpus?.some(g => g.running)) {
-        shouldRestart = true;
-      }
-      
-      if (shouldRestart) {
-        const sent = await websocketServer.sendCommand(miner.id, {
-          action: 'restart-device',
-          deviceType: deviceType
-        });
-        if (sent > 0) {
-          restartedCount++;
-        }
-      }
-    }
-    
-    res.json({ 
-      success: true, 
-      message: `${configType} config applied and ${restartedCount} ${deviceType} device(s) restarted`,
-      restarted: restartedCount,
-      total: connectedMiners.length,
-      deviceType
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
+  }),
+);
 module.exports = router;

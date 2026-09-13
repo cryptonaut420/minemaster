@@ -1,5 +1,7 @@
 # API Reference
 
+This document covers desktop Electron IPC and historical client examples. For the current central REST/WebSocket API, use [backend-admin.md](backend-admin.md). Historical/future examples here do not establish that a server route exists.
+
 Technical reference for MineMaster's IPC (Inter-Process Communication) API.
 
 ## 📡 Overview

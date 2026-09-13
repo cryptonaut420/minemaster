@@ -1,6 +1,14 @@
 # Architecture Overview
 
-This document provides a comprehensive overview of MineMaster's architecture, design patterns, and technical implementation.
+This document primarily describes the desktop client. Paths in the desktop sections are relative to `client/`. The complete current backend/admin contract is in [backend-admin.md](backend-admin.md); open correctness issues and proposed architecture changes are in the [operational audit](audits/backend-admin-2026-09-12/README.md).
+
+## Central backend and admin
+
+The project also has `server/src/` (Express, MongoDB, WebSocket) and `server/public/src/` (React/Vite admin). The desktop renderer sends five-second status reports with original rate observation timestamps. Backend commands travel through the desktop service, a cancelable process queue, and Electron IPC, then return acknowledged results.
+
+The admin and API use the same telemetry summary and hashrate integration services. Physical GPUs and mining processes have separate identities. MongoDB stores snapshots, assigned/desired configuration versions, command histories, raw rates/sensors/logs/events, incidents, and one-minute rate integrals. Raw retention defaults to seven days; rollups and commands retain 90 days.
+
+Connection ownership and per-rig serialization prevent stale sessions from overwriting replacements. The connection registry belongs to one backend process; multi-replica operation requires additional coordination. Observers receive incremental updates; agents do not receive fleet broadcasts. See the [implementation report](audits/backend-admin-2026-09-12/implementation.md) for validation and hardware limitations.
 
 ## 🏗️ High-Level Architecture
 
@@ -103,7 +111,7 @@ src/
 ├── hooks/
 │   └── useSystemInfo.js      # Custom hooks for system data
 └── utils/
-    └── hashrate.js           # Hashrate formatting utilities
+    └── formatters.js         # Hashrate parsing and formatting utilities
 ```
 
 #### Component Hierarchy

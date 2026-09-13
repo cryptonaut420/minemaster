@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import './App.css';
 import Dashboard from './components/Dashboard';
 import MinerConsole from './components/MinerConsole';
@@ -6,13 +6,19 @@ import MinerConfig from './components/MinerConfig';
 import NanominerConfig from './components/NanominerConfig';
 import ErrorBoundary from './components/ErrorBoundary';
 import NotificationContainer from './components/NotificationContainer';
-import { formatHashrate, parseHashrate } from './utils/formatters';
+import { formatHashrate } from './utils/formatters';
 import { validateMinerConfig } from './utils/validators';
 import { addConsoleOutput } from './utils/consoleManager';
 import { masterServer } from './services/masterServer';
 import versionInfo from './version.json';
+import { createLineBuffer, parseAggregate, parseShares, parseProcessDetails, processSnapshot } from './utils/telemetry';
+import { createCommandRunner } from './utils/commandRunner';
 
 function App() {
+  const lineBuffers = useRef({});
+  const commandRunnerRef = useRef(null);
+  const controlRef = useRef({});
+  const statusBusy = useRef(false);
   // Load saved config from localStorage
   const loadSavedConfig = () => {
     try {
@@ -44,7 +50,7 @@ function App() {
   const savedConfig = loadSavedConfig();
   const savedMinerState = loadSavedMinerState();
 
-  const [miners, setMiners] = useState([
+  const [miners, setMinersState] = useState([
     {
       id: 'xmrig-1',
       name: 'XMRig CPU Miner',
@@ -115,12 +121,12 @@ function App() {
   const startStatusUpdatesRef = useRef(null); // Ref for latest start function
   const stopStatusUpdatesRef = useRef(null); // Ref for latest stop function
   
-  // Update ref whenever miners changes
-  // Uses latest state through refs; keeping stable subscription is intentional.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    minersRef.current = miners;
-  }, [miners]);
+  // IPC, logs, and commands share a synchronous snapshot; React renders that same state.
+  const setMiners = useCallback(update => {
+    const next = typeof update === 'function' ? update(minersRef.current) : update;
+    minersRef.current = next;
+    setMinersState(next);
+  }, []);
 
   // Keep clientName ref in sync
   useEffect(() => {
@@ -177,6 +183,7 @@ function App() {
             updatedMiner = {
               ...updatedMiner,
               running: true,
+              pid: status.pid, startTime: status.startedAt || null, activeConfig: status.activeConfig || null,
               output: [`[Reconnected to running miner - PID: ${status.pid}]\n`, ...miner.output]
             };
           }
@@ -237,34 +244,30 @@ function App() {
 
     if (window.electronAPI) {
       cleanups.push(window.electronAPI.onMinerOutput((data) => {
-        setMiners(prev => prev.map(miner => {
-          if (miner.id === data.minerId) {
-            // Parse hashrate from output using new utility
-            const parsedHashrate = parseHashrate(data.data);
-            const newHashrate = parsedHashrate ?? miner.hashrate;
-            
-            // Use console manager to prevent memory leaks
-            const newOutput = addConsoleOutput(miner.output, data.data);
-            
-            return {
-              ...miner,
-              running: true,
-              loading: false,
-              hashrate: newHashrate,
-              output: newOutput
-            };
-          }
-          return miner;
-        }));
+        const read = lineBuffers.current[data.minerId] ||= createLineBuffer();
+        const lines = read(data.data);
+        let observation = null, shares = null, details = {};
+        for (const line of lines) {
+          const rate = parseAggregate(line); if (rate !== null) observation = { hashrate: rate, hashrateObservedAt: new Date().toISOString() };
+          shares = parseShares(line) || shares;
+          Object.assign(details, parseProcessDetails(line));
+          masterServer.queueLog(data.minerId, line, /error|failed|fatal/i.test(line) ? 'error' : 'info');
+        }
+        setMiners(prev => prev.map(miner => miner.id === data.minerId ? {
+          ...miner, ...details, ...(observation || {}), ...(shares ? { shares } : {}), output: addConsoleOutput(miner.output, data.data)
+        } : miner));
       }));
 
       cleanups.push(window.electronAPI.onMinerError((data) => {
+        masterServer.queueLog(data.minerId, data.error, 'error');
+        masterServer.reportEvent('process-error', { processId: data.minerId, error: data.error });
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
             const newOutput = addConsoleOutput(miner.output, `ERROR: ${data.error}\n`);
             return {
               ...miner,
               loading: false,
+              error: data.error,
               output: newOutput
             };
           }
@@ -276,6 +279,9 @@ function App() {
       }));
 
       cleanups.push(window.electronAPI.onMinerClosed((data) => {
+        delete lineBuffers.current[data.minerId];
+        const unexpected = !data.expected && !stoppingMinersRef.current.has(data.minerId);
+        masterServer.reportEvent('process-exit', { processId: data.minerId, code: data.code, signal: data.signal, unexpected });
         setMiners(prev => prev.map(miner => {
           if (miner.id === data.minerId) {
             const exitMessage = `\nMiner exited with code: ${data.code ?? 'null'}\n`;
@@ -287,22 +293,15 @@ function App() {
               loading: false,
               hashrate: null,
               startTime: null,
+              pid: null,
+              error: unexpected ? `Process exited unexpectedly (${data.code ?? data.signal ?? 'unknown'})` : null,
               output: newOutput
             };
           }
           return miner;
         }));
         
-        // Only show crash notifications for genuinely unusual exit codes
-        // Normal/expected exit codes that should NOT trigger notifications:
-        // null/undefined = process killed/terminated, 0 = clean exit
-        // 130 = Ctrl+C (SIGINT), 143 = SIGTERM, 137 = SIGKILL, 1 = general error but often from manual stop
-        const normalExitCodes = [null, undefined, 0, 1, 130, 143, 137];
-        const isAbnormalCrash = data.code !== null && 
-                                data.code !== undefined && 
-                                !normalExitCodes.includes(data.code) &&
-                                data.code > 1;
-        
+        const isAbnormalCrash = unexpected;
         if (isAbnormalCrash && !stoppingMinersRef.current.has(data.minerId)) {
           const miner = minersRef.current.find(m => m.id === data.minerId);
           const minerName = miner?.name || 'Miner';
@@ -320,217 +319,25 @@ function App() {
     return () => cleanups.forEach(fn => { try { fn && fn(); } catch (_) {} });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Master Server Integration - Command and Config Handlers
+  // Acknowledged commands run through one serialized queue per mining process.
   useEffect(() => {
-    // Only handle commands and config updates here
-    // Bound/unbound is handled via Dashboard -> MasterServerPanel -> onBoundChange callback
-    
-    const handleConfigUpdate = (configs) => {
-      applyGlobalConfigs(configs, true);
-      addNotification('Configurations updated from Master Server', 'info');
-    };
-
-    const handleCommand = async (command) => {
-      
-      // Use ref to get latest miners state (avoid stale closure)
-      const currentMiners = minersRef.current;
-      
-      switch (command.action) {
-        case 'start':
-          if (command.minerId) {
-            await handleStartMiner(command.minerId);
-          } else if (command.deviceType) {
-            const miner = currentMiners.find(m => m.deviceType === command.deviceType);
-            if (miner) await handleStartMiner(miner.id);
-          } else {
-            // Start all ENABLED miners only
-            for (const miner of currentMiners) {
-              if (miner.enabled !== false && !miner.running) {
-                await handleStartMiner(miner.id);
-              }
-            }
-          }
-          break;
-          
-        case 'stop':
-          if (command.minerId) {
-            await handleStopMiner(command.minerId);
-          } else if (command.deviceType) {
-            const miner = currentMiners.find(m => m.deviceType === command.deviceType);
-            if (miner) await handleStopMiner(miner.id);
-          } else {
-            // Stop all running miners
-            for (const miner of currentMiners) {
-              if (miner.running) {
-                await handleStopMiner(miner.id);
-              }
-            }
-          }
-          break;
-          
-        case 'restart':
-          if (command.minerId) {
-            stoppingMinersRef.current.add(command.minerId);
-            await handleStopMiner(command.minerId);
-            stoppingMinersRef.current.delete(command.minerId);
-            setTimeout(() => handleStartMiner(command.minerId), 1500);
-          } else {
-            for (const miner of currentMiners) {
-              if (miner.running) {
-                stoppingMinersRef.current.add(miner.id);
-                await handleStopMiner(miner.id);
-                stoppingMinersRef.current.delete(miner.id);
-              }
-            }
-            setTimeout(async () => {
-              const latestMiners = minersRef.current;
-              for (const miner of latestMiners) {
-                if (miner.enabled !== false && !miner.running) {
-                  await handleStartMiner(miner.id);
-                }
-              }
-            }, 1500);
-          }
-          break;
-        
-        case 'restart-device':
-          {
-            // Restart only specific device type (CPU or GPU)
-            const deviceType = command.deviceType; // 'CPU' or 'GPU'
-            const targetMiner = currentMiners.find(m => m.deviceType === deviceType);
-            
-            if (targetMiner && targetMiner.running) {
-              const minerId = targetMiner.id;
-              stoppingMinersRef.current.add(minerId);
-              await handleStopMiner(minerId);
-              stoppingMinersRef.current.delete(minerId);
-              
-              setTimeout(async () => {
-                const latestMiners = minersRef.current;
-                const currentMiner = latestMiners.find(m => m.id === minerId);
-                if (currentMiner && currentMiner.enabled !== false) {
-                  await handleStartMiner(minerId);
-                  addNotification(`${deviceType} mining restarted with new configuration`, 'success');
-                }
-              }, 2000);
-            } else if (targetMiner && !targetMiner.running) {
-              addNotification(`${deviceType} configuration updated`, 'info');
-            }
-          }
-          break;
-        
-        // Device enable/disable commands (from server toggle switches)
-        case 'device-enable':
-          if (command.deviceType === 'cpu') {
-            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-            if (cpuMiner) {
-              setMiners(prev => prev.map(m => 
-                m.id === cpuMiner.id ? { ...m, enabled: true } : m
-              ));
-              addNotification('CPU mining enabled (remote command)', 'info');
-            }
-          } else if (command.deviceType === 'gpu') {
-            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-            if (gpuMiner) {
-              setMiners(prev => prev.map(m => 
-                m.id === gpuMiner.id ? { ...m, enabled: true } : m
-              ));
-              addNotification('GPU mining enabled (remote command)', 'info');
-            }
-          }
-          break;
-          
-        case 'device-disable':
-          if (command.deviceType === 'cpu') {
-            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-            if (cpuMiner) {
-              setMiners(prev => prev.map(m => 
-                m.id === cpuMiner.id ? { ...m, enabled: false } : m
-              ));
-              // Stop mining if running
-              if (cpuMiner.running) {
-                addNotification('CPU mining disabled and stopped (remote command)', 'info');
-                await handleStopMiner(cpuMiner.id);
-              } else {
-                addNotification('CPU mining disabled (remote command)', 'info');
-              }
-            }
-          } else if (command.deviceType === 'gpu') {
-            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-            if (gpuMiner) {
-              setMiners(prev => prev.map(m => 
-                m.id === gpuMiner.id ? { ...m, enabled: false } : m
-              ));
-              // Stop mining if running
-              if (gpuMiner.running) {
-                addNotification('GPU mining disabled and stopped (remote command)', 'info');
-                await handleStopMiner(gpuMiner.id);
-              } else {
-                addNotification('GPU mining disabled (remote command)', 'info');
-              }
-            }
-          }
-          break;
-        
-        // Device-specific start/stop commands (legacy, for direct control)
-        case 'start-cpu':
-          {
-            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-            if (cpuMiner && cpuMiner.enabled !== false && !cpuMiner.running) {
-              addNotification('Starting CPU mining (remote command)', 'info');
-              await handleStartMiner(cpuMiner.id);
-            }
-          }
-          break;
-          
-        case 'stop-cpu':
-          {
-            const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-            if (cpuMiner && cpuMiner.running) {
-              addNotification('Stopping CPU mining (remote command)', 'info');
-              await handleStopMiner(cpuMiner.id);
-            }
-          }
-          break;
-          
-        case 'start-gpu':
-          {
-            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-            if (gpuMiner && gpuMiner.enabled !== false && !gpuMiner.running) {
-              addNotification('Starting GPU mining (remote command)', 'info');
-              await handleStartMiner(gpuMiner.id);
-            }
-          }
-          break;
-          
-        case 'stop-gpu':
-          {
-            const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-            if (gpuMiner && gpuMiner.running) {
-              addNotification('Stopping GPU mining (remote command)', 'info');
-              await handleStopMiner(gpuMiner.id);
-            }
-          }
-          break;
-          
-        case 'check-update':
-          if (window.electronAPI) {
-            window.electronAPI.checkForUpdate();
-          }
-          break;
-
-        default:
-          // Unknown command - ignore silently
-      }
-    };
-
-    masterServer.on('configUpdate', handleConfigUpdate);
-    masterServer.on('command', handleCommand);
-
-    return () => {
-      masterServer.off('configUpdate', handleConfigUpdate);
-      masterServer.off('command', handleCommand);
-    };
+    const runner = createCommandRunner({
+      getMiners: () => minersRef.current,
+      start: id => controlRef.current.start(id, true),
+      stop: id => controlRef.current.stop(id, true),
+      enable: (id, enabled) => controlRef.current.patch(id, { enabled }),
+      applyConfigs: (configs, scope) => controlRef.current.apply(configs, true, scope),
+      report: result => { masterServer.send({ type: 'command-result', data: result }); sendImmediateStatusUpdateRef.current?.(); },
+      storage: localStorage
+    });
+    commandRunnerRef.current = runner;
+    const onCommand = command => runner.execute(command);
+    const onCancel = data => runner.cancel(data.id);
+    const onConfig = configs => controlRef.current.apply(configs, true);
+    masterServer.on('command', onCommand);
+    masterServer.on('commandCancel', onCancel);
+    masterServer.on('configUpdate', onConfig);
+    return () => { runner.dispose(); masterServer.off('command', onCommand); masterServer.off('commandCancel', onCancel); masterServer.off('configUpdate', onConfig); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle explicit unbind from MasterServerPanel UI
@@ -544,132 +351,42 @@ function App() {
   };
 
   // Apply global configs from master server
-  const applyGlobalConfigs = (globalConfigs, silent = false) => {
-    setMiners(prev => prev.map(miner => {
-      const globalConfig = globalConfigs[miner.type];
-      if (!globalConfig) return miner;
+  const patchMiner = (id, patch) => {
+    minersRef.current = minersRef.current.map(m => m.id === id ? { ...m, ...patch } : m);
+    setMiners(minersRef.current);
+  };
 
-      // Merge global config with local config
-      // Keep password, rigName, and gpus from local config
-      const mergedConfig = {
-        ...globalConfig,
-        password: miner.config.password || globalConfig.password,
-        rigName: miner.config.rigName || globalConfig.rigName,
-        gpus: miner.config.gpus || []  // Preserve local GPU selection
-      };
-
-      return {
-        ...miner,
-        config: mergedConfig
-      };
-    }));
-
-    if (!silent) {
-      addNotification('Global configurations applied', 'success');
-    }
+  const applyGlobalConfigs = (globalConfigs, silent = false, scope = 'ALL') => {
+    const next = minersRef.current.map(miner => {
+      const globalConfig = globalConfigs?.[miner.type];
+      if (!globalConfig || (scope !== 'ALL' && scope !== miner.deviceType)) return miner;
+      const localKeys = ['password', 'rigName', 'gpus', 'customPath', 'donateLevel', 'email'];
+      const local = Object.fromEntries(localKeys.filter(k => miner.config[k] !== undefined && miner.config[k] !== '').map(k => [k, miner.config[k]]));
+      const config = { ...miner.config, ...globalConfig, ...local };
+      return { ...miner, config, localOverrides: Object.keys(local).filter(k => JSON.stringify(local[k]) !== JSON.stringify(globalConfig[k])) };
+    });
+    minersRef.current = next; setMiners(next);
+    if (!silent) addNotification('Desired configurations received; running processes keep their launch configuration until restarted', 'info');
   };
 
   // Helper to send immediate status update
   const sendImmediateStatusUpdate = async () => {
-    if (!masterServer.isBound()) return;
-    
+    if (!masterServer.isBound() || statusBusy.current) return;
+    statusBusy.current = true;
     try {
-      // Get system info and stats
-      const [systemInfo, cpuStats, memoryStats, gpuStats] = window.electronAPI 
-        ? await Promise.all([
-            window.electronAPI.getSystemInfo().catch(() => null),
-            window.electronAPI.getCpuStats().catch(() => null),
-            window.electronAPI.getMemoryStats().catch(() => null),
-            window.electronAPI.getGpuStats().catch(() => null)
-          ])
-        : [null, null, null, null];
-      
-      // Build stats object for server
-      const stats = {
-        cpu: cpuStats ? {
-          usage: cpuStats.usage ?? null,
-          temperature: cpuStats.temperature ?? null
-        } : { usage: null, temperature: null },
-        memory: memoryStats ? {
-          used: memoryStats.used ?? null,
-          total: memoryStats.total ?? null,
-          usagePercent: memoryStats.usagePercent ?? null
-        } : { used: null, total: null, usagePercent: null },
-        gpus: gpuStats && Array.isArray(gpuStats) && gpuStats.length > 0 ? gpuStats.map(gpu => ({
-          usage: gpu.usage ?? null,
-          temperature: gpu.temperature ?? null,
-          vramUsed: gpu.vramUsed ?? null,
-          vramTotal: gpu.vramTotal ?? null
-        })) : []
-      };
-      
-      // Find CPU and GPU miners - use latest state from ref
-      const currentMiners = minersRef.current;
-      const cpuMiner = currentMiners.find(m => m.deviceType === 'CPU');
-      const gpuMiner = currentMiners.find(m => m.deviceType === 'GPU');
-      
-      // Build device states for the server
-      const devices = {
-        cpu: {
-          enabled: cpuMiner?.enabled !== false,
-          running: cpuMiner?.running || false,
-          hashrate: cpuMiner?.running ? cpuMiner.hashrate : null,
-          algorithm: cpuMiner?.config?.algorithm || null
-        },
-        gpus: []
-      };
-      
-      // Add GPU states if available
-      if (systemInfo?.gpus && Array.isArray(systemInfo.gpus) && systemInfo.gpus.length > 0) {
-        const gpuAggregateHash = (gpuMiner?.running && gpuMiner?.hashrate) ? gpuMiner.hashrate : null;
-        devices.gpus = systemInfo.gpus.map((gpu, idx) => ({
-          id: idx,
-          model: gpu.model || gpu.name || `GPU ${idx}`,
-          enabled: gpuMiner?.enabled !== false,
-          running: gpuMiner?.running || false,
-          // Place aggregate hashrate on first GPU only to avoid double-counting
-          hashrate: idx === 0 ? gpuAggregateHash : null,
-          algorithm: gpuMiner?.config?.algorithm || null
-        }));
-      }
-      
-      // Collect miner statuses
-      const minerStatuses = currentMiners.map(m => ({
-        id: m.id,
-        type: m.type,
-        deviceType: m.deviceType,
-        running: m.running,
-        enabled: m.enabled !== false,
-        hashrate: m.running ? m.hashrate : null,
-        algorithm: m.config.algorithm,
-        coin: m.config.coin
-      }));
-
-      // Send status update (include custom name if set)
+      const [systemInfo, cpu, memory, gpus] = window.electronAPI ? await Promise.all([
+        window.electronAPI.getSystemInfo().catch(() => null), window.electronAPI.getCpuStats().catch(() => null),
+        window.electronAPI.getMemoryStats().catch(() => null), window.electronAPI.getGpuStats().catch(() => null)
+      ]) : [null, null, null, null];
       await masterServer.sendStatusUpdate({
         systemInfo,
-        stats,
-        miners: minerStatuses,
-        devices,
-        mining: currentMiners.some(m => m.running),
-        clientName: clientNameRef.current || ''
+        stats: { observedAt: new Date().toISOString(), cpu, memory: memory ? { ...memory, usage: memory.usagePercent } : null,
+          gpus: (gpus || []).map(g => ({ ...g, memoryUsed: g.memoryUsed ?? (g.vramUsed == null ? null : g.vramUsed * 1024 * 1024), memoryTotal: g.memoryTotal ?? (g.vramTotal == null ? null : g.vramTotal * 1024 * 1024) })) },
+        processes: minersRef.current.map(m => processSnapshot(m)), clientName: clientNameRef.current || ''
       });
-
-      // Send hashrate updates for running miners
-      for (const miner of currentMiners) {
-        if (miner.running && miner.hashrate) {
-          await masterServer.sendHashrateUpdate({
-            minerId: miner.id,
-            deviceType: miner.deviceType,
-            algorithm: miner.config.algorithm,
-            hashrate: miner.hashrate
-          });
-        }
-      }
-      
-    } catch (error) {
-      // Silent fail - status updates are periodic anyway
-    }
+      masterServer.flushLogs();
+    } catch (error) { console.warn('Status report failed:', error.message); }
+    finally { statusBusy.current = false; }
   };
 
   // Keep refs updated to the latest function versions (avoids stale closures in intervals/effects)
@@ -867,121 +584,44 @@ function App() {
     }, 5000);
   };
 
-  const handleStartMiner = async (minerId) => {
-    // Use ref to get latest miners state (avoid stale closure)
-    const currentMiners = minersRef.current;
-    const miner = currentMiners.find(m => m.id === minerId);
-    if (!miner) return;
-
-    // Prevent starting if disabled
-    if (miner.enabled === false) {
-      addNotification(`${miner.name} is disabled. Enable it first.`, 'warning');
-      return;
-    }
-
-    // Prevent starting if already running or loading
-    if (miner.running || miner.loading) {
-      return;
-    }
-
-    // Validate configuration before starting
-    const validation = validateMinerConfig(miner.type, miner.config);
-    if (!validation.valid) {
-      setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, validationErrors: validation.errors } : m
-      ));
-      addNotification(`Configuration invalid: ${validation.errors[0]}`, 'error');
-      return;
-    }
-
-    // Set loading state
-    setMiners(prev => prev.map(m => 
-      m.id === minerId ? { ...m, loading: true, validationErrors: [] } : m
-    ));
-
-    try {
-      const result = await window.electronAPI.startMiner({
-        minerId: miner.id,
-        minerType: miner.type,
-        config: miner.config
-      });
-
-      if (result.success) {
-        setMiners(prev => prev.map(m => 
-          m.id === minerId ? { 
-            ...m, 
-            running: true, 
-            loading: false,
-            startTime: Date.now(),
-            output: [`Starting miner (PID: ${result.pid})...\n`] 
-          } : m
-        ));
-        addNotification(`${miner.name} started successfully`, 'success');
-        
-        // Send immediate status update to master server
-        setTimeout(() => sendImmediateStatusUpdateRef.current?.(), 500);
-      } else {
-        setMiners(prev => prev.map(m => 
-          m.id === minerId ? { 
-            ...m, 
-            loading: false,
-            output: addConsoleOutput(m.output, `Failed to start: ${result.error}\n`)
-          } : m
-        ));
-        addNotification(`Failed to start ${miner.name}: ${result.error}`, 'error');
-      }
-    } catch (error) {
-      setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, loading: false } : m
-      ));
-      addNotification(`Error starting miner: ${error.message}`, 'error');
-    }
-  };
-
-  const handleStopMiner = async (minerId) => {
+  const handleStartMiner = async (minerId, remote = false) => {
+    if (!remote) commandRunnerRef.current?.cancelProcess(minerId);
     const miner = minersRef.current.find(m => m.id === minerId);
-    if (!miner) return;
-
-    // Set loading state
-    setMiners(prev => prev.map(m => 
-      m.id === minerId ? { ...m, loading: true } : m
-    ));
-
+    if (!miner) return { success: false, error: 'Unknown miner' };
+    if (miner.enabled === false) return { success: false, error: 'Process is disabled' };
+    if (miner.running) return { success: true, pid: miner.pid, alreadyRunning: true };
+    if (miner.loading) return { success: false, error: 'Process operation already pending' };
+    const validation = validateMinerConfig(miner.type, miner.config);
+    if (!validation.valid) { patchMiner(minerId, { validationErrors: validation.errors }); addNotification(validation.errors[0], 'error'); return { success: false, error: validation.errors.join('; ') }; }
+    patchMiner(minerId, { loading: true, validationErrors: [] });
     try {
-      addNotification(`Stopping ${miner.name}...`, 'info');
-      const result = await window.electronAPI.stopMiner({ minerId });
-      
-      if (result.success) {
-        setMiners(prev => prev.map(m => 
-          m.id === minerId ? { 
-            ...m, 
-            running: false, 
-            loading: false,
-            hashrate: null,
-            startTime: null
-          } : m
-        ));
-        
-        // Show different message if force killed
-        const message = result.message || `${miner.name} stopped successfully`;
-        const type = message.includes('force killed') ? 'warning' : 'success';
-        addNotification(message, type);
-        
-        // Send immediate status update to master server
-        setTimeout(() => sendImmediateStatusUpdateRef.current?.(), 500);
-      } else {
-        setMiners(prev => prev.map(m => 
-          m.id === minerId ? { ...m, loading: false, running: false } : m
-        ));
-        addNotification(`Failed to stop ${miner.name}: ${result.error || 'Unknown error'}`, 'error');
-      }
-    } catch (error) {
-      setMiners(prev => prev.map(m => 
-        m.id === minerId ? { ...m, loading: false, running: false } : m
-      ));
-      addNotification(`Error stopping miner: ${error.message}`, 'error');
-    }
+      const activeConfig = { ...miner.config };
+      const result = await window.electronAPI.startMiner({ minerId, minerType: miner.type, config: activeConfig });
+      if (!result.success) throw Error(result.error || 'Start failed');
+      delete lineBuffers.current[minerId];
+      patchMiner(minerId, { running: true, loading: false, error: null, pid: result.pid, activeConfig: result.activeConfig || activeConfig, startTime: result.startedAt || Date.now(), hashrate: null, hashrateObservedAt: null, shares: null, pool: null, output: [`Started process (PID ${result.pid})\n`] });
+      masterServer.reportEvent('process-started', { processId: minerId, pid: result.pid, appliedConfigVersion: activeConfig.version || null });
+      addNotification(`${miner.name} started`, 'success'); sendImmediateStatusUpdateRef.current?.();
+      return result;
+    } catch (error) { patchMiner(minerId, { loading: false, error: error.message }); addNotification(`Start failed: ${error.message}`, 'error'); return { success: false, error: error.message }; }
   };
+
+  const handleStopMiner = async (minerId, remote = false) => {
+    if (!remote) commandRunnerRef.current?.cancelProcess(minerId);
+    const miner = minersRef.current.find(m => m.id === minerId);
+    if (!miner) return { success: false, error: 'Unknown miner' };
+    stoppingMinersRef.current.add(minerId);
+    patchMiner(minerId, { loading: true });
+    try {
+      const result = await window.electronAPI.stopMiner({ minerId });
+      if (!result.success) throw Error(result.error || 'Stop could not be confirmed');
+      patchMiner(minerId, { running: false, loading: false, hashrate: null, hashrateObservedAt: null, startTime: null, pid: null, error: null });
+      addNotification(`${miner.name} stopped`, 'success'); sendImmediateStatusUpdateRef.current?.();
+      return result;
+    } catch (error) { patchMiner(minerId, { loading: false, error: error.message }); addNotification(`Stop failed: ${error.message}`, 'error'); return { success: false, error: error.message }; }
+    finally { stoppingMinersRef.current.delete(minerId); }
+  };
+  controlRef.current = { start: handleStartMiner, stop: handleStopMiner, patch: patchMiner, apply: applyGlobalConfigs };
 
   const handleConfigChange = (minerId, config) => {
     setMiners(prev => prev.map(m => 

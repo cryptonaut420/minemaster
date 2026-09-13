@@ -1,19 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import Dashboard from './components/Dashboard';
-import Configs from './components/Configs';
-import Login from './components/Login';
-import Register from './components/Register';
-import { authAPI, removeToken } from './services/auth';
-import './App.css';
+import React, { useState, useEffect, lazy, Suspense } from "react";
+import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const Configs = lazy(() => import("./components/Configs"));
+const ApiKeys = lazy(() => import("./components/ApiKeys"));
+import Login from "./components/Login";
+import Register from "./components/Register";
+import { authAPI, removeToken } from "./services/auth";
+import "./App.css";
 
 function App() {
   const location = useLocation();
+  const [authError, setAuthError] = useState("");
   const [authState, setAuthState] = useState({
     loading: true,
     authenticated: false,
     setupRequired: false,
-    user: null
+    user: null,
   });
 
   // Check authentication status on mount
@@ -22,53 +24,41 @@ function App() {
   }, []);
 
   const checkAuth = async () => {
-    // Add timeout to prevent infinite loading
-    const timeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Auth check timeout')), 10000)
-    );
-
+    setAuthError("");
+    setAuthState((previous) => ({ ...previous, loading: true }));
     try {
-      // First check if setup is required
-      const setupCheck = authAPI.checkSetupRequired();
-      const { setupRequired } = await Promise.race([setupCheck, timeout]);
-      
+      const { setupRequired } = await authAPI.checkSetupRequired();
       if (setupRequired) {
         setAuthState({
           loading: false,
           authenticated: false,
           setupRequired: true,
-          user: null
+          user: null,
         });
         return;
       }
-
-      // Try to get current user (validates token)
       try {
-        const userCheck = authAPI.getCurrentUser();
-        const { admin } = await Promise.race([userCheck, timeout]);
+        const { admin } = await authAPI.getCurrentUser();
         setAuthState({
           loading: false,
           authenticated: true,
           setupRequired: false,
-          user: admin
+          user: admin,
         });
-      } catch (err) {
-        // Token invalid or expired
+      } catch (error) {
+        if (![401, 404].includes(error.response?.status)) throw error;
         setAuthState({
           loading: false,
           authenticated: false,
           setupRequired: false,
-          user: null
+          user: null,
         });
       }
     } catch (error) {
-      // Timeout or network error - show login screen
-      setAuthState({
-        loading: false,
-        authenticated: false,
-        setupRequired: false,
-        user: null
-      });
+      setAuthError(
+        "The admin service is unavailable. Check the server connection and retry.",
+      );
+      setAuthState((previous) => ({ ...previous, loading: false }));
     }
   };
 
@@ -77,7 +67,7 @@ function App() {
       loading: false,
       authenticated: true,
       setupRequired: false,
-      user
+      user,
     });
   };
 
@@ -92,7 +82,7 @@ function App() {
         loading: false,
         authenticated: false,
         setupRequired: false,
-        user: null
+        user: null,
       });
     }
   };
@@ -109,6 +99,17 @@ function App() {
     );
   }
 
+  if (authError)
+    return (
+      <div className="app loading-screen">
+        <div className="loading-content" role="alert">
+          <h1>MineMaster</h1>
+          <p>{authError}</p>
+          <button onClick={checkAuth}>Retry connection</button>
+        </div>
+      </div>
+    );
+
   // Show registration if setup required
   if (authState.setupRequired) {
     return <Register onSuccess={handleAuthSuccess} />;
@@ -124,28 +125,31 @@ function App() {
     <div className="app">
       <nav className="navbar">
         <div className="navbar-brand">
-          <h1>⛏️ MineMaster</h1>
+          <h1>MineMaster</h1>
         </div>
-        
+
         <div className="navbar-links">
-          <Link 
-            to="/" 
-            className={location.pathname === '/' ? 'active' : ''}
-          >
-            📊 Dashboard
+          <Link to="/" className={location.pathname === "/" ? "active" : ""}>
+            Fleet
           </Link>
-          <Link 
-            to="/configs" 
-            className={location.pathname === '/configs' ? 'active' : ''}
+          <Link
+            to="/configs"
+            className={location.pathname === "/configs" ? "active" : ""}
           >
-            ⚙️ Configs
+            Configurations
+          </Link>
+          <Link
+            to="/api-access"
+            className={location.pathname === "/api-access" ? "active" : ""}
+          >
+            API access
           </Link>
         </div>
 
         <div className="navbar-right">
           <div className="user-info">
             <div className="user-avatar">
-              {authState.user?.email?.charAt(0).toUpperCase() || '?'}
+              {authState.user?.email?.charAt(0).toUpperCase() || "?"}
             </div>
             <span className="user-email">{authState.user?.email}</span>
             <button className="logout-button" onClick={handleLogout}>
@@ -156,11 +160,14 @@ function App() {
       </nav>
 
       <main className="main-content">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/configs" element={<Configs />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<p role="status">Loading view…</p>}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/configs" element={<Configs />} />
+            <Route path="/api-access" element={<ApiKeys />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );

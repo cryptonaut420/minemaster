@@ -3,6 +3,7 @@
  * Handles WebSocket connection and communication with the MineMaster server
  */
 
+import versionInfo from '../version.json';
 import { getSystemId } from '../utils/systemId';
 
 class MasterServerService {
@@ -26,8 +27,12 @@ class MasterServerService {
       unbound: [],
       configUpdate: [],
       command: [],
+      commandCancel: [],
       error: []
     };
+    this.bootId = window.crypto?.randomUUID?.() || String(Date.now());
+    this.logQueue = [];
+    this.logSequence = 0;
     this.maxMessageBytes = 1024 * 1024;
   }
 
@@ -95,7 +100,7 @@ class MasterServerService {
     this._connecting = true;
 
     // Use wss:// for port 443 (HTTPS/TLS via nginx-proxy), ws:// for local dev
-    const secure = this.config.port === 443;
+    const secure = Number(this.config.port) === 443;
     const protocol = secure ? 'wss' : 'ws';
     const url = secure
       ? `${protocol}://${this.config.host}`
@@ -105,10 +110,12 @@ class MasterServerService {
       let resolved = false;
 
       try {
-        this.ws = new WebSocket(url);
+        const socket = new WebSocket(url);
+        this.ws = socket;
 
         // Connection timeout — if we don't connect within 10 seconds, give up this attempt
         const connectTimeout = setTimeout(() => {
+          if (this.ws !== socket) { if (!resolved) { resolved = true; reject(new Error('Connection superseded')); } return; }
           if (!resolved) {
             resolved = true;
             this._connecting = false;
@@ -123,7 +130,8 @@ class MasterServerService {
           }
         }, 10000);
 
-        this.ws.onopen = () => {
+        socket.onopen = () => {
+          if (this.ws !== socket) return;
           clearTimeout(connectTimeout);
           this._connecting = false;
           this.connected = true;
@@ -136,8 +144,9 @@ class MasterServerService {
           }
         };
 
-        this.ws.onclose = () => {
+        socket.onclose = () => {
           clearTimeout(connectTimeout);
+          if (this.ws !== socket) { if (!resolved) { resolved = true; reject(new Error('Connection superseded')); } return; }
           this._connecting = false;
           const wasConnected = this.connected;
           this.connected = false;
@@ -159,12 +168,14 @@ class MasterServerService {
           }
         };
 
-        this.ws.onerror = (error) => {
+        socket.onerror = (error) => {
+          if (this.ws !== socket) return;
           clearTimeout(connectTimeout);
           this.emit('error', error);
         };
 
-        this.ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
+          if (this.ws !== socket) return;
           this.handleMessage(event.data);
         };
       } catch (error) {
@@ -311,6 +322,9 @@ class MasterServerService {
         case 'config-update':
           this.emit('configUpdate', message.data);
           break;
+        case 'command-cancel':
+          this.emit('commandCancel', message.data);
+          break;
         case 'command':
           this.emit('command', message.data);
           break;
@@ -355,6 +369,10 @@ class MasterServerService {
     
     const registrationData = {
       systemId,
+      protocolVersion: 2,
+      version: versionInfo.displayVersion,
+      bootId: this.bootId,
+      capabilities: { commandResults: true, processHashrate: true, logs: true, sensorHistory: true, perGpuControl: false },
       systemInfo,
       silent, // For silent re-registration on reconnect
       timestamp: Date.now()
@@ -433,6 +451,7 @@ class MasterServerService {
       data: {
         systemId,
         ...status,
+        protocolVersion: 2,
         timestamp: Date.now()
       }
     });
@@ -453,6 +472,20 @@ class MasterServerService {
       }
     });
   }
+
+  queueLog(processId, message, level = 'info') {
+    if (this.logQueue.length >= 500) { this.logQueue.shift(); this.droppedLogs = (this.droppedLogs || 0) + 1; }
+    this.logQueue.push({ processId, message: String(message).slice(0, 4000), level, observedAt: new Date().toISOString(), sequence: ++this.logSequence });
+  }
+
+  flushLogs() {
+    if (!this.bound) return;
+    if (this.droppedLogs) { const dropped = this.droppedLogs; this.droppedLogs = 0; this.queueLog('agent', `${dropped} log lines dropped while the buffer was full`, 'warning'); }
+    const entries = this.logQueue.slice(0, 100);
+    if (entries.length && this.send({ type: 'logs', data: { entries } })) this.logQueue.splice(0, entries.length);
+  }
+
+  reportEvent(kind, details) { if (this.bound) this.send({ type: 'event', data: { kind, details } }); }
 
   /**
    * Add event listener
@@ -479,7 +512,7 @@ class MasterServerService {
     if (this.listeners[event]) {
       this.listeners[event].forEach(callback => {
         try {
-          callback(data);
+          Promise.resolve(callback(data)).catch(error => { if (event !== 'error') this.emit('error', error); });
         } catch (error) {
           // Silent fail - listener errors should not break the service
         }
