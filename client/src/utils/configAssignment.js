@@ -18,7 +18,10 @@ export function mergeAssignment(miner, assigned) {
   const nextEngine = engineFor(miner.type, assigned);
   const changedEngine = nextEngine !== engineFor(miner.type, miner.config);
   const clearedPath = changedEngine && !!miner.config.customPath;
-  if (changedEngine) delete local.customPath;
+  if (changedEngine) {
+    delete local.customPath;
+    delete local.gpus;
+  }
   return {
     ...miner,
     assignedConfig: JSON.parse(JSON.stringify(assigned)),
@@ -26,12 +29,12 @@ export function mergeAssignment(miner, assigned) {
       ...miner.config,
       ...assigned,
       ...local,
-      ...(miner.type === "xmrig" ? { engine: nextEngine } : {}),
-      ...(changedEngine ? { customPath: "" } : {}),
+      engine: nextEngine,
+      ...(changedEngine ? { customPath: "", gpus: [] } : {}),
     },
     localOverrides: Object.keys(local),
     configNotice: clearedPath
-      ? "Admin changed the CPU engine. The previous engine's custom executable path was cleared; the verified managed engine will be used at the next start."
+      ? "Admin changed the mining engine. The previous engine's custom executable path was cleared; the verified managed engine will be used at the next start."
       : null,
   };
 }

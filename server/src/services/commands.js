@@ -199,19 +199,20 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
         Config.validate(type, command.configs[type], { partial: false });
     }
   }
-  const cpuConfig = command.configs?.xmrig || miner.desiredConfigs?.xmrig;
   if (
-    ["CPU", "ALL"].includes(spec.deviceType) &&
-    ["start", "restart", "config-update", "device-enable"].includes(
-      spec.action,
-    ) &&
-    cpuConfig?.engine === "nanominer" &&
-    !miner.capabilities?.cpuEngines?.includes?.("nanominer")
-  )
-    throw problem(
-      "This agent cannot run Nanominer CPU. Upgrade it or select XMRig for this CPU configuration.",
-      422,
-    );
+    ["start", "restart", "config-update", "device-enable"].includes(spec.action)
+  ) {
+    for (const type of spec.deviceType === "ALL"
+      ? ["xmrig", "nanominer"]
+      : [spec.deviceType === "CPU" ? "xmrig" : "nanominer"]) {
+      const config = command.configs?.[type] || miner.desiredConfigs?.[type];
+      if (!Config.supportsEngine(type, config, miner.capabilities))
+        throw problem(
+          `This agent cannot run the assigned ${config.engine} ${type === "xmrig" ? "CPU" : "GPU"} engine. Upgrade the client or assign a supported engine.`,
+          422,
+        );
+    }
+  }
   try {
     await db.collection("commands").insertOne(command);
   } catch (error) {

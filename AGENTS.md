@@ -72,3 +72,11 @@ Applies to the whole repository. Read this file before making changes.
 - Update preparation must recheck cancellation/errors after stopping processes. Keep resume intent version-bound and retain Linux AppImage recovery copies until the intended new version starts.
 - Preserve admin assignment ownership separately from effective local overrides. Engine changes must not inherit another engine's custom executable.
 - Persistent diagnostics must be bounded and failure-isolated; stale GPU inventory must retain its original observation timestamp. Never execute miners to validate packaging or updates.
+
+## Desktop 1.4: SRBMiner
+- SRBMiner-MULTI is engine `srbminer` in either legacy slot (`xmrig` CPU, `nanominer` GPU). Keep one algorithm per process and explicit CPU/GPU scope. Never infer scope from executable name.
+- SRBMiner requires Windows/Linux x64 and advertised `cpuEngines`/`gpuEngines`. Filter incompatible assignments and reject incompatible launch/config commands; keep Stop available.
+- Keep `client/src/utils/srbminer.json` and `server/src/services/srbminer.json` identical. These are pinned algorithm/scope/vendor/fee and setting catalogs; vendor support does not establish model/driver compatibility or profitability.
+- Preserve canonical algorithm identities across engines: SRBMiner `randomx`, `randomarq`, `autolykos2` map to `rx/0`, `rx/arq`, `autolykos` in MineMaster. API/native/admin/client validation must agree.
+- Keep SRBMiner foreground-owned, with MSR tweaks, built-in watchdog and GPU clock changes disabled. Extract/package only the executable and supplied notices; never extract optional WinRing0 drivers or execute miners in tests.
+- Engine changes clear custom paths and legacy GPU indices. CPU/GPU SRBMiner instances share verified files but have independent work directories and Stop; repair requires both stopped.

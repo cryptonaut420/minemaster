@@ -65,3 +65,28 @@ test("admin CPU engine switches cannot carry an executable from the previous eng
   assert.equal(result.config.threads, 4);
   assert.match(result.configNotice, /custom executable path was cleared/);
 });
+
+test("admin GPU engine switches clear old indices and paths but retain assignment ownership", async () => {
+  const { mergeAssignment } = await loadAssignment();
+  const assigned = {
+    engine: "srbminer",
+    algorithm: "pearlhash",
+    pool: "p:3333",
+    user: "wallet",
+    srbGpuIntensity: 17,
+    version: "v2",
+  };
+  const miner = mergeAssignment(
+    {
+      type: "nanominer",
+      config: { algorithm: "kawpow", customPath: "old-nanominer", gpus: [1] },
+    },
+    assigned,
+  );
+  assert.equal(miner.config.engine, "srbminer");
+  assert.deepEqual(miner.config.gpus, []);
+  assert.equal(miner.config.customPath, "");
+  assert.equal(miner.config.srbGpuIntensity, 17);
+  assert.deepEqual(miner.assignedConfig, assigned);
+  assert.deepEqual(miner.localOverrides, []);
+});

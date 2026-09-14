@@ -1,4 +1,5 @@
 // Shared renderer/native validation: configurations must describe the process we actually launch.
+const SRB = require("./srbminer.json");
 const GPU_ALGORITHMS = [
   "ethash",
   "etchash",
@@ -14,8 +15,7 @@ const GPU_ALGORITHMS = [
 ];
 const aliases = { conflux: "octopus", autolykos2: "autolykos" };
 // Preserve the legacy CPU slot/ID while allowing a different executable behind it.
-const engineFor = (type, config = {}) =>
-  type === "xmrig" ? config?.engine || "xmrig" : type;
+const engineFor = (type, config = {}) => config?.engine || type;
 function poolAddress(value) {
   if (typeof value !== "string" || /[\s\r\n\0]/.test(value)) return false;
   const match = value.match(
@@ -100,9 +100,13 @@ function validate(type, config) {
   };
   integer("crashRestartDelaySeconds", 10, 600);
   integer("maxCrashRestartsPerHour", 0, 5);
+  const engine = engineFor(type, config);
+  if (engine === "srbminer") {
+    errors.push(...validateSrb(type, config));
+  }
   if (type === "xmrig") {
-    if (!["xmrig", "nanominer"].includes(engineFor(type, config)))
-      errors.push("Choose XMRig or Nanominer for CPU mining");
+    if (!["xmrig", "nanominer", "srbminer"].includes(engineFor(type, config)))
+      errors.push("Choose XMRig, Nanominer or SRBMiner for CPU mining");
     integer("threadPercentage", 10, 100);
     integer("threads", 0, 1024);
     integer("cpuPriority", 0, 5);
@@ -140,7 +144,8 @@ function validate(type, config) {
           "Nanominer supports thread limits and crash recovery here. Use XMRig for activity/battery pauses, priority, strict TLS, keepalive or huge-page overrides.",
         );
     }
-  } else if (type === "nanominer") {
+  } else if (type === "nanominer" && engine !== "srbminer") {
+    if (engine !== "nanominer") errors.push("Unsupported GPU engine");
     if (
       [
         config.pool,
@@ -166,7 +171,7 @@ function validate(type, config) {
         config.gpus.some((id) => !Number.isInteger(id) || id < 0 || id > 255))
     )
       errors.push("GPU indices must be integers from 0 to 255");
-  } else errors.push("Unknown miner type");
+  } else if (type !== "nanominer") errors.push("Unknown miner type");
   for (const key of [
     "tls",
     "keepAlive",
@@ -260,7 +265,146 @@ function cpuThreads(config, logicalCores) {
     ? Math.min(config.threads, cores)
     : Math.max(1, Math.floor((cores * (config.threadPercentage ?? 100)) / 100));
 }
+function srbAlgorithm(type, algorithm) {
+  return SRB.algorithms.find(
+    (row) =>
+      row.algorithm === algorithm &&
+      (type === "xmrig"
+        ? row.devices.includes("CPU")
+        : row.devices.some((d) => d !== "CPU")),
+  );
+}
+function algorithmsFor(type, config = {}) {
+  const engine = engineFor(type, config);
+  if (engine === "srbminer")
+    return SRB.algorithms
+      .filter((r) => srbAlgorithm(type, r.algorithm))
+      .map((r) => r.algorithm);
+  if (type === "nanominer") return GPU_ALGORITHMS;
+  return engine === "nanominer"
+    ? ["rx/0"]
+    : ["rx/0", "rx/wow", "rx/arq", "cn/r", "cn/half", "ghostrider"];
+}
+function validateSrb(type, config) {
+  const errors = [];
+  if (!srbAlgorithm(type, config.algorithm))
+    errors.push("Choose an SRBMiner algorithm supported by this CPU/GPU scope");
+  for (const [key, spec] of Object.entries(SRB.fields))
+    if (
+      config[key] !== undefined &&
+      (!Number.isInteger(config[key]) ||
+        config[key] < spec.min ||
+        config[key] > spec.max)
+    )
+      errors.push(`${key} must be an integer from ${spec.min} to ${spec.max}`);
+  for (const key of ["user", "password", "rigName", "workerName"])
+    if (
+      config[key] &&
+      (typeof config[key] !== "string" || /[,;!#]/.test(config[key]))
+    )
+      errors.push(`${key} cannot contain SRBMiner list separators (, ; ! #)`);
+  if (
+    config.additionalArgs?.trim?.() ||
+    (config.additionalArgs != null && typeof config.additionalArgs !== "string")
+  )
+    errors.push(
+      "Use the managed SRBMiner settings instead of additional arguments",
+    );
+  if (
+    config.pauseOnBattery ||
+    config.pauseOnActive > 0 ||
+    config.cpuPriority > 0
+  )
+    errors.push(
+      "Activity pauses and XMRig priority are not supported by SRBMiner; use SRBMiner thread priority",
+    );
+  if (config.gpus?.length)
+    errors.push(
+      "Clear old GPU indices before using SRBMiner; device indices differ between engines",
+    );
+  return errors;
+}
+function srbArguments(type, config, hostname, logicalCores) {
+  const cpu = type === "xmrig";
+  const pools = [config.pool, ...(config.backupPools || [])];
+  const worker = (cpu ? config.workerName : config.rigName) || hostname;
+  if (/[,;!#\r\n\0]/.test(worker))
+    throw Error(
+      "Worker name contains SRBMiner separators; set an explicit worker name",
+    );
+  const args = [
+    "--algorithm",
+    srbAlgorithm(type, config.algorithm).argument,
+    cpu ? "--disable-gpu" : "--disable-cpu",
+    "--disable-msr-tweaks",
+    "--disable-worker-watchdog",
+    "--gpu-disable-oc",
+    "--pool",
+    pools.map((p) => p.replace(/^stratum\+(tcp|ssl|tls):\/\//i, "")).join(","),
+    "--wallet",
+    pools.map(() => config.user).join(","),
+    "--worker",
+    pools.map(() => worker).join(","),
+    "--password",
+    pools.map(() => config.password || "x").join("!"),
+    "--tls",
+    pools
+      .map((p) =>
+        config.tls === true || /^stratum\+(ssl|tls):/i.test(p)
+          ? "true"
+          : "false",
+      )
+      .join(","),
+    "--keepalive",
+    pools.map(() => (config.keepAlive === true ? "true" : "false")).join(","),
+    "--retry-time",
+    String(config.srbRetrySeconds ?? 10),
+    "--give-up-limit",
+    String(config.srbPoolAttempts ?? 5),
+    "--main-pool-reconnect",
+    String(config.srbMainPoolSeconds ?? 600),
+    "--job-timeout",
+    pools.map(() => config.srbJobTimeout ?? 0).join(","),
+    "--esm",
+    pools.map(() => config.srbStratumMode ?? 0).join(","),
+  ];
+  if (cpu)
+    args.push(
+      "--cpu-threads",
+      String(cpuThreads(config, logicalCores)),
+      "--cpu-threads-priority",
+      String(config.srbCpuPriority ?? 2),
+    );
+  if (cpu && config.hugePages === false) args.push("--disable-huge-pages");
+  if (!cpu && config.srbGpuIntensity > 0)
+    args.push("--gpu-intensity", String(config.srbGpuIntensity));
+  return args;
+}
+function switchEngine(type, config, engine) {
+  const next = Object.assign({}, config, {
+    engine,
+    customPath: "",
+    gpus: [],
+    additionalArgs: "",
+    cpuPriority: 0,
+    pauseOnBattery: false,
+    pauseOnActive: 0,
+    tls: false,
+    keepAlive: false,
+    hugePages: true,
+  });
+  const allowed = algorithmsFor(type, next);
+  if (!allowed.includes(next.algorithm))
+    next.algorithm = type === "xmrig" ? "rx/0" : "kawpow";
+  return next;
+}
 module.exports = {
+  switchEngine,
+  SRB,
+  srbAlgorithm,
+  algorithmsFor,
+  validateSrb,
+  srbArguments,
   engineFor,
   cpuThreads,
   GPU_ALGORITHMS,

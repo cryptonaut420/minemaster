@@ -116,7 +116,8 @@ const { ObjectId } = require("mongodb");
             capabilities: {
               commandResults: true,
               appUpdates: true,
-              cpuEngines: ["xmrig", "nanominer"],
+              cpuEngines: ["xmrig", "nanominer", "srbminer"],
+              gpuEngines: ["nanominer", "srbminer"],
             },
             systemInfo: {
               hostname: `workshop-${i + 1}`,

@@ -3370,6 +3370,37 @@
           }
         }
       }
+    },
+    "/mining/engines": {
+      "get": {
+        "summary": "Pinned optional engine algorithm and setting catalog",
+        "description": "Read access required. SRBMiner 3.6.7 vendor/scope compatibility, developer fees, setting defaults and bounds; no profitability estimates or hardware validation claim.",
+        "responses": {
+          "200": {
+            "description": "Engine catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "srbminer": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Read access required"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3582,7 +3613,7 @@
           "engine": {
             "type": "string",
             "nullable": true,
-            "enum": ["xmrig", "nanominer"],
+            "enum": ["xmrig", "nanominer", "srbminer"],
             "description": "Actual executable engine, independent of CPU/GPU scope and legacy configuration slot."
           },
           "effectiveSettings": {
@@ -3884,7 +3915,8 @@
             "type": "string"
           },
           "algorithm": {
-            "type": "string"
+            "type": "string",
+            "description": "Must match the selected engine and CPU/GPU scope. SRBMiner catalog available from GET /mining/engines."
           },
           "pool": {
             "type": "string"
@@ -3893,7 +3925,8 @@
             "type": "string"
           },
           "password": {
-            "type": "string"
+            "type": "string",
+            "description": "Pool password. SRBMiner rejects list separators (, ; ! #) in credentials/worker names. Same credentials apply to all failover pools."
           },
           "additionalArgs": {
             "type": "string"
@@ -3961,8 +3994,61 @@
           },
           "engine": {
             "type": "string",
-            "enum": ["xmrig", "nanominer"],
-            "description": "CPU configuration only (legacy xmrig slot). New profiles default to nanominer; pre-existing profiles without an engine remain xmrig. Nanominer CPU supports rx/0 and thread limits; XMRig-only overrides are rejected."
+            "enum": ["xmrig", "nanominer", "srbminer"],
+            "description": "CPU slot xmrig supports xmrig/nanominer/srbminer; GPU slot nanominer supports nanominer/srbminer. SRBMiner requires cpuEngines/gpuEngines capability and MineMaster 1.4 Windows/Linux x64. Omitted engine keeps legacy slot semantics. SRBMiner runs one algorithm per CPU/GPU process; native names randomx, randomarq and autolykos2 use canonical rx/0, rx/arq and autolykos in this API. Use GET /mining/engines for the pinned algorithm/vendor/fee catalog."
+          },
+          "srbGpuIntensity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 31,
+            "default": 0,
+            "description": "GPU intensity (0 = automatic, 1\u201331); SRBMiner only"
+          },
+          "srbCpuPriority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 2,
+            "description": "SRBMiner CPU thread priority (1 lowest, 5 highest); SRBMiner only"
+          },
+          "srbRetrySeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120,
+            "default": 10,
+            "description": "Pool reconnect delay (seconds); SRBMiner only"
+          },
+          "srbPoolAttempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 5,
+            "description": "Connection attempts before pool failover; SRBMiner only"
+          },
+          "srbMainPoolSeconds": {
+            "type": "integer",
+            "minimum": 120,
+            "maximum": 86400,
+            "default": 600,
+            "description": "Return to primary pool after (seconds); SRBMiner only"
+          },
+          "srbJobTimeout": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600,
+            "default": 0,
+            "description": "Reconnect without jobs after (seconds; 0 off); SRBMiner only"
+          },
+          "srbStratumMode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 0,
+            "description": "Ethash stratum mode (0 getwork, 1 EthereumStratum, 2 NiceHash); SRBMiner only"
+          },
+          "workerName": {
+            "type": "string",
+            "description": "CPU pool worker name. Empty falls back to the rig hostname."
           }
         }
       },

@@ -430,7 +430,11 @@ class MasterServerService {
         cpuEngines:
           window.electronAPI?.platform === "darwin"
             ? ["xmrig"]
-            : ["xmrig", "nanominer"],
+            : ["xmrig", "nanominer", "srbminer"],
+        gpuEngines:
+          window.electronAPI?.platform === "darwin"
+            ? ["nanominer"]
+            : ["nanominer", "srbminer"],
       },
       systemInfo,
       silent, // For silent re-registration on reconnect

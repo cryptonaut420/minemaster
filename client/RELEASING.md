@@ -1,4 +1,4 @@
-# MineMaster desktop 1.3 — releasing and updates
+# MineMaster desktop 1.4 — releasing and updates
 
 ## Build and verify
 
@@ -14,7 +14,7 @@ npm --prefix ../server/public run build
 
 Tests use fake native processes and disposable data. They never execute mining binaries. See [the audit](../docs/audits/client-2026-09-13/second-pass.md) for package checks and the remaining Windows/hardware trial.
 
-The version is currently 1.3.0. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
+The version is currently 1.4.0. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
 
 Build locally without publishing:
 
@@ -29,9 +29,9 @@ Windows cross builds require the existing Wine/container environment. macOS need
 
 ## Miner distribution
 
-`electron/mining/releases.json` pins XMRig 6.26.0 and Nanominer 3.10.0 with official URLs, archive SHA-256 and runtime-file SHA-256. The `beforePack` hook verifies/downloads the actual target's files, including cross builds. Nanominer is available on Windows/Linux x64; XMRig also covers macOS x64/arm64. Only the requested platform/architecture is packaged.
+`electron/mining/releases.json` pins XMRig 6.26.0 Nanominer 3.10.0 and SRBMiner-MULTI 3.6.7 with official URLs, archive SHA-256 and runtime-file SHA-256. The `beforePack` hook verifies/downloads the actual target's files, including cross builds. Nanominer and SRBMiner are available on Windows/Linux x64; XMRig also covers macOS x64/arm64. Only the requested platform/architecture is packaged.
 
-Setup/repair lists the archive, then extracts only manifest-listed runtime files and supplied licenses. Optional drivers are not extracted into temporary directories or installed. Runtime replacement stages and verifies new files before swapping directories. The shared Nanominer executable cannot be repaired while either CPU or GPU uses it. Versioned binaries remain outside Git and writable configurations stay in user data; see [the client guide](README.md).
+Setup/repair lists the archive, then extracts only manifest-listed runtime files and supplied licenses. Optional drivers are not extracted into temporary directories or installed. Runtime replacement stages and verifies new files before swapping directories. The shared Nanominer or SRBMiner executable cannot be repaired while either CPU or GPU uses it. Versioned binaries remain outside Git and writable configurations stay in user data; see [the client guide](README.md).
 
 Changing a pinned engine requires verifying the archive and every selected file, retaining licenses, updating supported configuration options, and rechecking every requested package target. Do not run the binaries during automated verification.
 

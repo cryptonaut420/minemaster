@@ -4,7 +4,7 @@ import "./MinerConfig.css";
 import { formatMinerRate } from "../utils/formatters";
 import { useSystemInfo, useSystemStats } from "../hooks/useSystemInfo";
 import SystemInfoCard from "./SystemInfoCard";
-import { engineFor } from "../utils/miningConfig";
+import { engineFor, algorithmsFor, srbAlgorithm } from "../utils/miningConfig";
 
 function MinerConfig({
   miner,
@@ -16,6 +16,7 @@ function MinerConfig({
 }) {
   const systemInfo = useSystemInfo();
   const systemStats = useSystemStats();
+  const srb = engineFor(miner.type, miner.config) === "srbminer";
   const nanoCpu = engineFor(miner.type, miner.config) === "nanominer";
 
   const handleChange = (field, value) => {
@@ -123,16 +124,11 @@ function MinerConfig({
               onChange={(e) => handleChange("algorithm", e.target.value)}
               disabled={miner.running || isFieldDisabled("algorithm")}
             >
-              <option value="rx/0">RandomX (rx/0)</option>
-              {!nanoCpu && (
-                <>
-                  <option value="rx/wow">RandomWOW (rx/wow)</option>
-                  <option value="rx/arq">RandomARQ (rx/arq)</option>
-                  <option value="cn/r">CryptoNight R (cn/r)</option>
-                  <option value="cn/half">CryptoNight Half (cn/half)</option>
-                  <option value="ghostrider">GhostRider</option>
-                </>
-              )}
+              {algorithmsFor(miner.type, miner.config).map((algo) => (
+                <option key={algo} value={algo}>
+                  {algo}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -180,8 +176,12 @@ function MinerConfig({
             />
             <span className="field-hint">
               Defaults to{" "}
-              {defaultWorkerName ? `"${defaultWorkerName}"` : "hostname"} if
-              empty. Some pools use this as the worker name.
+              {engineFor("xmrig", miner.config) === "srbminer"
+                ? "x"
+                : defaultWorkerName
+                  ? `"${defaultWorkerName}"`
+                  : "hostname"}{" "}
+              if empty. Some pools use this as the worker name.
             </span>
           </div>
         </div>
@@ -213,8 +213,8 @@ function MinerConfig({
               {miner.config.threadPercentage ?? 100}%
             </span>
             <span className="field-hint">
-              {nanoCpu
-                ? "Nanominer uses this percentage of logical CPU threads, rounded down; explicit threads override it."
+              {nanoCpu || srb
+                ? "The selected engine uses this percentage of logical CPU threads, rounded down; explicit threads override it."
                 : "XMRig chooses efficient threads within this budget; this is not a measured CPU utilization limit."}
             </span>
           </label>
@@ -239,7 +239,7 @@ function MinerConfig({
           </div>
         </div>
 
-        {!nanoCpu && (
+        {!nanoCpu && !srb && (
           <>
             <div className="form-row">
               <div className="form-group">
@@ -303,12 +303,21 @@ function MinerConfig({
             fallback; no optional kernel driver is installed.
           </p>
         )}
+        {srb && (
+          <p className="field-hint">
+            SRBMiner{" "}
+            {srbAlgorithm(miner.type, miner.config.algorithm)?.fee ?? "—"}%
+            developer fee for this algorithm. CPU threads, huge pages, pool TLS
+            and crash recovery are configurable. MSR tuning is disabled;
+            activity/battery pauses are unavailable.
+          </p>
+        )}
         {/* System Info for CPU Miner */}
         {miner.deviceType === "CPU" && (
           <SystemInfoCard systemInfo={systemInfo} systemStats={systemStats} />
         )}
 
-        {!nanoCpu && (
+        {!nanoCpu && !srb && (
           <div className="form-group">
             <label htmlFor={`${miner.id}-additional-arguments-optional`}>
               {" "}

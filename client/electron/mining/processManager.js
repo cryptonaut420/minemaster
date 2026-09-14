@@ -60,7 +60,7 @@ function createProcessManager({
   };
   const valid = (id, type) => {
     if (!/^[\w-]{1,80}$/.test(id || "")) throw Error("Invalid miner identity");
-    if (type && !["xmrig", "nanominer"].includes(type))
+    if (type && !["xmrig", "nanominer", "srbminer"].includes(type))
       throw Error("Unsupported miner type");
   };
   const running = (entry) =>
@@ -347,7 +347,7 @@ function createProcessManager({
               [...retryTimers.values()].some((retry) => retry.engine === type)
             )
               throw Error(
-                "Stop every process using this engine before repairing its files (including CPU and GPU Nanominer)",
+                "Stop every process using this engine before repairing its files (including CPU and GPU instances)",
               );
             if (customPath)
               throw Error(

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
+import SRB from "../../../src/services/srbminer.json";
 import {
   Badge,
   CommandHistory,
@@ -29,7 +30,7 @@ const algorithms = {
   ],
 };
 const labels = {
-  engine: "CPU mining engine",
+  engine: "Mining engine",
   coin: "Coin label",
   algorithm: "Algorithm",
   pool: "Pool address",
@@ -38,6 +39,7 @@ const labels = {
   threadPercentage: "CPU threads (%)",
   additionalArgs: "Additional arguments",
   rigName: "Worker name",
+  workerName: "CPU worker name",
   restartOnCrash: "Restart after an unexpected exit",
   crashRestartDelaySeconds: "Delay before crash recovery (seconds)",
   maxCrashRestartsPerHour: "Maximum crash restarts per hour (0–5)",
@@ -50,6 +52,25 @@ const labels = {
   keepAlive: "Pool keepalive",
   backupPools: "Backup pools (comma separated, up to three)",
 };
+Object.assign(
+  labels,
+  Object.fromEntries(
+    Object.entries(SRB.fields).map(([key, field]) => [key, field.label]),
+  ),
+);
+function availableAlgorithms(type, engine) {
+  if (engine === "srbminer")
+    return SRB.algorithms
+      .filter((r) =>
+        type === "xmrig"
+          ? r.devices.includes("CPU")
+          : r.devices.some((d) => d !== "CPU"),
+      )
+      .map((r) => r.algorithm);
+  return type === "xmrig" && engine === "nanominer"
+    ? ["rx/0"]
+    : algorithms[type];
+}
 export default function Configs() {
   const resource = useResource("configs"),
     [type, setType] = useState("xmrig"),
@@ -205,7 +226,7 @@ export default function Configs() {
               rolloutKey.current = requestId();
             }}
           >
-            {t === "xmrig" ? "CPU · RandomX / XMRig" : "GPU · Nanominer"}
+            {t === "xmrig" ? "CPU mining" : "GPU mining"}
             {baseline[t] &&
             JSON.stringify(drafts[t]) !== JSON.stringify(baseline[t])
               ? " *"
@@ -230,10 +251,44 @@ export default function Configs() {
                   settings.
                 </p>
               )}
+              {draft.engine === "srbminer" && (
+                <p>
+                  SRBMiner 3.6.7 ·{" "}
+                  {SRB.algorithms.find((r) => r.algorithm === draft.algorithm)
+                    ?.fee ?? "—"}
+                  % developer fee for this algorithm. One algorithm per process.
+                  Requires MineMaster 1.4 on Windows/Linux x64. Specific GPU
+                  model/driver support varies; the listed vendors are{" "}
+                  {SRB.algorithms
+                    .find((r) => r.algorithm === draft.algorithm)
+                    ?.devices.join(", ")}
+                  . MSR tuning, miner-owned restarts and automatic clock changes
+                  are disabled.
+                </p>
+              )}
               {Object.entries(draft)
                 .filter(
                   ([k]) =>
                     labels[k] &&
+                    (!SRB.fields[k] ||
+                      (draft.engine === "srbminer" &&
+                        (type === "xmrig"
+                          ? k !== "srbGpuIntensity"
+                          : k !== "srbCpuPriority"))) &&
+                    !(
+                      draft.engine === "srbminer" &&
+                      [
+                        "additionalArgs",
+                        "cpuPriority",
+                        "pauseOnBattery",
+                        "pauseOnActive",
+                      ].includes(k)
+                    ) &&
+                    !(
+                      type === "nanominer" &&
+                      draft.engine !== "srbminer" &&
+                      ["password", "tls", "keepAlive"].includes(k)
+                    ) &&
                     !(
                       type === "xmrig" &&
                       draft.engine === "nanominer" &&
@@ -261,27 +316,40 @@ export default function Configs() {
                             [type]: {
                               ...draft,
                               engine: e.target.value,
-                              ...(e.target.value === "nanominer"
+                              algorithm: availableAlgorithms(
+                                type,
+                                e.target.value,
+                              ).includes(draft.algorithm)
+                                ? draft.algorithm
+                                : type === "xmrig"
+                                  ? "rx/0"
+                                  : "kawpow",
+                              ...(type === "xmrig"
                                 ? {
-                                    algorithm: "rx/0",
                                     additionalArgs: "",
                                     cpuPriority: 0,
                                     pauseOnBattery: false,
                                     pauseOnActive: 0,
-                                    tls: false,
-                                    keepAlive: false,
                                     hugePages: true,
                                   }
                                 : {}),
+                              tls: false,
+                              keepAlive: false,
                             },
                           })
                         }
                       >
                         <option value="nanominer">
-                          Nanominer · RandomX · 2% fee
+                          Nanominer{" "}
+                          {type === "xmrig" ? "· RandomX · 2% fee" : "· GPU"}
                         </option>
-                        <option value="xmrig">
-                          XMRig · advanced CPU controls
+                        {type === "xmrig" && (
+                          <option value="xmrig">
+                            XMRig · advanced CPU controls
+                          </option>
+                        )}
+                        <option value="srbminer">
+                          SRBMiner-MULTI · CPU/GPU algorithms
                         </option>
                       </select>
                     ) : k === "algorithm" ? (
@@ -295,10 +363,7 @@ export default function Configs() {
                           })
                         }
                       >
-                        {(type === "xmrig" && draft.engine === "nanominer"
-                          ? ["rx/0"]
-                          : algorithms[type]
-                        ).map((a) => (
+                        {availableAlgorithms(type, draft.engine).map((a) => (
                           <option key={a}>{a}</option>
                         ))}
                       </select>
@@ -318,8 +383,14 @@ export default function Configs() {
                       <input
                         id={`config-${type}-${k}`}
                         type={typeof value === "number" ? "number" : "text"}
-                        min={k === "threadPercentage" ? 10 : undefined}
-                        max={k === "threadPercentage" ? 100 : undefined}
+                        min={
+                          SRB.fields[k]?.min ??
+                          (k === "threadPercentage" ? 10 : undefined)
+                        }
+                        max={
+                          SRB.fields[k]?.max ??
+                          (k === "threadPercentage" ? 100 : undefined)
+                        }
                         value={
                           Array.isArray(value)
                             ? value.join(", ")
@@ -358,9 +429,9 @@ export default function Configs() {
                 Local worker name, password, GPU selection, and executable path
                 can override these values. Running processes retain their launch
                 configuration until restarted. CPU controls and backup pools
-                require MineMaster 1.2 or later; CPU engine selection requires
-                1.3. Thread percentage is a budget for automatic tuning, not a
-                CPU usage measurement.
+                require MineMaster 1.2 or later; Nanominer CPU selection
+                requires 1.3 and SRBMiner requires 1.4. Thread percentage is a
+                budget for automatic tuning, not a CPU usage measurement.
               </p>
               <div className="op-actions">
                 <button

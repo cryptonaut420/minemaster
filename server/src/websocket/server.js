@@ -162,7 +162,7 @@ async function register(c, data) {
     sendToMiner(c.id, {
       type: "error",
       error:
-        "The assigned Nanominer CPU engine is unavailable on this agent. Upgrade the client or assign XMRig; CPU settings were not changed.",
+        "An assigned mining engine is unavailable on this agent. Upgrade the client or assign a supported engine; incompatible settings were not delivered.",
     });
   await monitoring.event(miner.id, "agent-connected", {
     version: miner.version,
@@ -327,15 +327,18 @@ async function handle(c, message) {
       return monitoring.ingestLogs(miner.id, data.entries);
     case "event":
       return monitoring.event(miner.id, data.kind, data.details || {});
-    case "request-configs":
-      sendToMiner(c.id, {
-        type: "config-update",
-        data: Config.forAgent(
-          miner.desiredConfigs || (await Config.getAll()),
-          miner.capabilities,
-        ),
-      });
+    case "request-configs": {
+      const assigned = miner.desiredConfigs || (await Config.getAll());
+      const supported = Config.forAgent(assigned, miner.capabilities);
+      sendToMiner(c.id, { type: "config-update", data: supported });
+      if (supported !== assigned)
+        sendToMiner(c.id, {
+          type: "error",
+          error:
+            "An assigned mining engine is unavailable on this agent. Upgrade the client or assign a supported engine; incompatible settings were not delivered.",
+        });
       return;
+    }
     case "unbound": {
       broadcastMiner(
         await Miner.update(

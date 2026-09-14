@@ -233,6 +233,144 @@ test("admin Nanominer CPU revisions reach the isolated native config while GPU s
   assert.ok(reports.filter((r) => r.status === "succeeded").length === 2);
 });
 
+test("admin SRBMiner CPU revisions reach the isolated native config while GPU stays running", async (t) => {
+  const os = require("os"),
+    { EventEmitter } = require("events");
+  const { createRuntime } = require("../electron/mining/runtime"),
+    { createProcessManager } = require("../electron/mining/processManager"),
+    { mergeAssignment } = await import(
+      "data:text/javascript;base64," +
+        Buffer.from(
+          fs
+            .readFileSync(
+              path.join(__dirname, "../src/utils/configAssignment.js"),
+              "utf8",
+            )
+            .replace(
+              "./miningConfig.js",
+              require("url").pathToFileURL(
+                path.join(__dirname, "../src/utils/miningConfig.js"),
+              ).href,
+            ),
+        ).toString("base64")
+    );
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "minemaster-admin-cpu-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const fake = path.join(root, "fake-srbminer");
+  fs.writeFileSync(fake, "fixture, never executed");
+  fs.chmodSync(fake, 0o755);
+  const runtime = createRuntime({
+    userData: root,
+    bundledRoot: root,
+    platform: "linux",
+    arch: "x64",
+    hostname: "rig",
+    logicalCores: 16,
+  });
+  const alive = new Set();
+  let pid = 200;
+  const manager = createProcessManager({
+    runtime,
+    wait: async () => {},
+    alive: (p) => alive.has(p),
+    signal: async (p) => alive.delete(p.pid),
+    spawnProcess: () => {
+      const child = new EventEmitter();
+      child.pid = ++pid;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      alive.add(pid);
+      return child;
+    },
+  });
+  let miners = [
+    {
+      id: "xmrig-1",
+      type: "xmrig",
+      deviceType: "CPU",
+      enabled: true,
+      running: false,
+      config: { engine: "srbminer", customPath: fake },
+    },
+    {
+      id: "nanominer-1",
+      type: "nanominer",
+      deviceType: "GPU",
+      enabled: true,
+      config: {
+        algorithm: "etchash",
+        coin: "ETC",
+        pool: "gpu:3333",
+        user: "gpu-wallet",
+        customPath: fake,
+      },
+    },
+  ];
+  const start = async (id) => {
+    const m = miners.find((x) => x.id === id),
+      r = await manager.start({
+        minerId: id,
+        minerType: m.type,
+        config: m.config,
+      });
+    Object.assign(m, r);
+    return r;
+  };
+  const stop = async (id) => {
+    const r = await manager.stop({ minerId: id });
+    Object.assign(
+      miners.find((x) => x.id === id),
+      manager.snapshot(id),
+    );
+    return r;
+  };
+  await start("nanominer-1");
+  const gpuPid = miners[1].pid;
+  const { createCommandRunner } = await runnerModule();
+  const reports = [];
+  const c = createCommandRunner({
+    getMiners: () => miners,
+    start,
+    stop,
+    applyConfigs: (configs) => {
+      miners = miners.map((m) =>
+        configs[m.type] ? mergeAssignment(m, configs[m.type]) : m,
+      );
+    },
+    report: (r) => reports.push(r),
+    delayMs: 0,
+  });
+  for (const [i, password] of ["first", "second"].entries())
+    await c.execute({
+      id: "rollout-" + i,
+      action: "restart",
+      deviceType: "CPU",
+      deadline: new Date(Date.now() + 5000).toISOString(),
+      configs: {
+        xmrig: {
+          engine: "srbminer",
+          algorithm: "rx/0",
+          coin: "XMR",
+          pool: "cpu:3333",
+          user: "cpu-wallet",
+          password,
+          threads: 4,
+          version: "v" + i,
+        },
+      },
+    });
+  const saved = JSON.parse(
+    fs.readFileSync(path.join(root, "processes/xmrig-1/config.json"), "utf8"),
+  );
+  assert.equal(saved.algorithm, "rx/0");
+  assert.equal(saved.threads, 4);
+  assert.equal(saved.password, "second");
+  assert.equal(miners[0].engine, "srbminer");
+  assert.equal(miners[0].activeConfig.version, "v1");
+  assert.equal(manager.snapshot("nanominer-1").pid, gpuPid);
+  assert.ok(reports.filter((r) => r.status === "succeeded").length === 2);
+});
+
 test("restart-running-only skips idle processes without issuing Stop or Start", async () => {
   const { createCommandRunner } = await runnerModule();
   const operations = [],

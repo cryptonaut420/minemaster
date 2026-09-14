@@ -1,5 +1,6 @@
 import React from "react";
 import EngineOptions from "./EngineOptions";
+import { algorithmsFor, engineFor, srbAlgorithm } from "../utils/miningConfig";
 import "./MinerConfig.css";
 import { formatMinerRate } from "../utils/formatters";
 import { useSystemInfo, useGpuList } from "../hooks/useSystemInfo";
@@ -12,6 +13,11 @@ function NanominerConfig({
   isBoundToMaster = false,
   defaultWorkerName = "",
 }) {
+  const algorithms = algorithmsFor(miner.type, miner.config);
+  const srb = engineFor(miner.type, miner.config) === "srbminer";
+  const algorithmInfo = srb
+    ? srbAlgorithm(miner.type, miner.config.algorithm)
+    : null;
   const systemInfo = useSystemInfo();
   const gpuList = useGpuList();
   const gpuDetectionComplete = systemInfo?.gpuDetectionStatus === "complete";
@@ -117,16 +123,23 @@ function NanominerConfig({
         onChange={onConfigChange}
         bound={isBoundToMaster}
       />
+      {algorithmInfo && (
+        <p className="field-hint">
+          {algorithmInfo.argument} · {algorithmInfo.fee}% developer fee ·{" "}
+          {algorithmInfo.devices.filter((d) => d !== "CPU").join(", ")}{" "}
+          (specific model/driver support varies).
+        </p>
+      )}
       <div className="config-form">
         <p className="field-hint">
-          GPU controls apply to the entire Nanominer process. Sensor order is
-          not a reliable mining device index.
+          GPU controls apply to the entire selected mining process. Sensor order
+          is not a reliable mining device index.
         </p>
         {miner.config.gpus?.length > 0 && (
           <p className="field-hint">
-            Explicit Nanominer device indices: {miner.config.gpus.join(", ")}.
-            Check these against Nanominer's device listing after hardware
-            changes.{" "}
+            Explicit legacy Nanominer device indices:{" "}
+            {miner.config.gpus.join(", ")}. Check these against Nanominer's
+            device listing after hardware changes.{" "}
             <button
               disabled={miner.running || isBoundToMaster}
               onClick={() => handleChange("gpus", [])}
@@ -175,36 +188,12 @@ function NanominerConfig({
               onChange={(e) => handleChange("algorithm", e.target.value)}
               disabled={miner.running || isFieldDisabled("algorithm")}
             >
-              {[
-                "ethash",
-                "etchash",
-                "ethashb3",
-                "fishhash",
-                "karlsenhashv2",
-                "ubqhash",
-                "firopow",
-                "kawpow",
-                "octopus",
-                "autolykos",
-                "verthash",
-              ].map((algo) => (
+              {algorithms.map((algo) => (
                 <option key={algo} value={algo}>
                   {algo}
                 </option>
               ))}
-              {![
-                "ethash",
-                "etchash",
-                "ethashb3",
-                "fishhash",
-                "karlsenhashv2",
-                "ubqhash",
-                "firopow",
-                "kawpow",
-                "octopus",
-                "autolykos",
-                "verthash",
-              ].includes(miner.config.algorithm) && (
+              {!algorithms.includes(miner.config.algorithm) && (
                 <option value={miner.config.algorithm}>
                   {miner.config.algorithm} (review compatibility)
                 </option>

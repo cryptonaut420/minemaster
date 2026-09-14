@@ -1,5 +1,6 @@
 const { randomUUID } = require("crypto");
 const { getDb } = require("../db/mongodb");
+const SRB = require("../services/srbminer.json");
 const DEFAULTS = {
   xmrig: {
     engine: "nanominer",
@@ -8,6 +9,7 @@ const DEFAULTS = {
     pool: "",
     user: "",
     password: "x",
+    workerName: "",
     threadPercentage: 50,
     additionalArgs: "",
     restartOnCrash: false,
@@ -23,6 +25,10 @@ const DEFAULTS = {
     backupPools: [],
   },
   nanominer: {
+    engine: "nanominer",
+    password: "x",
+    tls: false,
+    keepAlive: false,
     coin: "",
     algorithm: "kawpow",
     pool: "",
@@ -34,6 +40,9 @@ const DEFAULTS = {
     maxCrashRestartsPerHour: 2,
   },
 };
+for (const type of Object.keys(DEFAULTS))
+  for (const [key, spec] of Object.entries(SRB.fields))
+    DEFAULTS[type][key] = spec.default;
 const ALGORITHMS = {
   xmrig: ["rx/0", "rx/wow", "rx/arq", "cn/r", "cn/half", "ghostrider"],
   nanominer: [
@@ -71,7 +80,11 @@ function validate(type, config, { partial = true } = {}) {
       errors[key] = "Unsupported field";
       continue;
     }
-    if (
+    if (SRB.fields[key]) {
+      const { min, max } = SRB.fields[key];
+      if (!Number.isInteger(value) || value < min || value > max)
+        errors[key] = `Use an integer from ${min} to ${max}`;
+    } else if (
       [
         "cpuPriority",
         "pauseOnActive",
@@ -113,21 +126,32 @@ function validate(type, config, { partial = true } = {}) {
     } else if (
       typeof value !== "string" ||
       value.length > (key === "additionalArgs" ? 2000 : 500) ||
-      /[\r\n]/.test(value)
+      /[\r\n\0]/.test(value)
     )
       errors[key] = "Use a single-line text value";
   }
   if (
     config.algorithm !== undefined &&
-    !ALGORITHMS[type].includes(config.algorithm)
+    !(config.engine === "srbminer"
+      ? SRB.algorithms.some(
+          (r) =>
+            r.algorithm === config.algorithm &&
+            (type === "xmrig"
+              ? r.devices.includes("CPU")
+              : r.devices.some((d) => d !== "CPU")),
+        )
+      : ALGORITHMS[type].includes(config.algorithm))
   )
     errors.algorithm = "Unsupported algorithm";
   if (
-    type === "xmrig" &&
     config.engine !== undefined &&
-    !["xmrig", "nanominer"].includes(config.engine)
+    !(
+      type === "xmrig"
+        ? ["xmrig", "nanominer", "srbminer"]
+        : ["nanominer", "srbminer"]
+    ).includes(config.engine)
   )
-    errors.engine = "Choose xmrig or nanominer";
+    errors.engine = "Choose a supported CPU/GPU engine";
   if (type === "xmrig" && config.engine === "nanominer") {
     if (config.algorithm !== undefined && config.algorithm !== "rx/0")
       errors.algorithm = "Nanominer CPU supports rx/0";
@@ -151,13 +175,25 @@ function validate(type, config, { partial = true } = {}) {
   )
     errors.pool = "Use host:port with a port from 1 to 65535";
   if (
-    (type === "nanominer" || config.engine === "nanominer") &&
+    ((type === "nanominer" && config.engine !== "srbminer") ||
+      config.engine === "nanominer") &&
     [
       config.pool,
       ...(Array.isArray(config.backupPools) ? config.backupPools : []),
     ].some((v) => typeof v === "string" && v.includes("://"))
   )
     errors.pool = "Nanominer requires host:port without a URL scheme";
+  if (config.engine === "srbminer") {
+    for (const key of ["user", "password", "rigName", "workerName"])
+      if (typeof config[key] === "string" && /[,;!#]/.test(config[key]))
+        errors[key] = "SRBMiner list separators (, ; ! #) are not allowed";
+    if (config.additionalArgs)
+      errors.additionalArgs = "Use managed SRBMiner settings";
+    for (const key of ["pauseOnBattery", "pauseOnActive", "cpuPriority"])
+      if (config[key])
+        errors[key] =
+          "This setting requires XMRig; use SRBMiner thread priority";
+  }
   if (!partial)
     for (const key of ["pool", "user", "algorithm"])
       if (!config[key]?.trim()) errors[key] = "Required before applying";
@@ -192,9 +228,12 @@ class Config {
     return (await Config.getAll())[type];
   }
   static async update(type, patch, actor, expectedVersion) {
-    const clean = validate(type, patch),
-      db = getDb(),
+    const db = getDb(),
       previous = await Config.get(type);
+    const clean = validate(type, {
+      ...patch,
+      engine: patch?.engine ?? previous?.engine,
+    });
     const config = {
       ...previous,
       ...clean,
@@ -257,15 +296,21 @@ class Config {
       .toArray();
   }
 }
-// Never give an older/macOS client a CPU engine it would ignore or cannot run.
+// Legacy slots stay compatible; optional engines require explicit capability support.
+Config.supportsEngine = (type, config, capabilities) => {
+  const engine = config?.engine || type;
+  if (engine === type) return true;
+  const supported =
+    capabilities?.[type === "xmrig" ? "cpuEngines" : "gpuEngines"];
+  return Array.isArray(supported) && supported.includes(engine);
+};
 Config.forAgent = (configs, capabilities) => {
-  if (
-    configs?.xmrig?.engine !== "nanominer" ||
-    capabilities?.cpuEngines?.includes?.("nanominer")
-  )
-    return configs;
-  const { xmrig, ...supported } = configs;
-  return supported;
+  const entries = Object.entries(configs || {}).filter(([type, config]) =>
+    Config.supportsEngine(type, config, capabilities),
+  );
+  return entries.length === Object.keys(configs || {}).length
+    ? configs
+    : Object.fromEntries(entries);
 };
 module.exports = Config;
 module.exports.validate = validate;

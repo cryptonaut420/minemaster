@@ -1,0 +1,670 @@
+{
+  "version": "3.6.7",
+  "source": "https://github.com/doktor83/SRBMiner-Multi/blob/3.6.7/README.md",
+  "algorithms": [
+    {
+      "algorithm": "argon2d_16000",
+      "argument": "argon2d_16000",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD"
+      ]
+    },
+    {
+      "algorithm": "argon2d_dynamic",
+      "argument": "argon2d_dynamic",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD"
+      ]
+    },
+    {
+      "algorithm": "argon2id_exfer",
+      "argument": "argon2id_exfer",
+      "fee": 3.0,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "autolykos",
+      "argument": "autolykos2",
+      "fee": 1.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "blake3_an",
+      "argument": "blake3_an",
+      "fee": 2.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "blake3_decred",
+      "argument": "blake3_decred",
+      "fee": 1.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "cpupower",
+      "argument": "cpupower",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "cryptonight_gpu",
+      "argument": "cryptonight_gpu",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "cryptonight_turtle",
+      "argument": "cryptonight_turtle",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "curvehash",
+      "argument": "curvehash",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD"
+      ]
+    },
+    {
+      "algorithm": "etchash",
+      "argument": "etchash",
+      "fee": 0.65,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "ethash",
+      "argument": "ethash",
+      "fee": 0.65,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "evrprogpow",
+      "argument": "evrprogpow",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "firopow",
+      "argument": "firopow",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "fishhash",
+      "argument": "fishhash",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "flex",
+      "argument": "flex",
+      "fee": 2.0,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "ghostrider",
+      "argument": "ghostrider",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "heavyhash",
+      "argument": "heavyhash",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "kawpow",
+      "argument": "kawpow",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "lyra2v2_webchain",
+      "argument": "lyra2v2_webchain",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "meowpow",
+      "argument": "meowpow",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "mike",
+      "argument": "mike",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "minotaurx",
+      "argument": "minotaurx",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "noid",
+      "argument": "noid",
+      "fee": 2.0,
+      "devices": [
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "oggpow",
+      "argument": "oggpow",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "panthera",
+      "argument": "panthera",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "pearlhash",
+      "argument": "pearlhash",
+      "fee": 2.0,
+      "devices": [
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "phihash",
+      "argument": "phihash",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "progpow_epic",
+      "argument": "progpow_epic",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "progpow_zano",
+      "argument": "progpow_zano",
+      "fee": 0.85,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "qhash",
+      "argument": "qhash",
+      "fee": 1.5,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "quantus",
+      "argument": "quantus",
+      "fee": 2.0,
+      "devices": [
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "randomalpha",
+      "argument": "randomalpha",
+      "fee": 1.0,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "rx/arq",
+      "argument": "randomarq",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomc64",
+      "argument": "randomc64",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomdrgx",
+      "argument": "randomdrgx",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomepic",
+      "argument": "randomepic",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomjuno",
+      "argument": "randomjuno",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randompcn",
+      "argument": "randompcn",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomscash",
+      "argument": "randomscash",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomsnap",
+      "argument": "randomsnap",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomvirel",
+      "argument": "randomvirel",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "rx/0",
+      "argument": "randomx",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomy",
+      "argument": "randomy",
+      "fee": 1.0,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomyada",
+      "argument": "randomyada",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "randomzqvx",
+      "argument": "randomzqvx",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "rinhash",
+      "argument": "rinhash",
+      "fee": 1.0,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "sha256d_csd",
+      "argument": "sha256d_csd",
+      "fee": 1.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "sha3t",
+      "argument": "sha3t",
+      "fee": 1.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "verthash",
+      "argument": "verthash",
+      "fee": 1.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "verushash",
+      "argument": "verushash",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "xelishashv3",
+      "argument": "xelishashv3",
+      "fee": 1.5,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "xhash",
+      "argument": "xhash",
+      "fee": 3.0,
+      "devices": [
+        "AMD",
+        "NVIDIA",
+        "Intel"
+      ]
+    },
+    {
+      "algorithm": "yescrypt",
+      "argument": "yescrypt",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "yescryptr16",
+      "argument": "yescryptr16",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "yescryptr32",
+      "argument": "yescryptr32",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "yescryptr8",
+      "argument": "yescryptr8",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "AMD",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "yespower",
+      "argument": "yespower",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "yespower2b",
+      "argument": "yespower2b",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespoweradvc",
+      "argument": "yespoweradvc",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowereqpay",
+      "argument": "yespowereqpay",
+      "fee": 2.0,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowerinterchained",
+      "argument": "yespowerinterchained",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowerltncg",
+      "argument": "yespowerltncg",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowermgpc",
+      "argument": "yespowermgpc",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowermwc",
+      "argument": "yespowermwc",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowerr16",
+      "argument": "yespowerr16",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowersugar",
+      "argument": "yespowersugar",
+      "fee": 0.85,
+      "devices": [
+        "CPU"
+      ]
+    },
+    {
+      "algorithm": "yespowertide",
+      "argument": "yespowertide",
+      "fee": 0.85,
+      "devices": [
+        "CPU",
+        "NVIDIA"
+      ]
+    },
+    {
+      "algorithm": "yespowerurx",
+      "argument": "yespowerurx",
+      "fee": 0.0,
+      "devices": [
+        "CPU"
+      ]
+    }
+  ],
+  "fields": {
+    "srbGpuIntensity": {
+      "default": 0,
+      "min": 0,
+      "max": 31,
+      "label": "GPU intensity (0 = automatic, 1\u201331)"
+    },
+    "srbCpuPriority": {
+      "default": 2,
+      "min": 1,
+      "max": 5,
+      "label": "SRBMiner CPU thread priority (1 lowest, 5 highest)"
+    },
+    "srbRetrySeconds": {
+      "default": 10,
+      "min": 1,
+      "max": 120,
+      "label": "Pool reconnect delay (seconds)"
+    },
+    "srbPoolAttempts": {
+      "default": 5,
+      "min": 1,
+      "max": 100,
+      "label": "Connection attempts before pool failover"
+    },
+    "srbMainPoolSeconds": {
+      "default": 600,
+      "min": 120,
+      "max": 86400,
+      "label": "Return to primary pool after (seconds)"
+    },
+    "srbJobTimeout": {
+      "default": 0,
+      "min": 0,
+      "max": 3600,
+      "label": "Reconnect without jobs after (seconds; 0 off)"
+    },
+    "srbStratumMode": {
+      "default": 0,
+      "min": 0,
+      "max": 2,
+      "label": "Ethash stratum mode (0 getwork, 1 EthereumStratum, 2 NiceHash)"
+    }
+  }
+}

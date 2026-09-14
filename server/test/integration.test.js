@@ -1422,6 +1422,168 @@ test("attention=false agrees across fleet, summary and incident API views", asyn
   }
 });
 
+test("SRBMiner configuration, capability gates, telemetry and failed command receipts agree through the API", async () => {
+  const Config = require("../src/models/Config");
+  const previous = await Config.get("nanominer");
+  let ids = [];
+  try {
+    const saved = await api("/v1/configs/nanominer", "PUT", {
+      ...previous,
+      engine: "srbminer",
+      algorithm: "pearlhash",
+      coin: "PRL",
+      pool: "pool.test:3333",
+      user: "test-wallet",
+      password: "x",
+      srbGpuIntensity: 19,
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.data));
+    const catalog = await api("/v1/mining/engines");
+    assert.equal(catalog.status, 200);
+    assert.equal(catalog.data.data.srbminer.version, "3.6.7");
+    assert.equal(
+      catalog.data.data.srbminer.algorithms.find(
+        (a) => a.algorithm === "pearlhash",
+      ).fee,
+      2,
+    );
+    assert.equal((await fetch(origin + "/api/v1/mining/engines")).status, 401);
+    const legacy = await socket(),
+      capable = await socket();
+    send(legacy, "register", registration("srb-legacy"));
+    send(capable, "register", {
+      ...registration("srb-capable"),
+      capabilities: {
+        commandResults: true,
+        minerMaintenance: true,
+        cpuEngines: ["xmrig", "nanominer", "srbminer"],
+        gpuEngines: ["nanominer", "srbminer"],
+      },
+    });
+    const oldBind = await waitFor(() =>
+      legacy.messages.find((m) => m.type === "bound"),
+    );
+    const newBind = await waitFor(() =>
+      capable.messages.find((m) => m.type === "bound"),
+    );
+    ids = [oldBind.data.minerId, newBind.data.minerId];
+    assert.equal(oldBind.data.configs.nanominer, undefined);
+    await waitFor(() => legacy.messages.find((m) => m.type === "error"));
+    assert.equal(newBind.data.configs.nanominer.engine, "srbminer");
+    assert.equal(newBind.data.configs.nanominer.srbGpuIntensity, 19);
+    for (const action of ["start", "restart", "config-update", "device-enable"])
+      assert.equal(
+        (
+          await api("/v1/commands", "POST", {
+            minerId: ids[0],
+            action,
+            deviceType: "GPU",
+          })
+        ).status,
+        422,
+      );
+    const apply = await api("/v1/configs/nanominer/apply", "POST", {
+      minerIds: [ids[1]],
+    });
+    assert.equal(apply.status, 202);
+    const command = apply.data.results[0].command;
+    const dispatch = await waitFor(() =>
+      capable.messages.find(
+        (m) => m.type === "command" && m.data.id === command.id,
+      ),
+    );
+    assert.equal(dispatch.data.configs.nanominer.algorithm, "pearlhash");
+    assert.equal(dispatch.data.deviceType, "GPU");
+    send(capable, "command-result", {
+      id: command.id,
+      status: "succeeded",
+      result: { configured: true },
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/commands/${command.id}`)).data.data.status ===
+        "succeeded",
+    );
+    const stamp = new Date().toISOString();
+    send(capable, "status-update", {
+      protocolVersion: 2,
+      processes: [
+        {
+          id: "nanominer-1",
+          type: "nanominer",
+          engine: "srbminer",
+          deviceType: "GPU",
+          running: true,
+          enabled: true,
+          algorithm: "pearlhash",
+          hashrate: 65e12,
+          hashrateObservedAt: stamp,
+          startedAt: stamp,
+          activeConfig: saved.data.data,
+          effectiveSettings: { devFeePercent: 2 },
+        },
+      ],
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/rigs/${ids[1]}/devices`)).data.processes?.[0]
+          ?.engine === "srbminer",
+    );
+    const device = (await api(`/v1/rigs/${ids[1]}/devices`)).data.processes[0];
+    assert.equal(device.hashrate, 65e12);
+    assert.equal(device.algorithm, "pearlhash");
+    assert.equal(device.effectiveSettings.devFeePercent, 2);
+    const start = await api("/v1/commands", "POST", {
+      minerId: ids[1],
+      action: "restart",
+      deviceType: "GPU",
+    });
+    const requested = start.data.data;
+    await waitFor(() =>
+      capable.messages.find(
+        (m) => m.type === "command" && m.data.id === requested.id,
+      ),
+    );
+    send(capable, "command-result", {
+      id: requested.id,
+      status: "failed",
+      error: "SRBMiner reports this GPU is unsupported",
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/commands/${requested.id}`)).data.data.status ===
+        "failed",
+    );
+    assert.match(
+      (await api(`/v1/commands/${requested.id}`)).data.data.error,
+      /unsupported/,
+    );
+    // Re-registration must keep the SRBMiner assignment and its engine identity.
+    send(capable, "register", {
+      ...registration("srb-capable"),
+      silent: true,
+      capabilities: {
+        commandResults: true,
+        cpuEngines: ["xmrig", "nanominer", "srbminer"],
+        gpuEngines: ["nanominer", "srbminer"],
+      },
+    });
+    const rebound = await waitFor(() =>
+      capable.messages.find((m) => m.type === "registered"),
+    );
+    assert.equal(rebound.data.configs.nanominer.engine, "srbminer");
+  } finally {
+    const current = await Config.get("nanominer");
+    await Config.update(
+      "nanominer",
+      { ...previous, version: current.version },
+      "test-restore",
+      current.version,
+    );
+    for (const id of ids) await require("../src/models/Miner").delete(id);
+  }
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

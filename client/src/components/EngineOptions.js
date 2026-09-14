@@ -1,9 +1,10 @@
 import React from "react";
-import { engineFor } from "../utils/miningConfig";
+import { engineFor, switchEngine, SRB } from "../utils/miningConfig";
 export default function EngineOptions({ miner, onChange, bound }) {
   const disabled = miner.running || miner.loading || bound;
   const set = (key, value) => onChange({ ...miner.config, [key]: value });
   const id = (key) => `${miner.id}-${key}`;
+  const srb = engineFor(miner.type, miner.config) === "srbminer";
   const nanoCpu =
     miner.deviceType === "CPU" &&
     engineFor(miner.type, miner.config) === "nanominer";
@@ -14,39 +15,34 @@ export default function EngineOptions({ miner, onChange, bound }) {
           ? "CPU engine, pools and recovery"
           : "Pool failover and recovery settings"}
       </summary>
-      {miner.deviceType === "CPU" && (
+      {
         <div className="form-group">
-          <label htmlFor={id("engine")}>CPU mining engine</label>
+          <label htmlFor={id("engine")}>{miner.deviceType} mining engine</label>
           <select
             id={id("engine")}
             disabled={disabled}
             value={engineFor(miner.type, miner.config)}
             onChange={(e) =>
-              onChange({
-                ...miner.config,
-                engine: e.target.value,
-                customPath: "",
-                additionalArgs: "",
-                cpuPriority: 0,
-                pauseOnBattery: false,
-                pauseOnActive: 0,
-                tls: false,
-                keepAlive: false,
-                hugePages: true,
-                ...(e.target.value === "nanominer"
-                  ? { algorithm: "rx/0" }
-                  : {}),
-              })
+              onChange(switchEngine(miner.type, miner.config, e.target.value))
             }
           >
             <option
               value="nanominer"
               disabled={window.electronAPI?.platform === "darwin"}
             >
-              Nanominer · RandomX · 2% fee
+              Nanominer{" "}
+              {miner.deviceType === "CPU" ? "· RandomX · 2% fee" : "· GPU"}
             </option>
-            <option value="xmrig">
-              XMRig · advanced CPU controls · minimum 1% fee
+            {miner.deviceType === "CPU" && (
+              <option value="xmrig">
+                XMRig · advanced CPU controls · minimum 1% fee
+              </option>
+            )}
+            <option
+              value="srbminer"
+              disabled={window.electronAPI?.platform === "darwin"}
+            >
+              SRBMiner-MULTI · CPU/GPU algorithms
             </option>
           </select>
           <span className="field-hint">
@@ -55,6 +51,61 @@ export default function EngineOptions({ miner, onChange, bound }) {
             engine until changed.
           </span>
         </div>
+      }
+      {srb && (
+        <>
+          <p className="field-hint">
+            SRBMiner 3.6.7. One algorithm per process; GPU models must support
+            the selected algorithm. MSR tuning and miner-owned restarts are
+            disabled. Pool fees are separate from the algorithm's developer fee.
+          </p>
+          {Object.entries(SRB.fields)
+            .filter(([key]) =>
+              miner.deviceType === "CPU"
+                ? key !== "srbGpuIntensity"
+                : key !== "srbCpuPriority",
+            )
+            .map(([key, field]) => (
+              <div className="form-group" key={key}>
+                <label htmlFor={id(key)}>{field.label}</label>
+                <input
+                  id={id(key)}
+                  type="number"
+                  min={field.min}
+                  max={field.max}
+                  value={miner.config[key] ?? field.default}
+                  disabled={disabled}
+                  onChange={(e) => set(key, Number(e.target.value))}
+                />
+              </div>
+            ))}
+          {miner.deviceType === "GPU" && (
+            <>
+              <div className="form-group">
+                <label htmlFor={id("password")}>Pool password</label>
+                <input
+                  id={id("password")}
+                  value={miner.config.password ?? "x"}
+                  disabled={disabled}
+                  onChange={(e) => set("password", e.target.value)}
+                />
+              </div>
+              {["tls", "keepAlive"].map((key) => (
+                <label key={key}>
+                  <input
+                    type="checkbox"
+                    checked={miner.config[key] === true}
+                    disabled={disabled}
+                    onChange={(e) => set(key, e.target.checked)}
+                  />{" "}
+                  {key === "tls"
+                    ? "Require TLS for all pools"
+                    : "Pool keepalive"}
+                </label>
+              ))}
+            </>
+          )}
+        </>
       )}
       <div className="form-group">
         <label htmlFor={id("backupPools")}>

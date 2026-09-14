@@ -104,7 +104,8 @@ export function parseProcessDetails(line) {
     result = {};
   const version =
     text.match(/\bXMRig\/(\d+\.\d+\.\d+(?:[-\w.]*)?)/i) ||
-    text.match(/\bnanominer\s+(?:v(?:ersion)?\s*)?(\d+\.\d+\.\d+)/i);
+    text.match(/\bnanominer\s+(?:v(?:ersion)?\s*)?(\d+\.\d+\.\d+)/i) ||
+    text.match(/\bSRBMiner-MULTI\s+(?:v)?(\d+\.\d+\.\d+)/i);
   if (version) result.minerVersion = version[1];
   const pool = text.match(/\b(?:new job from|use pool)\s+([^\s]+)/i);
   if (pool)

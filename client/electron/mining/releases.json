@@ -93,5 +93,33 @@
         "WinAMDTweak/IOMap64.sys": "ad20e44954960278ad965b05e8c67d9d314c200809b99b1b5a219a916ce06b21"
       }
     }
+  },
+  "srbminer": {
+    "linux-x64": {
+      "version": "3.6.7",
+      "platform": "linux",
+      "arch": "x64",
+      "archive": "SRBMiner-Multi-3-6-7-Linux.tar.gz",
+      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.6.7/SRBMiner-Multi-3-6-7-Linux.tar.gz",
+      "sha256": "5589329ad985d26dbd0d5fda63d90b6564d3c12f8a8123b415b9c35e3637e3ae",
+      "binary": "SRBMiner-MULTI",
+      "files": {
+        "SRBMiner-MULTI": "d0a7b3db166fdea08e31d49ee5ab31f0e8e44c84eaca4d1ac0ec5ac13a7de377",
+        "ReadMe.txt": "c778fd08be04e7a7734566c151e7ee9c40d910675c21c5a046776341abfabce2"
+      }
+    },
+    "win32-x64": {
+      "version": "3.6.7",
+      "platform": "win32",
+      "arch": "x64",
+      "archive": "SRBMiner-Multi-3-6-7-win64.zip",
+      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.6.7/SRBMiner-Multi-3-6-7-win64.zip",
+      "sha256": "957e21cc4dc043954d206b17a8c419e9f0ab81bdaa263aade6f5d931800aece3",
+      "binary": "SRBMiner-MULTI.exe",
+      "files": {
+        "SRBMiner-MULTI.exe": "a990e219dc98ff505e80a66b07e485197a2c86df19b545b501890609fe38cd00",
+        "ReadMe.txt": "ba20eb0c0f5fd17f998e245e075a051ee7e5df734dab8adf6b079d4893e0a47f"
+      }
+    }
   }
 }

@@ -113,7 +113,7 @@ function App() {
     },
     {
       id: "nanominer-1",
-      name: "Nanominer GPU",
+      name: "GPU Miner",
       type: "nanominer",
       assignedConfig: savedAuthority?.["nanominer-1"] || null,
       deviceType: "GPU",

@@ -1,6 +1,6 @@
 {
   "name": "minemaster-client",
-  "version": "1.3.5",
+  "version": "1.4.0",
   "description": "Cross-platform GUI wrapper for crypto mining software",
   "author": "MineMaster",
   "main": "electron/main.js",
@@ -55,7 +55,8 @@
       "electron/**/*",
       "assets/**/*",
       "package.json",
-      "src/utils/miningConfig.js"
+      "src/utils/miningConfig.js",
+      "src/utils/srbminer.json"
     ],
     "asar": true,
     "asarUnpack": [

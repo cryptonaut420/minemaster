@@ -16,7 +16,7 @@ let update = {state:'idle',supported:true,updatedAt:new Date().toISOString()};
 let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
-const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
+const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.6.7':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
 const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
 diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
@@ -26,12 +26,13 @@ const api = {
  getGpuStats:async()=>[{deviceId:'pci:0000:02:00.0',type:'AMD',model:'AMD Radeon RX 6800',temperature:61,usage:98,vramUsed:5120,vramTotal:16384,observedAt:Date.now(),powerWatts:120}],
  getAllMinersStatus:async()=>Object.fromEntries(Object.entries(diagnostics).map(([id,d])=>[id,{running:false,...states[id],diagnostic:d,error:d.status==='unavailable'?d.message:null}])),
  startMiner:async({minerId,minerType,config})=>{
-  const engine=minerType==='xmrig'?(config.engine||'xmrig'):'nanominer';
+  const engine=config.engine||minerType;
   const diagnostic=diagnostics[minerId]=inspect(engine);
   if(diagnostic.status==='unavailable')return{success:false,error:diagnostic.message,diagnostic};
   const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
   setTimeout(()=>{
-   if(minerType==='xmrig' && engine==='nanominer') {
+   if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.6.7\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
+   else if(minerType==='xmrig' && engine==='nanominer') {
     emit('output',{minerId,runId:state.runId,stream:'stdout',data:'nanominer v3.10.0\\nTotal: 72'});
     emit('output',{minerId,runId:state.runId,stream:'stderr',data:'Simulated pool warning\\n'});
     emit('output',{minerId,runId:state.runId,stream:'stdout',data:'50 H/s\\n'});
@@ -51,7 +52,7 @@ const api = {
   diagnostics[minerId]=ready(minerType);return{success:true,diagnostic:diagnostics[minerId]};
  },
  openDiagnosticFolder:async()=>({success:true}),cancelUpdateInstall:async()=>({success:true}),openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
- getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.3.4',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
+ getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.4.1',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
  invoke:async(channel)=>channel==='load-master-config'?{enabled:false,host:'127.0.0.1',port:65534,autoReconnect:false}:channel==='get-mac-address'?'fixture-only':{success:true}
 };
 window.electronAPI=window.electron=api;

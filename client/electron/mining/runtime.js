@@ -14,6 +14,8 @@ const {
   parseArguments,
   engineFor,
   cpuThreads,
+  srbArguments,
+  srbAlgorithm,
 } = require("../../src/utils/miningConfig");
 const { createWindowsDiagnostics } = require("./windowsDiagnostics");
 function describeError(error, executable, platform = process.platform) {
@@ -129,7 +131,7 @@ function createRuntime({
             path.join(directory(type), release.binary),
             path.join(bundledRoot, type, release.version, release.binary),
           ];
-      if (!customPath && type === "xmrig")
+      if (!customPath && ["xmrig", "srbminer"].includes(type))
         targets.push(
           ...targets.map((p) => path.join(path.dirname(p), "WinRing0x64.sys")),
         );
@@ -190,28 +192,32 @@ function createRuntime({
     await fs.promises.mkdir(workDir, { recursive: true });
     const configPath = path.join(
       workDir,
-      engine === "xmrig" ? "config.json" : "config.ini",
+      engine === "nanominer" ? "config.ini" : "config.json",
     );
     const content =
-      engine === "xmrig"
-        ? JSON.stringify(xmrigConfig(config, hostname), null, 2)
-        : nanominerConfig(config, hostname, {
-            cpu: type === "xmrig",
-            logicalCores,
-          });
+      engine === "srbminer"
+        ? JSON.stringify(config, null, 2)
+        : engine === "xmrig"
+          ? JSON.stringify(xmrigConfig(config, hostname), null, 2)
+          : nanominerConfig(config, hostname, {
+              cpu: type === "xmrig",
+              logicalCores,
+            });
     await fs.promises.writeFile(`${configPath}.tmp`, content, { mode: 0o600 });
     await fs.promises.rename(`${configPath}.tmp`, configPath);
     const args =
-      engine === "xmrig"
-        ? [
-            "--config",
-            configPath,
-            ...(config.threads > 0
-              ? ["--threads", String(config.threads)]
-              : []),
-            ...parseArguments(config.additionalArgs),
-          ]
-        : [configPath];
+      engine === "srbminer"
+        ? srbArguments(type, config, hostname, logicalCores)
+        : engine === "xmrig"
+          ? [
+              "--config",
+              configPath,
+              ...(config.threads > 0
+                ? ["--threads", String(config.threads)]
+                : []),
+              ...parseArguments(config.additionalArgs),
+            ]
+          : [configPath];
     return {
       executable: diagnostic.path,
       args,
@@ -219,9 +225,16 @@ function createRuntime({
       diagnostic,
       engine,
       effectiveSettings:
-        type === "xmrig" && engine === "nanominer"
-          ? { cpuThreads: cpuThreads(config, logicalCores), devFeePercent: 2 }
-          : null,
+        engine === "srbminer"
+          ? {
+              ...(type === "xmrig"
+                ? { cpuThreads: cpuThreads(config, logicalCores) }
+                : {}),
+              devFeePercent: srbAlgorithm(type, config.algorithm).fee,
+            }
+          : type === "xmrig" && engine === "nanominer"
+            ? { cpuThreads: cpuThreads(config, logicalCores), devFeePercent: 2 }
+            : null,
     };
   }
   return { inspect, prepare, launchSpec, target: targetName(platform, arch) };

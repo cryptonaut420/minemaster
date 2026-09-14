@@ -620,6 +620,23 @@ router.put(
   }),
 );
 router.get(
+  "/mining/engines",
+  route(async (req, res) =>
+    res.json({
+      data: {
+        srbminer: {
+          ...require("../services/srbminer.json"),
+          platforms: ["win32-x64", "linux-x64"],
+          scopes: ["CPU", "GPU"],
+          singleAlgorithmPerProcess: true,
+          notes:
+            "Vendor support is not a guarantee for every model/driver. Fees exclude pool fees. Slots remain xmrig (CPU) and nanominer (GPU).",
+        },
+      },
+    }),
+  ),
+);
+router.get(
   "/configs",
   route(async (req, res) => res.json({ data: await Config.getAll() })),
 );

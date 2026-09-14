@@ -65,6 +65,12 @@ test("actual miner logs retain units, split observations, shares, versions and p
   assert.equal(parseAggregate(read("50 n/a n/a H/s\n")[0]), 12.5);
   assert.equal(parseAggregate("Total: 108.3 Mh/s"), 108300000);
   assert.equal(parseAggregate("GPU 0: 18.0 Mh/s"), null);
+  assert.equal(parseAggregate("Total: 65.00 TH/s"), 65e12);
+  assert.equal(parseAggregate("Total: 0.00 H/s"), 0);
+  assert.equal(
+    parseProcessDetails("SRBMiner-MULTI 3.6.7").minerVersion,
+    "3.6.7",
+  );
   assert.equal(parseProcessDetails("nanominer v3.10.0").minerVersion, "3.10.0");
   assert.equal(parseShares("accepted (10/2)").accepted, 10);
   assert.equal(

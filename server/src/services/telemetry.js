@@ -153,7 +153,9 @@ function normalizeProcesses(payload, now = Date.now()) {
       id,
       type: p.type || (p.deviceType === "GPU" ? "nanominer" : "xmrig"),
       deviceType: p.deviceType === "GPU" ? "GPU" : "CPU",
-      engine: ["xmrig", "nanominer"].includes(p.engine) ? p.engine : null,
+      engine: ["xmrig", "nanominer", "srbminer"].includes(p.engine)
+        ? p.engine
+        : null,
       effectiveSettings:
         p.effectiveSettings && typeof p.effectiveSettings === "object"
           ? {
