@@ -87,8 +87,8 @@ test("desktop registration reports real build metadata and log buffering stays b
   service.bound = true;
   service.flushLogs();
   assert.equal(sockets[0].sent.at(-1).data.entries.length, 100);
-  assert.equal(service.logQueue.length, 400);
-  assert.equal(service.droppedLogs, 1);
+  assert.equal(service.logQueue.length, 401);
+  assert.equal(service.droppedLogs, 0);
 });
 test("a socket error keeps the connection deadline armed and send applies backpressure", async () => {
   const { service, sockets, timers } = setup();
@@ -103,4 +103,25 @@ test("a socket error keeps the connection deadline armed and send applies backpr
   await next;
   sockets[1].bufferedAmount = 2 * 1024 * 1024;
   assert.equal(service.send({ type: "heartbeat" }), false);
+});
+
+test("failed log flushes preserve buffered lines and loss counts under backpressure", () => {
+  const { service } = setup();
+  service.bound = true;
+  for (let i = 0; i < 510; i++) service.queueLog("cpu", `line ${i}`);
+  service.send = () => false;
+  for (let i = 0; i < 5; i++) service.flushLogs();
+  assert.equal(service.logQueue.length, 500);
+  assert.equal(service.droppedLogs, 10);
+  assert.equal(service.logQueue[0].message, "line 10");
+  let sent;
+  service.send = (message) => {
+    sent = message;
+    return true;
+  };
+  service.flushLogs();
+  assert.equal(sent.data.entries.length, 100);
+  assert.match(sent.data.entries.at(-1).message, /10 log lines dropped/);
+  assert.equal(service.logQueue.length, 401);
+  assert.equal(service.droppedLogs, 0);
 });

@@ -122,3 +122,7 @@ Installer handoff receipts now survive reconnect and duplicate command delivery 
 ## Version 1.3.3 follow-up
 
 Native stdout/stderr now have independent line buffers, preserving hashrate and log lines when warnings arrive between output chunks. A new process run clears partial lines. Remote restart-only rollouts leave currently idle processes untouched and report them skipped. The accompanying server fix ensures a newer Stop still dispatches when an earlier restart finishes during cancellation, and preserves whole-rig versus scoped desired-state ordering. See the [second end-to-end pass](../docs/audits/end-to-end-2026-09-13.md#second-end-to-end-pass--desktop-133).
+
+## Version 1.3.4 follow-up
+
+Network log flushing now preserves buffered entries and exact overflow counts during backpressure; reporting dropped logs does not itself drop another line. The native diagnostic writer caps queued writes at 256, snapshots details at enqueue time, tolerates invalid/unserializable details and records a `diagnostic-log-dropped` entry after an overflow drains. Disk failures remain isolated from process controls; logs are best effort, not a guaranteed crash-safe delivery channel. The updated admin adds “No attention flagged” filtering with matching API results.

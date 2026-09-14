@@ -972,15 +972,16 @@ export default function Dashboard() {
                 placeholder="Any tag"
               />
             </label>
-            <label className="op-check">
-              <input
-                type="checkbox"
-                checked={filters.attention === "true"}
-                onChange={(e) =>
-                  filter("attention", e.target.checked ? "true" : "")
-                }
-              />
-              Needs attention
+            <label>
+              Attention
+              <select
+                value={filters.attention}
+                onChange={(e) => filter("attention", e.target.value)}
+              >
+                <option value="">All rigs</option>
+                <option value="true">Needs attention</option>
+                <option value="false">No attention flagged</option>
+              </select>
             </label>
             <details>
               <summary>Saved views & archive</summary>

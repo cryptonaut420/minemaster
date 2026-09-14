@@ -545,18 +545,27 @@ class MasterServerService {
 
   flushLogs() {
     if (!this.bound) return;
-    if (this.droppedLogs) {
-      const dropped = this.droppedLogs;
-      this.droppedLogs = 0;
-      this.queueLog(
-        "agent",
-        `${dropped} log lines dropped while the buffer was full`,
-        "warning",
-      );
-    }
-    const entries = this.logQueue.slice(0, 100);
-    if (entries.length && this.send({ type: "logs", data: { entries } }))
+    const dropped = this.droppedLogs || 0;
+    const entries = this.logQueue.slice(0, dropped ? 99 : 100);
+    const batch = dropped
+      ? [
+          ...entries,
+          {
+            processId: "agent",
+            level: "warning",
+            message: `${dropped} log lines dropped while the buffer was full`,
+            observedAt: new Date().toISOString(),
+            sequence: this.logSequence + 1,
+          },
+        ]
+      : entries;
+    if (batch.length && this.send({ type: "logs", data: { entries: batch } })) {
       this.logQueue.splice(0, entries.length);
+      if (dropped) {
+        this.droppedLogs = 0;
+        this.logSequence++;
+      }
+    }
   }
 
   reportEvent(kind, details) {

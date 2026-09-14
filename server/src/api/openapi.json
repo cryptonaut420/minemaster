@@ -221,7 +221,8 @@
             "in": "query",
             "schema": {
               "type": "boolean"
-            }
+            },
+            "description": "Omit for all rigs; true selects rigs with attention flagged, false selects rigs without it. Maintenance/suppression can clear attention, so false is not a hardware health guarantee."
           },
           {
             "name": "includeArchived",
@@ -353,7 +354,8 @@
             "in": "query",
             "schema": {
               "type": "boolean"
-            }
+            },
+            "description": "Omit for all rigs; true selects rigs with attention flagged, false selects rigs without it. Maintenance/suppression can clear attention, so false is not a hardware health guarantee."
           },
           {
             "name": "includeArchived",
@@ -896,7 +898,8 @@
             "in": "query",
             "schema": {
               "type": "boolean"
-            }
+            },
+            "description": "Omit for all rigs; true selects rigs with attention flagged, false selects rigs without it. Maintenance/suppression can clear attention, so false is not a hardware health guarantee."
           },
           {
             "name": "includeArchived",
@@ -2156,7 +2159,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Omit for all rigs; true selects rigs with attention flagged, false selects rigs without it. Maintenance/suppression can clear attention, so false is not a hardware health guarantee."
           },
           {
             "name": "includeArchived",

@@ -1292,6 +1292,61 @@ test("a restart completing during supersession cannot prevent a newer whole-rig 
   }
 });
 
+test("attention=false agrees across fleet, summary and incident API views", async () => {
+  const Miner = require("../src/models/Miner");
+  const stamp = new Date().toISOString();
+  const base = {
+    group: "Attention regression",
+    bound: true,
+    connectionId: "synthetic",
+    connectionLastSeen: stamp,
+    telemetryReceivedAt: stamp,
+    processes: [],
+  };
+  const quiet = await Miner.create({
+    ...base,
+    systemId: "quiet-attention",
+    connectionId: "quiet-attention-connection",
+    name: "Quiet",
+  });
+  const flagged = await Miner.create({
+    ...base,
+    systemId: "flagged-attention",
+    connectionId: "flagged-attention-connection",
+    name: "Flagged",
+  });
+  try {
+    await db.collection("incidents").insertOne({
+      key: `${flagged.id}:temperature`,
+      minerId: flagged.id,
+      rule: "temperature",
+      message: "Synthetic active incident",
+      resolvedAt: null,
+      suppressed: false,
+      openedAt: new Date(),
+      severity: "critical",
+    });
+    const query = "group=Attention%20regression&attention=false";
+    const rigs = await api(`/v1/rigs?${query}`);
+    assert.deepEqual(
+      rigs.data.data.map((r) => r.id),
+      [quiet.id],
+    );
+    const summary = await api(`/v1/fleet/summary?${query}`);
+    assert.equal(summary.data.counts.total, 1);
+    assert.equal(summary.data.counts.attention, 0);
+    assert.equal((await api(`/v1/incidents?${query}`)).data.data.length, 0);
+    assert.equal(
+      (await api("/v1/rigs?group=Attention%20regression&attention=true")).data
+        .data[0].id,
+      flagged.id,
+    );
+  } finally {
+    await Miner.delete(quiet.id);
+    await Miner.delete(flagged.id);
+  }
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

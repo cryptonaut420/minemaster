@@ -26,3 +26,31 @@ test("native diagnostics rotate without breaking control on disk or serializatio
   bad.record("failure");
   await bad.flush();
 });
+
+test("native log storms bound pending writes and record the exact omitted count", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "minemaster-log-storm-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const log = createDiagnosticLog(dir, { maxPending: 2 });
+  const details = { message: "original" };
+  log.record("first", details);
+  details.message = "mutated after enqueue";
+  log.record("second");
+  for (let i = 0; i < 100; i++) log.record("storm");
+  await log.flush();
+  const lines = fs
+    .readFileSync(path.join(dir, "client.log"), "utf8")
+    .trim()
+    .split("\n")
+    .map(JSON.parse);
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0].details.message, "original");
+  assert.equal(lines[2].event, "diagnostic-log-dropped");
+  assert.equal(lines[2].details.count, 100);
+  assert.doesNotThrow(() => log.record("invalid", () => {}));
+  log.record("recovered");
+  await log.flush();
+  assert.match(
+    fs.readFileSync(path.join(dir, "client.log"), "utf8"),
+    /recovered/,
+  );
+});

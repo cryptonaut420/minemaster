@@ -98,7 +98,7 @@ async function fleet(query = {}) {
           .toLowerCase()
           .includes(q)) &&
       (!query.status || r.status === query.status) &&
-      (query.attention !== "true" || r.attention) &&
+      (!query.attention || r.attention === (query.attention === "true")) &&
       (!query.tag || r.tags?.includes(query.tag)) &&
       (!query.group || r.group === query.group),
   );
