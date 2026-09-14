@@ -769,6 +769,81 @@ test("cancellation during command preparation prevents dispatch", async () => {
   }
 });
 
+test("expiration during command preparation prevents dispatch and preserves terminal state", async () => {
+  const service = require("../src/services/commands"),
+    Miner = require("../src/models/Miner"),
+    websocket = require("../src/websocket/server");
+  const rig = await db.collection("miners").findOne({ systemId: "rig-race" });
+  const original = Miner.update,
+    sent = [];
+  service.configure(
+    (id, message) => {
+      sent.push(message);
+      return true;
+    },
+    () => {},
+  );
+  Miner.update = async (id, changes, condition) => {
+    if (changes["desiredState.CPU"])
+      await db
+        .collection("commands")
+        .updateOne(
+          { id: changes["desiredState.CPU"].commandId },
+          { $set: { deadline: new Date(Date.now() - 1) } },
+        );
+    return original.call(Miner, id, changes, condition);
+  };
+  try {
+    const response = await api(
+      "/v1/commands",
+      "POST",
+      {
+        minerId: rig.id,
+        action: "stop",
+        deviceType: "CPU",
+      },
+      { "Idempotency-Key": "expired-preparation" },
+    );
+    assert.equal(response.status, 202);
+    const command = response.data.data;
+    assert.equal(command.status, "timed_out");
+    assert.match(command.error, /before dispatch/i);
+    assert.equal(command.sentAt, undefined);
+    assert.deepEqual(
+      command.history.map((h) => h.status),
+      ["queued", "timed_out"],
+    );
+    assert.equal(
+      sent.some((m) => m.type === "command"),
+      false,
+    );
+    await service.report(rig.id, { id: command.id, status: "succeeded" });
+    assert.equal(
+      (await api(`/v1/commands/${command.id}`)).data.data.status,
+      "timed_out",
+    );
+    const replay = await api(
+      "/v1/commands",
+      "POST",
+      {
+        minerId: rig.id,
+        action: "stop",
+        deviceType: "CPU",
+      },
+      { "Idempotency-Key": "expired-preparation" },
+    );
+    assert.equal(replay.data.data.id, command.id);
+    assert.equal(replay.data.data.status, "timed_out");
+    assert.equal(
+      sent.some((m) => m.type === "command"),
+      false,
+    );
+  } finally {
+    Miner.update = original;
+    service.configure(websocket.sendToMiner, websocket.broadcast);
+  }
+});
+
 test("idempotency belongs to the caller so independent integrations do not collide", async () => {
   const commands = require("../src/services/commands");
   const rig = await db.collection("miners").findOne({ systemId: "rig-race" });

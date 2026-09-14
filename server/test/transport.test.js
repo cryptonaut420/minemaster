@@ -125,3 +125,62 @@ test("failed log flushes preserve buffered lines and loss counts under backpress
   assert.equal(service.logQueue.length, 401);
   assert.equal(service.droppedLogs, 0);
 });
+
+test("a timed-out socket cannot revive the connection or deliver late commands", async () => {
+  const { service, sockets, timers } = setup();
+  const events = [];
+  for (const name of ["connected", "bound", "command"])
+    service.on(name, () => events.push(name));
+  const pending = service.connect().catch((e) => e.message);
+  const retired = sockets[0];
+  [...timers.values()][0]();
+  assert.equal(await pending, "Connection timeout");
+  retired.readyState = 1;
+  retired.onopen();
+  retired.onmessage({ data: JSON.stringify({ type: "bound" }) });
+  retired.onmessage({
+    data: JSON.stringify({ type: "command", data: { action: "start" } }),
+  });
+  assert.equal(service.connected, false);
+  assert.equal(service.bound, false);
+  assert.deepEqual(events, []);
+  const replacement = service.connect();
+  sockets[1].readyState = 1;
+  sockets[1].onopen();
+  await replacement;
+  retired.onclose();
+  assert.equal(service.ws, sockets[1]);
+  assert.equal(service.connected, true);
+});
+
+for (const character of ["界", "\u0000"])
+  test(`large ${character === "界" ? "Unicode" : "JSON-escaped"} logs drain within the wire byte limit`, async () => {
+    const { service, sockets } = setup();
+    const connected = service.connect();
+    sockets[0].readyState = 1;
+    sockets[0].onopen();
+    await connected;
+    service.bound = true;
+    let errors = 0;
+    service.on("error", () => errors++);
+    for (let i = 0; i < 510; i++)
+      service.queueLog("cpu", character.repeat(4000));
+    for (let i = 0; i < 20 && service.logQueue.length; i++) service.flushLogs();
+    assert.equal(service.logQueue.length, 0);
+    assert.equal(service.droppedLogs, 0);
+    assert.equal(errors, 0);
+    const batches = sockets[0].sent.filter((m) => m.type === "logs");
+    assert.equal(batches.flatMap((m) => m.data.entries).length, 501);
+    assert.equal(
+      batches
+        .flatMap((m) => m.data.entries)
+        .filter((e) => /10 log lines dropped/.test(e.message)).length,
+      1,
+    );
+    for (const batch of batches) {
+      assert.ok(batch.data.entries.length <= 100);
+      assert.ok(
+        Buffer.byteLength(JSON.stringify(batch)) <= service.maxMessageBytes,
+      );
+    }
+  });

@@ -127,13 +127,18 @@ class MasterServerService {
           if (!resolved) {
             resolved = true;
             this._connecting = false;
+            // Retire ownership before close: browsers can deliver late events.
+            this.ws = null;
+            this.connected = false;
+            this.bound = false;
+            this.stopHeartbeat();
             try {
-              this.ws.close();
+              socket.close();
             } catch (e) {}
             const err = new Error("Connection timeout");
             this.emit("error", err);
             // Schedule reconnect on timeout
-            if (this.config?.autoReconnect) {
+            if (this.config?.enabled && this.config?.autoReconnect) {
               this.scheduleReconnect();
             }
             reject(err);
@@ -546,19 +551,32 @@ class MasterServerService {
   flushLogs() {
     if (!this.bound) return;
     const dropped = this.droppedLogs || 0;
-    const entries = this.logQueue.slice(0, dropped ? 99 : 100);
-    const batch = dropped
-      ? [
-          ...entries,
-          {
-            processId: "agent",
-            level: "warning",
-            message: `${dropped} log lines dropped while the buffer was full`,
-            observedAt: new Date().toISOString(),
-            sequence: this.logSequence + 1,
-          },
-        ]
-      : entries;
+    const warning = dropped
+      ? {
+          processId: "agent",
+          level: "warning",
+          message: `${dropped} log lines dropped while the buffer was full`,
+          observedAt: new Date().toISOString(),
+          sequence: this.logSequence + 1,
+        }
+      : null;
+    const batch = warning ? [warning] : [];
+    const encoder = new TextEncoder();
+    // Count the actual JSON/UTF-8 wire bytes, including escapes and separators.
+    let bytes = encoder.encode(
+      JSON.stringify({ type: "logs", data: { entries: batch } }),
+    ).byteLength;
+    const entries = [];
+    for (const entry of this.logQueue) {
+      if (entries.length + batch.length >= 100) break;
+      const size =
+        encoder.encode(JSON.stringify(entry)).byteLength +
+        (entries.length + batch.length ? 1 : 0);
+      if (bytes + size > this.maxMessageBytes) break;
+      bytes += size;
+      entries.push(entry);
+    }
+    batch.unshift(...entries);
     if (batch.length && this.send({ type: "logs", data: { entries: batch } })) {
       this.logQueue.splice(0, entries.length);
       if (dropped) {

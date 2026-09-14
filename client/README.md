@@ -126,3 +126,7 @@ Native stdout/stderr now have independent line buffers, preserving hashrate and 
 ## Version 1.3.4 follow-up
 
 Network log flushing now preserves buffered entries and exact overflow counts during backpressure; reporting dropped logs does not itself drop another line. The native diagnostic writer caps queued writes at 256, snapshots details at enqueue time, tolerates invalid/unserializable details and records a `diagnostic-log-dropped` entry after an overflow drains. Disk failures remain isolated from process controls; logs are best effort, not a guaranteed crash-safe delivery channel. The updated admin adds “No attention flagged” filtering with matching API results.
+
+## Version 1.3.5 follow-up
+
+Timed-out server connections ignore late events from the retired socket, including commands, while a replacement connection can proceed normally. Central log batches now account for JSON escaping and UTF-8 bytes, so long Unicode or escaped messages cannot jam an otherwise connected log feed. The existing 500-entry buffer, overflow accounting and best-effort delivery limits remain. Deploy the accompanying backend fix to report commands that expire during preparation as timed out before dispatch.

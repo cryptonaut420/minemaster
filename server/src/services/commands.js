@@ -270,16 +270,31 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       ),
     );
   }
+  const dispatchAt = new Date();
   const dispatched = await db.collection("commands").updateOne(
-    { id: command.id, status: "queued" },
+    { id: command.id, status: "queued", deadline: { $gt: dispatchAt } },
     {
-      $set: { status: "sent", sentAt: now, updatedAt: now },
-      $push: { history: { status: "sent", at: now } },
+      $set: { status: "sent", sentAt: dispatchAt, updatedAt: dispatchAt },
+      $push: { history: { status: "sent", at: dispatchAt } },
     },
   );
-  // An operator can cancel while preparation is awaiting storage. Never dispatch a terminal command.
-  if (!dispatched.matchedCount)
+  // Preparation may outlive the deadline or be canceled while awaiting storage.
+  if (!dispatched.matchedCount) {
+    const expiredAt = new Date();
+    await db.collection("commands").updateOne(
+      { id: command.id, status: "queued", deadline: { $lte: expiredAt } },
+      {
+        $set: {
+          status: "timed_out",
+          updatedAt: expiredAt,
+          error:
+            "Deadline expired during preparation before dispatch; command was not sent.",
+        },
+        $push: { history: { status: "timed_out", at: expiredAt } },
+      },
+    );
     return changed(await db.collection("commands").findOne({ id: command.id }));
+  }
   const sent = transport(miner.connectionId, {
     type: "command",
     data: { ...command, status: "sent" },
