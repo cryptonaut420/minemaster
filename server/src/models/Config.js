@@ -184,6 +184,12 @@ function validate(type, config, { partial = true } = {}) {
   )
     errors.pool = "Nanominer requires host:port without a URL scheme";
   if (config.engine === "srbminer") {
+    const scopeField = type === "xmrig" ? "srbGpuIntensity" : "srbCpuPriority";
+    if (
+      config[scopeField] !== undefined &&
+      config[scopeField] !== SRB.fields[scopeField].default
+    )
+      errors[scopeField] = "This setting does not apply to this CPU/GPU scope";
     for (const key of ["user", "password", "rigName", "workerName"])
       if (typeof config[key] === "string" && /[,;!#]/.test(config[key]))
         errors[key] = "SRBMiner list separators (, ; ! #) are not allowed";

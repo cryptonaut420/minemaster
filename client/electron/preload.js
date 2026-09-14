@@ -43,6 +43,7 @@ function createListenerFactory(channel) {
 
 const api = {
   platform: process.platform,
+  arch: process.arch,
   invoke: safeInvoke,
   diagnoseMiner: (request) => safeInvoke("diagnose-miner", request),
   repairMiner: (request) => safeInvoke("repair-miner", request),

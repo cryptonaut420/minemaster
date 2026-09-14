@@ -87,3 +87,13 @@ test("actual miner logs retain units, split observations, shares, versions and p
     "connected",
   );
 });
+
+test("colored SRBMiner output preserves version and rate identity", async () => {
+  const { parseAggregate, parseProcessDetails } = await esm("telemetry.js");
+  assert.equal(
+    parseProcessDetails("\x1b[32mSRBMiner-MULTI\x1b[0m \x1b[33m3.6.7\x1b[0m")
+      .minerVersion,
+    "3.6.7",
+  );
+  assert.equal(parseAggregate("\x1b[32mTotal: \x1b[0m65.00 TH/s"), 65e12);
+});

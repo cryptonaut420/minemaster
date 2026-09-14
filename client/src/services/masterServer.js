@@ -3,6 +3,7 @@
  * Handles WebSocket connection and communication with the MineMaster server
  */
 
+import { supportsSrbPlatform } from "../utils/miningConfig";
 import versionInfo from "../version.json";
 import { getSystemId } from "../utils/systemId";
 
@@ -430,11 +431,28 @@ class MasterServerService {
         cpuEngines:
           window.electronAPI?.platform === "darwin"
             ? ["xmrig"]
-            : ["xmrig", "nanominer", "srbminer"],
+            : [
+                "xmrig",
+                "nanominer",
+                ...(supportsSrbPlatform(
+                  window.electronAPI?.platform,
+                  window.electronAPI?.arch,
+                )
+                  ? ["srbminer"]
+                  : []),
+              ],
         gpuEngines:
           window.electronAPI?.platform === "darwin"
             ? ["nanominer"]
-            : ["nanominer", "srbminer"],
+            : [
+                "nanominer",
+                ...(supportsSrbPlatform(
+                  window.electronAPI?.platform,
+                  window.electronAPI?.arch,
+                )
+                  ? ["srbminer"]
+                  : []),
+              ],
       },
       systemInfo,
       silent, // For silent re-registration on reconnect

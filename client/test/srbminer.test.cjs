@@ -187,3 +187,37 @@ test("SRBMiner release manifests preserve notices and never extract its optional
     require("../package.json").build.files.includes("src/utils/srbminer.json"),
   );
 });
+
+test("SRBMiner refuses unsupported targets even with a custom executable", async () => {
+  for (const [platform, arch] of [
+    ["linux", "arm64"],
+    ["win32", "arm64"],
+    ["darwin", "x64"],
+  ]) {
+    const runtime = createRuntime({
+      userData: "/unused",
+      bundledRoot: "/unused",
+      platform,
+      arch,
+    });
+    await assert.rejects(
+      runtime.launchSpec("xmrig", "xmrig-1", {
+        ...base,
+        customPath: "/never-read",
+      }),
+      { code: "UNSUPPORTED_PLATFORM" },
+    );
+  }
+});
+
+test("SRBMiner rejects nondefault tuning belonging to the other process scope", () => {
+  const Config = require("../../server/src/models/Config");
+  for (const [type, patch] of [
+    ["xmrig", { srbGpuIntensity: 12 }],
+    ["nanominer", { algorithm: "pearlhash", srbCpuPriority: 4 }],
+  ]) {
+    const config = { ...base, ...patch };
+    assert.equal(validate(type, config).valid, false);
+    assert.throws(() => Config.validate(type, config));
+  }
+});

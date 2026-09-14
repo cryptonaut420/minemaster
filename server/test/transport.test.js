@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const vm = require("vm");
 const fs = require("fs");
 const path = require("path");
-function setup() {
+function setup(electronAPI) {
   const sockets = [],
     timers = new Map();
   let nextTimer = 0;
@@ -31,8 +31,10 @@ function setup() {
     raw.indexOf("// Export singleton instance"),
   );
   const service = vm.runInNewContext(`${code}; new MasterServerService()`, {
+    supportsSrbPlatform: require("../../client/src/utils/miningConfig")
+      .supportsSrbPlatform,
     WebSocket: Socket,
-    window: { crypto: { randomUUID: () => "fixture-boot" } },
+    window: { electronAPI, crypto: { randomUUID: () => "fixture-boot" } },
     TextEncoder,
     console,
     setTimeout: (fn) => {
@@ -184,3 +186,29 @@ for (const character of ["界", "\u0000"])
       );
     }
   });
+
+test("registration advertises SRBMiner only on supported native targets", async () => {
+  for (const [platform, arch, supported] of [
+    ["win32", "x64", true],
+    ["linux", "x64", true],
+    ["linux", "arm64", false],
+    ["win32", "arm64", false],
+    ["darwin", "x64", false],
+    [undefined, undefined, false],
+  ]) {
+    const { service } = setup({ platform, arch });
+    service.connected = true;
+    let registration;
+    service.send = (message) => {
+      registration = message.data;
+      return true;
+    };
+    await service.bind({}, true);
+    for (const key of ["cpuEngines", "gpuEngines"])
+      assert.equal(
+        registration.capabilities[key].includes("srbminer"),
+        supported,
+        `${platform}/${arch}/${key}`,
+      );
+  }
+});

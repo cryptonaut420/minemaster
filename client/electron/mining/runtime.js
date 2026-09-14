@@ -14,6 +14,7 @@ const {
   parseArguments,
   engineFor,
   cpuThreads,
+  supportsSrbPlatform,
   srbArguments,
   srbAlgorithm,
 } = require("../../src/utils/miningConfig");
@@ -181,6 +182,10 @@ function createRuntime({
         code: "INVALID_CONFIG",
       });
     const engine = engineFor(type, config);
+    if (engine === "srbminer" && !supportsSrbPlatform(platform, arch))
+      throw Object.assign(Error("SRBMiner requires Windows/Linux x64"), {
+        code: "UNSUPPORTED_PLATFORM",
+      });
     if (!config.customPath) await prepare(engine);
     const diagnostic = await inspect(engine, config.customPath);
     if (diagnostic.status === "unavailable")

@@ -1,5 +1,10 @@
 import React from "react";
-import { engineFor, switchEngine, SRB } from "../utils/miningConfig";
+import {
+  engineFor,
+  switchEngine,
+  SRB,
+  supportsSrbPlatform,
+} from "../utils/miningConfig";
 export default function EngineOptions({ miner, onChange, bound }) {
   const disabled = miner.running || miner.loading || bound;
   const set = (key, value) => onChange({ ...miner.config, [key]: value });
@@ -40,7 +45,12 @@ export default function EngineOptions({ miner, onChange, bound }) {
             )}
             <option
               value="srbminer"
-              disabled={window.electronAPI?.platform === "darwin"}
+              disabled={
+                !supportsSrbPlatform(
+                  window.electronAPI?.platform,
+                  window.electronAPI?.arch,
+                )
+              }
             >
               SRBMiner-MULTI · CPU/GPU algorithms
             </option>

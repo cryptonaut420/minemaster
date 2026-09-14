@@ -4002,14 +4002,14 @@
             "minimum": 0,
             "maximum": 31,
             "default": 0,
-            "description": "GPU intensity (0 = automatic, 1\u201331); SRBMiner only"
+            "description": "GPU scope only. CPU configurations must retain the default 0."
           },
           "srbCpuPriority": {
             "type": "integer",
             "minimum": 1,
             "maximum": 5,
             "default": 2,
-            "description": "SRBMiner CPU thread priority (1 lowest, 5 highest); SRBMiner only"
+            "description": "CPU scope only. GPU configurations must retain the default 2."
           },
           "srbRetrySeconds": {
             "type": "integer",

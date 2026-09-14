@@ -100,7 +100,7 @@ export function processSnapshot(miner, now = Date.now()) {
   };
 }
 export function parseProcessDetails(line) {
-  const text = String(line || ""),
+  const text = String(line || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""), // eslint-disable-line no-control-regex
     result = {};
   const version =
     text.match(/\bXMRig\/(\d+\.\d+\.\d+(?:[-\w.]*)?)/i) ||

@@ -34,3 +34,13 @@ No real pool session, accepted-share accounting, miner throughput, GPU model com
 This integration is one algorithm per CPU/GPU process, using all engine-compatible GPUs for GPU scope. It does not expose arbitrary CLI options, multi-algorithm combinations, GPU index assignment, overclocking, a native miner API or special protocol options such as Quantus node certificate pinning. Upstream catalog inclusion alone does not prove a particular pool can be configured here. Windows/Linux x64 are the managed targets; macOS SRBMiner is unavailable.
 
 Before fleet rollout, install the client on an operator-owned Windows and Linux test rig, verify the chosen pool/wallet/algorithm and actual accepted work, exercise scoped stop/restart and configuration changes with both engines active, and confirm the release/update packaging on those systems. No fleet configuration was changed or release published in this pass.
+
+## Follow-up — 1.4.1
+
+A second integration review fixed three concrete gaps:
+
+1. Platform-only advertisement incorrectly included ARM64/unknown architectures. The preload now exposes native architecture; registration and the selector share a Windows/Linux x64 predicate. Native launch checks it before preparation or custom-file inspection. Tests cover Windows/Linux x64, ARM64, macOS and missing identity.
+2. Both validators accepted GPU intensity on CPU or CPU priority on GPU, despite ignoring these settings at launch. Nondefault values now fail consistently; schema defaults remain compatible with existing saved profiles.
+3. ANSI color sequences between the engine name and version prevented version recognition. Process-detail parsing now strips terminal colors, with a colored SRBMiner banner/rate regression.
+
+Validation: 62 client tests and 83 server tests passed; client production build passed. Existing shared-process repair, Stop cancellation, command/API access, telemetry and update tests remained green. The browser fixture was extended with an architecture selector for synthetic checks. Browser verification confirmed disabled SRBMiner on ARM64, enabled selection on Linux x64, a populated 640-pixel layout and invalid-pool feedback. No miner binaries, production commands, installers or real hardware were exercised. The original hardware and pool-accounting limits remain.

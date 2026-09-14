@@ -16,6 +16,9 @@ const GPU_ALGORITHMS = [
 const aliases = { conflux: "octopus", autolykos2: "autolykos" };
 // Preserve the legacy CPU slot/ID while allowing a different executable behind it.
 const engineFor = (type, config = {}) => config?.engine || type;
+function supportsSrbPlatform(platform, arch) {
+  return ["win32", "linux"].includes(platform) && arch === "x64";
+}
 function poolAddress(value) {
   if (typeof value !== "string" || /[\s\r\n\0]/.test(value)) return false;
   const match = value.match(
@@ -297,6 +300,12 @@ function validateSrb(type, config) {
         config[key] > spec.max)
     )
       errors.push(`${key} must be an integer from ${spec.min} to ${spec.max}`);
+  const scopeField = type === "xmrig" ? "srbGpuIntensity" : "srbCpuPriority";
+  if (
+    config[scopeField] !== undefined &&
+    config[scopeField] !== SRB.fields[scopeField].default
+  )
+    errors.push(`${scopeField} does not apply to this CPU/GPU scope`);
   for (const key of ["user", "password", "rigName", "workerName"])
     if (
       config[key] &&
@@ -399,6 +408,7 @@ function switchEngine(type, config, engine) {
   return next;
 }
 module.exports = {
+  supportsSrbPlatform,
   switchEngine,
   SRB,
   srbAlgorithm,
