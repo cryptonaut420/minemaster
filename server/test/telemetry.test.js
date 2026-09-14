@@ -846,3 +846,41 @@ test("same-millisecond scoped intent supersedes the previous whole-rig intent", 
   raw.desiredState.ALL.state = "running";
   assert.equal(candidates(raw, now).length, 0);
 });
+
+test("stopped desktop engine changes reach API normalization without old launch identity", async () => {
+  const { processSnapshot } = await esm("telemetry.js");
+  const process = processSnapshot({
+    id: "nanominer-1",
+    type: "nanominer",
+    deviceType: "GPU",
+    running: false,
+    config: { engine: "srbminer", algorithm: "pearlhash", version: "next" },
+    activeConfig: { engine: "nanominer", algorithm: "etchash", version: "old" },
+    engine: "nanominer",
+    minerVersion: "3.10.0",
+    hashrate: 60e6,
+    hashrateObservedAt: timestamp,
+    pid: 123,
+    pool: { status: "connected" },
+    shares: { accepted: 10, rejected: 0 },
+  });
+  const [normalized] = t.normalizeProcesses(
+    { protocolVersion: 2, processes: [process] },
+    now,
+  );
+  assert.equal(normalized.engine, "srbminer");
+  assert.equal(normalized.algorithm, "pearlhash");
+  assert.equal(normalized.desiredConfigVersion, "next");
+  assert.equal(normalized.running, false);
+  assert.equal(normalized.quality, "unavailable");
+  for (const key of [
+    "activeConfig",
+    "appliedConfigVersion",
+    "minerVersion",
+    "hashrate",
+    "pool",
+    "shares",
+    "pid",
+  ])
+    assert.equal(normalized[key], null, key);
+});

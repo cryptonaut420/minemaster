@@ -146,3 +146,7 @@ Process rates, engine/version, logs, configuration revision, health and command 
 ### Version 1.4.1 follow-up
 
 SRBMiner availability now checks native architecture as well as Windows/Linux platform. ARM64 and unknown targets cannot advertise/select SRBMiner; native launch also rejects them, including custom paths. CPU configurations reject nondefault GPU intensity, and GPU configurations reject nondefault CPU priority, so accepted tuning describes the selected process. Colored SRBMiner version banners are parsed correctly. See the [follow-up audit](../docs/audits/client-2026-09-13/srbminer.md#follow-up--141).
+
+### Version 1.4.2 follow-up
+
+Confirmed Stop and process exits now immediately clear the finished run's algorithm/configuration, version, PID, pool/share observations and rate. The selected configuration remains available for the next start; scheduled recovery intent is retained until canceled. Outgoing stopped snapshots also enforce this separation, preventing a newly selected SRBMiner engine from being paired with old Nanominer telemetry. Negative hashrates are treated as unavailable. See the [reporting follow-up](../docs/audits/client-2026-09-13/srbminer.md#reporting-follow-up--142).

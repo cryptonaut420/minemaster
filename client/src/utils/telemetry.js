@@ -52,11 +52,32 @@ export function parseShares(line) {
       }
     : null;
 }
+// Clear observations owned by a finished run without changing desired configuration or retry intent.
+export function stoppedProcessState() {
+  return {
+    running: false,
+    hashrate: null,
+    hashrateObservedAt: null,
+    activeConfig: null,
+    engine: null,
+    effectiveSettings: null,
+    startTime: null,
+    pid: null,
+    minerVersion: null,
+    shares: null,
+    pool: null,
+    paused: false,
+    pauseReason: null,
+  };
+}
 export function processSnapshot(miner, now = Date.now()) {
+  if (miner.running !== true) miner = { ...miner, ...stoppedProcessState() };
   const observed = miner.hashrateObservedAt || null;
   const observedTime = Date.parse(observed);
   const valid =
-    typeof miner.hashrate === "number" && Number.isFinite(miner.hashrate);
+    typeof miner.hashrate === "number" &&
+    Number.isFinite(miner.hashrate) &&
+    miner.hashrate >= 0;
   return {
     id: miner.id,
     type: miner.type,

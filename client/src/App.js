@@ -24,6 +24,7 @@ import {
   parseShares,
   parseProcessDetails,
   processSnapshot,
+  stoppedProcessState,
 } from "./utils/telemetry";
 import { createCommandRunner } from "./utils/commandRunner";
 import { engineFor } from "./utils/miningConfig";
@@ -257,6 +258,7 @@ function App() {
                       pauseReason: null,
                     }
                   : {}),
+                ...(!status.running ? stoppedProcessState() : {}),
               };
             }),
           );
@@ -411,11 +413,8 @@ function App() {
 
                 return {
                   ...miner,
-                  running: false,
+                  ...stoppedProcessState(),
                   loading: false,
-                  hashrate: null,
-                  startTime: null,
-                  pid: null,
                   diagnostic: data.diagnostic,
                   error: unexpected
                     ? `Process exited unexpectedly (${data.code ?? data.signal ?? "unknown"})`
@@ -869,12 +868,8 @@ function App() {
       if (!result.success)
         throw Error(result.error || "Stop could not be confirmed");
       patchMiner(minerId, {
-        running: false,
+        ...stoppedProcessState(),
         loading: false,
-        hashrate: null,
-        hashrateObservedAt: null,
-        startTime: null,
-        pid: null,
         restartPendingAt: null,
         error: null,
       });

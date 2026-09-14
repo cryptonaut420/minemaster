@@ -44,3 +44,11 @@ A second integration review fixed three concrete gaps:
 3. ANSI color sequences between the engine name and version prevented version recognition. Process-detail parsing now strips terminal colors, with a colored SRBMiner banner/rate regression.
 
 Validation: 62 client tests and 83 server tests passed; client production build passed. Existing shared-process repair, Stop cancellation, command/API access, telemetry and update tests remained green. The browser fixture was extended with an architecture selector for synthetic checks. Browser verification confirmed disabled SRBMiner on ARM64, enabled selection on Linux x64, a populated 640-pixel layout and invalid-pool feedback. No miner binaries, production commands, installers or real hardware were exercised. The original hardware and pool-accounting limits remain.
+
+## Reporting follow-up — 1.4.2
+
+The last review found a transient desired/observed mismatch: after a confirmed Stop, old `activeConfig`, pool/share observations and running version remained in renderer state until native reconciliation. Changing the selected engine during that interval could report the new engine with the old algorithm. A shared stopped-state reset now runs on confirmed Stop, process exit and stopped native reconciliation. Snapshot creation independently enforces it without mutating renderer input; pending recovery and desired configuration are preserved. Running snapshots retain their actual launch engine/algorithm/revision. Negative rates are rejected by client snapshots.
+
+Validation: 63 client and 84 server tests passed; client production build passed. Regressions cover stopped Nanominer-to-SRBMiner/Pearl transitions, old launch data removal, retained desired revision/recovery intent, live launch identity and client-to-backend normalization. No real hardware, mining binary or live fleet command was exercised. The previously documented pool acceptance, performance, installer and Windows detection limits remain.
+
+Browser fixture verification additionally exercised start/stop on a synthetic GPU, switched the stopped process to SRBMiner/Pearl and confirmed no prior PID or algorithm remained in health details. Checked the populated 640-pixel configuration and invalid-pool failure feedback.

@@ -97,3 +97,65 @@ test("colored SRBMiner output preserves version and rate identity", async () => 
   );
   assert.equal(parseAggregate("\x1b[32mTotal: \x1b[0m65.00 TH/s"), 65e12);
 });
+
+test("stopped snapshots cannot mix desired SRBMiner identity with a previous launch", async () => {
+  const { processSnapshot, stoppedProcessState } = await esm("telemetry.js");
+  const miner = {
+    id: "nanominer-1",
+    type: "nanominer",
+    deviceType: "GPU",
+    running: false,
+    config: { engine: "srbminer", algorithm: "pearlhash", version: "next" },
+    activeConfig: { engine: "nanominer", algorithm: "etchash", version: "old" },
+    engine: "nanominer",
+    minerVersion: "3.10.0",
+    pid: 42,
+    startTime: Date.now(),
+    hashrate: 12,
+    hashrateObservedAt: new Date().toISOString(),
+    paused: true,
+    pauseReason: "old",
+    shares: { accepted: 99, rejected: 0 },
+    pool: { status: "connected" },
+    effectiveSettings: { devFeePercent: 1 },
+    restartPendingAt: Date.now() + 10000,
+  };
+  const snapshot = processSnapshot(miner);
+  assert.equal(snapshot.engine, "srbminer");
+  assert.equal(snapshot.algorithm, "pearlhash");
+  assert.equal(snapshot.desiredConfigVersion, "next");
+  assert.equal(snapshot.quality, "unavailable");
+  for (const key of [
+    "activeConfig",
+    "appliedConfigVersion",
+    "hashrate",
+    "hashrateObservedAt",
+    "pid",
+    "startedAt",
+    "minerVersion",
+    "shares",
+    "pool",
+    "effectiveSettings",
+    "pauseReason",
+  ])
+    assert.equal(snapshot[key], null, key);
+  assert.equal(snapshot.paused, false);
+  assert.ok(snapshot.restartPendingAt);
+  assert.equal(
+    miner.activeConfig.version,
+    "old",
+    "snapshot does not mutate input",
+  );
+  const cleared = { ...miner, ...stoppedProcessState() };
+  assert.equal(cleared.config.version, "next");
+  assert.equal(cleared.restartPendingAt, miner.restartPendingAt);
+  const live = processSnapshot({ ...miner, running: true, paused: false });
+  assert.equal(live.engine, "nanominer");
+  assert.equal(live.algorithm, "etchash");
+  assert.equal(live.appliedConfigVersion, "old");
+  assert.equal(live.hashrate, 12);
+  assert.equal(
+    processSnapshot({ ...miner, running: true, hashrate: -1 }).hashrate,
+    null,
+  );
+});
