@@ -3657,6 +3657,60 @@
           },
           "appUpdate": {
             "$ref": "#/components/schemas/AppUpdate"
+          },
+          "desiredState": {
+            "type": "object",
+            "description": "Desired intent, not execution confirmation. Whole-rig commands update ALL, CPU and GPU together; later scoped commands replace their own entry. Scoped intent wins timestamp ties.",
+            "properties": {
+              "ALL": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": ["running", "stopped"]
+                  },
+                  "commandId": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "CPU": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": ["running", "stopped"]
+                  },
+                  "commandId": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "GPU": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": ["running", "stopped"]
+                  },
+                  "commandId": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
           }
         }
       },

@@ -118,3 +118,7 @@ See the [third audit](../docs/audits/client-2026-09-13/third-pass.md) for verifi
 ## Version 1.3.2 follow-up
 
 Installer handoff receipts now survive reconnect and duplicate command delivery without being mislabeled failed or invoking installation twice. Expired/malformed resume intent is cleared even when the old application launches. Backend/admin updates preserve native sensor observation times, so fresh reports cannot refresh cached readings; rig details expose those times. See the [end-to-end audit](../docs/audits/end-to-end-2026-09-13.md) for fixes, regression coverage and release limits.
+
+## Version 1.3.3 follow-up
+
+Native stdout/stderr now have independent line buffers, preserving hashrate and log lines when warnings arrive between output chunks. A new process run clears partial lines. Remote restart-only rollouts leave currently idle processes untouched and report them skipped. The accompanying server fix ensures a newer Stop still dispatches when an earlier restart finishes during cancellation, and preserves whole-rig versus scoped desired-state ordering. See the [second end-to-end pass](../docs/audits/end-to-end-2026-09-13.md#second-end-to-end-pass--desktop-133).

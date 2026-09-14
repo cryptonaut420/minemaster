@@ -193,3 +193,9 @@ Sensor snapshots preserve `cpu.observedAt`, `cpu.temperatureObservedAt`, `memory
 Sustained-zero recovery requires continuous reporting from the same launch. Reconnection, a gap exceeding the freshness window, or a changed launch resets `zeroSince`; an out-of-order observation cannot restore a previous process's rate. Optional share counters, pool metadata, version strings and local override lists are normalized before storage. Invalid optional fields do not turn a valid process report into a successful-looking default measurement.
 
 Desktop 1.3.2 replays installer handoff as running after reconnect or duplicate delivery, without reinstalling. Target-version registration remains the success criterion; timeouts and cancellations remain terminal. Admin action labels are human-readable while API action values remain unchanged. See the [end-to-end audit](audits/end-to-end-2026-09-13.md).
+
+## End-to-end 1.3.3 follow-up
+
+Whole-rig start/restart/stop/disable commands write `desiredState.ALL`, `.CPU` and `.GPU` together. A subsequent scoped command changes its own entry; recovery gives scoped intent precedence when timestamps tie. Desired state remains separate from acknowledged execution. A Stop still dispatches if a restart selected for cancellation finishes concurrently; storage failures are not swallowed.
+
+`restartRunningOnly` reports idle processes skipped without issuing Stop or Start. Desired configuration delivery still occurs before the skip. Desktop native output carries optional `stream` (`stdout`/`stderr`) and `runId` for independent line assembly; process rates and complete centralized log lines can no longer be corrupted by interleaved stderr chunks. REST/WebSocket command action names and reporting access remain unchanged. See the [second end-to-end pass](audits/end-to-end-2026-09-13.md#second-end-to-end-pass--desktop-133).

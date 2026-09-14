@@ -232,3 +232,36 @@ test("admin Nanominer CPU revisions reach the isolated native config while GPU s
   assert.equal(manager.snapshot("nanominer-1").pid, gpuPid);
   assert.ok(reports.filter((r) => r.status === "succeeded").length === 2);
 });
+
+test("restart-running-only skips idle processes without issuing Stop or Start", async () => {
+  const { createCommandRunner } = await runnerModule();
+  const operations = [],
+    reports = [];
+  const runner = createCommandRunner({
+    getMiners: () => [
+      { id: "cpu", deviceType: "CPU", running: false, enabled: true },
+    ],
+    stop: async () => {
+      operations.push("stop");
+      return { success: true };
+    },
+    start: async () => {
+      operations.push("start");
+      return { success: true };
+    },
+    report: (r) => reports.push(r),
+  });
+  await runner.execute({
+    id: "idle-rollout",
+    action: "restart",
+    restartRunningOnly: true,
+    deviceType: "CPU",
+    deadline: new Date(Date.now() + 5000).toISOString(),
+  });
+  assert.deepEqual(operations, []);
+  assert.equal(reports.at(-1).status, "succeeded");
+  assert.equal(
+    reports.at(-1).result.processes[0].skipped,
+    "Process was not running",
+  );
+});

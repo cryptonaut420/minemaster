@@ -231,8 +231,13 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
           : { deviceType: { $in: [command.deviceType, "ALL"] } }),
       })
       .toArray();
-    for (const old of superseded)
-      await cancel(old.id, "Superseded by a newer stop");
+    for (const old of superseded) {
+      try {
+        await cancel(old.id, "Superseded by a newer stop");
+      } catch (error) {
+        if (error.status !== 409) throw error;
+      }
+    }
   }
   if (command.configs) {
     const changes = {};
@@ -248,14 +253,23 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       : command.action === "start" || command.action === "restart"
         ? "running"
         : null;
-  if (state)
-    await Miner.update(minerId, {
-      [`desiredState.${command.deviceType}`]: {
-        state,
-        commandId: command.id,
-        updatedAt: now.toISOString(),
-      },
-    });
+  if (state) {
+    const intent = {
+      state,
+      commandId: command.id,
+      updatedAt: now.toISOString(),
+    };
+    const scopes =
+      command.deviceType === "ALL"
+        ? ["ALL", "CPU", "GPU"]
+        : [command.deviceType];
+    await Miner.update(
+      minerId,
+      Object.fromEntries(
+        scopes.map((scope) => [`desiredState.${scope}`, intent]),
+      ),
+    );
+  }
   const dispatched = await db.collection("commands").updateOne(
     { id: command.id, status: "queued" },
     {

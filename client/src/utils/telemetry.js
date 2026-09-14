@@ -25,6 +25,20 @@ export function createLineBuffer() {
     return lines;
   };
 }
+// stdout and stderr can interleave in the middle of lines; never concatenate them.
+export function createProcessLineBuffer() {
+  let currentRun;
+  let streams = new Map();
+  return (chunk, stream = "stdout", runId = null) => {
+    if (currentRun !== runId) {
+      currentRun = runId;
+      streams = new Map();
+    }
+    const key = stream === "stderr" ? "stderr" : "stdout";
+    if (!streams.has(key)) streams.set(key, createLineBuffer());
+    return streams.get(key)(chunk);
+  };
+}
 export function parseShares(line) {
   const match = String(line).match(
     /\b(?:accepted|rejected)\s*\((\d+)\/(\d+)\)/i,

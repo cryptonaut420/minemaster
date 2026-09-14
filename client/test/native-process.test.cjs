@@ -295,3 +295,17 @@ test("stop during the startup observation window cancels success and confirms ex
   assert.equal((await stopping).success, true);
   assert.equal(f.manager.snapshot("cpu").running, false);
 });
+
+test("native output identifies independent stdout and stderr streams", async () => {
+  const f = fixture();
+  await f.manager.start(request);
+  f.children[0].stdout.emit("data", "Total: 12");
+  f.children[0].stderr.emit("data", "warning\n");
+  f.children[0].stdout.emit("data", "3 H/s\n");
+  assert.deepEqual(
+    f.messages
+      .filter(([name]) => name === "miner-output")
+      .map(([, event]) => event.stream),
+    ["stdout", "stderr", "stdout"],
+  );
+});

@@ -19,7 +19,7 @@ import { addConsoleOutput } from "./utils/consoleManager";
 import { masterServer } from "./services/masterServer";
 import versionInfo from "./version.json";
 import {
-  createLineBuffer,
+  createProcessLineBuffer,
   parseAggregate,
   parseShares,
   parseProcessDetails,
@@ -325,8 +325,8 @@ function App() {
       cleanups.push(
         window.electronAPI.onMinerOutput((data) => {
           const read = (lineBuffers.current[data.minerId] ||=
-            createLineBuffer());
-          const lines = read(data.data);
+            createProcessLineBuffer());
+          const lines = read(data.data, data.stream, data.runId);
           let observation = null,
             shares = null,
             details = {};

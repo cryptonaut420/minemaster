@@ -808,3 +808,41 @@ test("empty fresh envelopes do not count as rigs reporting sensor measurements",
   assert.equal(result.hardware.sensorReportingRigs, 0);
   assert.equal(result.hardware.maxTemperatureC, null);
 });
+
+test("interleaved process streams preserve complete hashrate lines and reset across launches", async () => {
+  const { createProcessLineBuffer, parseAggregate } = await esm("telemetry.js");
+  const read = createProcessLineBuffer();
+  assert.deepEqual(read("Total: 12", "stdout", "first"), []);
+  assert.deepEqual(read("pool warning\n", "stderr", "first"), ["pool warning"]);
+  const lines = read("3 H/s\n", "stdout", "first");
+  assert.equal(parseAggregate(lines[0]), 123);
+  read("Total: 999", "stdout", "first");
+  assert.deepEqual(read("1 H/s\n", "stdout", "second"), ["1 H/s"]);
+});
+test("same-millisecond scoped intent supersedes the previous whole-rig intent", () => {
+  const { candidates } = require("../src/services/recovery");
+  const raw = {
+    ...rig,
+    recovery: { enabled: true, zeroSeconds: 300 },
+    desiredState: {
+      ALL: { state: "stopped", updatedAt: timestamp },
+      CPU: { state: "running", updatedAt: timestamp },
+    },
+    processes: [
+      {
+        id: "cpu",
+        deviceType: "CPU",
+        running: true,
+        enabled: true,
+        hashrate: 0,
+        quality: "zero",
+        hashrateObservedAt: timestamp,
+        zeroSince: new Date(now - 301000).toISOString(),
+      },
+    ],
+  };
+  assert.equal(candidates(raw, now).length, 1);
+  raw.desiredState.CPU.state = "stopped";
+  raw.desiredState.ALL.state = "running";
+  assert.equal(candidates(raw, now).length, 0);
+});

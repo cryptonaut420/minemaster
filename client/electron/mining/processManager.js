@@ -143,18 +143,26 @@ function createProcessManager({
             entries.set(id, entry);
             diagnostics.set(id, spec.diagnostic);
             const owned = () => entries.get(id) === entry;
-            const output = (chunk) => {
+            const output = (chunk, stream) => {
               if (!owned()) return;
               const data = String(chunk).replace(
                 /\x1b\[[0-?]*[ -/]*[@-~]/g,
                 "",
               );
               entry.tail = (entry.tail + data).slice(-8000);
-              emit("miner-output", { minerId: id, runId: entry.runId, data });
+              emit("miner-output", {
+                minerId: id,
+                runId: entry.runId,
+                stream,
+                data,
+              });
             };
-            for (const stream of [child.stdout, child.stderr]) {
+            for (const [name, stream] of [
+              ["stdout", child.stdout],
+              ["stderr", child.stderr],
+            ]) {
               stream?.setEncoding?.("utf8");
-              stream?.on("data", output);
+              stream?.on("data", (chunk) => output(chunk, name));
             }
             child.on("error", (error) => {
               if (!owned()) return;

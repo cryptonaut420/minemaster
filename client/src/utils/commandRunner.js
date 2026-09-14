@@ -211,6 +211,12 @@ export function createCommandRunner({
                 return { id, skipped: "Process disabled" };
               const wasRunning = current.running;
               if (
+                command.action === "restart" &&
+                command.restartRunningOnly &&
+                !wasRunning
+              )
+                return { id, skipped: "Process was not running" };
+              if (
                 ["stop", "restart", "device-disable"].includes(command.action)
               ) {
                 ensure(await stop(id));

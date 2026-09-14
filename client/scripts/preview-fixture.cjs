@@ -30,7 +30,13 @@ const api = {
   const diagnostic=diagnostics[minerId]=inspect(engine);
   if(diagnostic.status==='unavailable')return{success:false,error:diagnostic.message,diagnostic};
   const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
-  setTimeout(()=>emit('output',{minerId,data:minerType==='xmrig'?(engine==='nanominer'?'nanominer v3.10.0\\nTotal: 7250 H/s\\n':'XMRig/6.26.0\\nnew job from pool.example.test:3333\\ncpu speed 10s/60s/15m 7250.00 n/a n/a H/s\\n'):'nanominer v3.10.0\\nTotal: 61.5 Mh/s\\n'}),50);
+  setTimeout(()=>{
+   if(minerType==='xmrig' && engine==='nanominer') {
+    emit('output',{minerId,runId:state.runId,stream:'stdout',data:'nanominer v3.10.0\\nTotal: 72'});
+    emit('output',{minerId,runId:state.runId,stream:'stderr',data:'Simulated pool warning\\n'});
+    emit('output',{minerId,runId:state.runId,stream:'stdout',data:'50 H/s\\n'});
+   } else emit('output',{minerId,runId:state.runId,stream:'stdout',data:minerType==='xmrig'?'XMRig/6.26.0\\ncpu speed 10s/60s/15m 7250.00 n/a n/a H/s\\n':'nanominer v3.10.0\\nTotal: 61.5 Mh/s\\n'});
+  },50);
   return{success:true,...state,diagnostic};
  },
  stopMiner:async({minerId})=>{states[minerId]={running:false};return{success:true};},
@@ -45,7 +51,7 @@ const api = {
   diagnostics[minerId]=ready(minerType);return{success:true,diagnostic:diagnostics[minerId]};
  },
  openDiagnosticFolder:async()=>({success:true}),cancelUpdateInstall:async()=>({success:true}),openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
- getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.3.3',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
+ getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.3.4',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
  invoke:async(channel)=>channel==='load-master-config'?{enabled:false,host:'127.0.0.1',port:65534,autoReconnect:false}:channel==='get-mac-address'?'fixture-only':{success:true}
 };
 window.electronAPI=window.electron=api;

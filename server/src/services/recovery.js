@@ -23,7 +23,7 @@ function candidates(raw, now = Date.now()) {
   const desired = (p) => {
     const scoped = r.desiredState?.[p.deviceType],
       all = r.desiredState?.ALL;
-    return (date(scoped?.updatedAt) || 0) > (date(all?.updatedAt) || 0)
+    return (date(scoped?.updatedAt) || 0) >= (date(all?.updatedAt) || 0)
       ? scoped?.state
       : all?.state;
   };

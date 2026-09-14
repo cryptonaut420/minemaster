@@ -1232,6 +1232,66 @@ test("reconnecting zero-rate rigs reset recovery continuity and API retains sens
   assert.equal(result.stats.cpu.temperatureObservedAt, old);
 });
 
+test("a restart completing during supersession cannot prevent a newer whole-rig Stop", async () => {
+  const ws = await socket();
+  send(ws, "register", registration("stop-completion-race"));
+  const bound = await waitFor(() =>
+    ws.messages.find((m) => m.type === "bound"),
+  );
+  const id = bound.data.minerId;
+  const restart = await api("/v1/commands", "POST", {
+    minerId: id,
+    action: "restart",
+    deviceType: "CPU",
+  });
+  assert.equal(restart.status, 202);
+  const original = db.collection;
+  let raced = false;
+  db.collection = function (name, ...args) {
+    const collection = original.call(this, name, ...args);
+    if (name === "commands") {
+      const update = collection.findOneAndUpdate.bind(collection);
+      collection.findOneAndUpdate = async (filter, change, options) => {
+        if (
+          !raced &&
+          filter.id === restart.data.data.id &&
+          change.$set?.status === "canceled"
+        ) {
+          raced = true;
+          await collection.updateOne(
+            { id: filter.id },
+            { $set: { status: "succeeded" } },
+          );
+        }
+        return update(filter, change, options);
+      };
+    }
+    return collection;
+  };
+  let stop;
+  try {
+    stop = await api("/v1/commands", "POST", {
+      minerId: id,
+      action: "stop",
+      deviceType: "ALL",
+    });
+  } finally {
+    db.collection = original;
+  }
+  assert.equal(raced, true);
+  assert.equal(stop.status, 202);
+  await waitFor(() =>
+    ws.messages.find(
+      (m) => m.type === "command" && m.data.id === stop.data.data.id,
+    ),
+  );
+  const rig = await original.call(db, "miners").findOne({ id });
+  for (const scope of ["ALL", "CPU", "GPU"]) {
+    assert.equal(rig.desiredState[scope].commandId, stop.data.data.id);
+    assert.equal(rig.desiredState[scope].state, "stopped");
+  }
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);
