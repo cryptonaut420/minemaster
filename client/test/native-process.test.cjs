@@ -383,3 +383,71 @@ test("Nanominer file capture follows process ownership and stops independently",
   followers[0].output("late output");
   assert.equal(f.messages.filter((m) => m[0] === "miner-output").length, 1);
 });
+
+test("a Windows file-only startup failure flushes its final diagnostic before releasing ownership", async () => {
+  let output,
+    finishes = 0;
+  const f = fixture({
+    tailLog: (_file, capture) => {
+      output = capture;
+      return {
+        async finish() {
+          finishes++;
+          output("Pool authorization failed\n");
+        },
+        close() {},
+      };
+    },
+    wait: async () => {
+      f.children[0].exitCode = 1;
+      f.children[0].emit("close", 1);
+    },
+  });
+  f.runtime.launchSpec = async () => ({
+    executable: "/fake",
+    args: [],
+    cwd: "/fixture",
+    logFile: "/fixture/miner.log",
+  });
+  const result = await f.manager.start({
+    ...request,
+    config: { engine: "nanominer" },
+  });
+  assert.equal(result.success, false);
+  assert.match(result.error, /Pool authorization failed/);
+  assert.equal(finishes, 1);
+  const close = f.messages.find((m) => m[0] === "miner-closed");
+  assert.match(close[1].diagnostic.message, /Pool authorization failed/);
+  assert.equal(f.manager.snapshot("cpu").running, false);
+});
+test("Stop supersedes crash recovery while the final file read is pending", async () => {
+  let finish,
+    scheduled = 0;
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const f = fixture({
+    tailLog: () => ({ finish: () => pending, close() {} }),
+    schedule: () => {
+      scheduled++;
+      return 1;
+    },
+  });
+  f.runtime.launchSpec = async () => ({
+    executable: "/fake",
+    args: [],
+    cwd: "/fixture",
+    logFile: "/fixture/miner.log",
+  });
+  await f.manager.start({
+    ...request,
+    config: { engine: "nanominer", restartOnCrash: true },
+  });
+  f.children[0].exitCode = 1;
+  f.children[0].emit("close", 1);
+  const stopped = f.manager.stop({ minerId: "cpu" });
+  finish();
+  assert.equal((await stopped).success, true);
+  assert.equal(scheduled, 0);
+  assert.equal(f.manager.snapshot("cpu").restartPendingAt, null);
+});

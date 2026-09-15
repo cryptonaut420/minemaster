@@ -338,12 +338,27 @@ class MasterServerService {
         Date.now() - this.lastServerMessage > 90000 ||
         !this.send({ type: "heartbeat" })
       ) {
+        const socket = this.ws;
+        // A lost network may never complete the WebSocket close handshake.
+        // Retire ownership now so late messages cannot control the rig.
+        this.ws = null;
+        this.connected = false;
+        this.bound = false;
+        this._connecting = false;
         this.stopHeartbeat();
-        if (this.ws) {
+        this.clearRegistrationTimer();
+        if (socket) {
           try {
-            this.ws.close();
+            socket.close();
           } catch (e) {}
         }
+        this.emit("disconnected");
+        this.emit(
+          "error",
+          new Error("Server stopped responding; reconnecting"),
+        );
+        if (this.config?.enabled && this.config?.autoReconnect)
+          this.scheduleReconnect();
       }
     }, interval);
   }

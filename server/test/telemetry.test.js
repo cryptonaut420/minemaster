@@ -88,6 +88,38 @@ const rig = {
   telemetryReceivedAt: timestamp,
   processes: [p],
 };
+test("monitoring flags missing and stale miner output after startup grace, excluding pause, stop and zero", () => {
+  for (const quality of ["unavailable", "stale"]) {
+    const process = { ...p, quality, hashrate: null, hashrateObservedAt: null };
+    const issues = monitoring.evaluate(
+      { ...rig, processes: [process] },
+      undefined,
+      now,
+    );
+    assert.ok(
+      issues.some(
+        (issue) =>
+          issue.rule === "stale" && /cpu.*hashrate/.test(issue.message),
+      ),
+    );
+    for (const overrides of [
+      { paused: true },
+      { running: false },
+      { startedAt: new Date(now - 1000).toISOString() },
+      { quality: "zero", hashrate: 0, hashrateObservedAt: timestamp },
+    ]) {
+      const excluded = monitoring.evaluate(
+        { ...rig, processes: [{ ...process, ...overrides }] },
+        undefined,
+        now,
+      );
+      assert.equal(
+        excluded.some((issue) => issue.rule === "stale"),
+        false,
+      );
+    }
+  }
+});
 test("freshness distinguishes heartbeat from telemetry and zero from missing", () => {
   assert.equal(t.viewRig(rig, now).status, "mining");
   assert.equal(

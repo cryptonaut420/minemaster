@@ -112,6 +112,17 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
       if (
         p.running &&
         !p.paused &&
+        ["stale", "unavailable"].includes(p.quality) &&
+        date(p.startedAt) !== null &&
+        now - date(p.startedAt) > rules.zeroGraceSeconds * 1000
+      )
+        add(
+          "stale",
+          `${p.id} is running but has no fresh hashrate; check miner logs`,
+        );
+      if (
+        p.running &&
+        !p.paused &&
         p.quality === "zero" &&
         date(p.startedAt) !== null &&
         now - date(p.startedAt) > rules.zeroGraceSeconds * 1000

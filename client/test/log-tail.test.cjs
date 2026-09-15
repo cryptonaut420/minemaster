@@ -4,6 +4,24 @@ const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const { followLog } = require("../electron/mining/logTail");
+test("finishing a file reader drains final output once without waiting for its interval", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "minemaster-final-log-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "miner.log"),
+    rows = [];
+  await fs.writeFile(file, "Startup failed: no compatible devices\n");
+  const tail = followLog(file, (data) => rows.push(data), {
+    freshFile: true,
+    interval: 100000,
+  });
+  t.after(() => tail.close());
+  const reading = tail.poll();
+  await Promise.all([reading, tail.finish(), tail.finish()]);
+  assert.equal(rows.join(""), "Startup failed: no compatible devices\n");
+  await fs.appendFile(file, "ignored after exit\n");
+  await tail.poll();
+  assert.equal(rows.length, 1);
+});
 test("file-only Windows output is captured once, with original file time; truncation and close are isolated", async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "minemaster-tail-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -22,7 +40,10 @@ test("file-only Windows output is captured once, with original file time; trunca
   await tail.poll();
   await tail.poll();
   assert.equal(rows.length, 1);
-  assert.equal(Date.parse(rows[0].observedAt), old.getTime());
+  assert.equal(
+    Date.parse(rows[0].observedAt),
+    Math.floor((await fs.stat(file)).mtimeMs),
+  );
   const telemetry = await import(
     "data:text/javascript;base64," +
       Buffer.from(

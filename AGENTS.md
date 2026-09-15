@@ -91,3 +91,7 @@ Applies to the whole repository. Read this file before making changes.
 - Windows Nanominer may provide no redirected stdout. Preserve its process-specific file reader and logging config together, with owned cleanup and original observation times. Test file-only output, not just synthetic stdout. Do not infer telemetry compatibility from a successful package build.
 - Validate upgrades from the previously published release's persisted data format, including resume intent and native connection settings. Already deleted resume intent and disconnected Windows processes cannot be repaired by a backend deployment alone.
 - Windows can leave a writable log's `mtime` unchanged until its handle closes. Test appended output with a frozen write timestamp. Preserve the first native observation time of new bytes; discard old backlog after monitoring gaps and reset partial lines.
+
+## Desktop 1.4.5 follow-up
+- A ready downloaded update must not suppress future latest-release checks. Verify real updater feed parsing/download checksums with inert files; never execute installers or miners in automated tests. Publish all Windows/Linux assets through a verified draft before making the release latest.
+- Preserve final file-only startup errors before process ownership is released. A newer Stop must cancel recovery even while the final log read is pending. Heartbeat recovery retires socket ownership before waiting for close. Browser preference failures must not interrupt registration/reporting.

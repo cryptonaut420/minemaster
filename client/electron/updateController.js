@@ -9,6 +9,7 @@ function createUpdateController({
   let state = { state: "idle", updatedAt: new Date(now()).toISOString() },
     check = null,
     attempt = null,
+    downloaded = null,
     disposed = false;
   const getState = () => ({ ...state, supported: supported() });
   const set = (name, extra = {}) => {
@@ -33,7 +34,10 @@ function createUpdateController({
       }
       set("downloaded", { message: `Install paused: ${message}` });
     } else
-      set(state.state === "downloaded" ? "downloaded" : "error", { message });
+      set(downloaded ? "downloaded" : "error", {
+        ...(downloaded || {}),
+        message,
+      });
   };
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = false;
@@ -41,18 +45,25 @@ function createUpdateController({
   const listeners = {
     "checking-for-update": () => {
       if (!attempt)
-        set("checking", {
+        set(downloaded ? "downloaded" : "checking", {
           message: null,
           checkedAt: new Date(now()).toISOString(),
         });
     },
     "update-available": (info) => {
-      if (!attempt)
+      if (!attempt) {
+        if (downloaded?.version !== info.version) downloaded = null;
         set("available", { version: info.version, percent: 0, message: null });
+      }
     },
     "update-not-available": () => {
       if (!attempt)
-        set("idle", { version: null, percent: null, message: null });
+        set(downloaded ? "downloaded" : "idle", {
+          version: null,
+          percent: null,
+          ...(downloaded || {}),
+          message: null,
+        });
     },
     "download-progress": (progress) => {
       if (!attempt)
@@ -64,12 +75,14 @@ function createUpdateController({
         });
     },
     "update-downloaded": (info) => {
-      if (!attempt)
-        set("downloaded", {
+      if (!attempt) {
+        downloaded = {
           version: info.version,
           percent: 100,
           message: null,
-        });
+        };
+        set("downloaded", downloaded);
+      }
     },
     error: fail,
   };
@@ -86,11 +99,7 @@ function createUpdateController({
       return Promise.resolve({ success: false, ...getState() });
     }
     if (check) return check;
-    if (
-      ["available", "downloading", "downloaded", "installing"].includes(
-        state.state,
-      )
-    )
+    if (["available", "downloading", "installing"].includes(state.state))
       return Promise.resolve({ success: true, ...getState() });
     // Assign the promise before calling upstream, including synchronous throws.
     check = Promise.resolve().then(async () => {
@@ -112,7 +121,13 @@ function createUpdateController({
     return check;
   }
   async function install() {
-    if (disposed || !supported() || attempt || state.state !== "downloaded")
+    if (
+      disposed ||
+      !supported() ||
+      attempt ||
+      check ||
+      state.state !== "downloaded"
+    )
       return {
         success: false,
         error: "No supported downloaded update is ready to install",

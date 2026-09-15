@@ -162,3 +162,11 @@ Windows Nanominer logging is restored: each CPU/GPU process writes `miner.log` i
 An enabled native server configuration now reconnects after a missing browser binding flag. Explicit Unbind persists the disabled setting. Open but unregistered sockets retry registration every 15 seconds and display errors. Updates directly from 1.1.3 accept its exact old resume file once within ten minutes; newer version-bound resume rules are unchanged. This cannot restore intent already discarded by an earlier update.
 
 See [September 15 findings and remaining hardware limits](../docs/audits/regression-repair-2026-09-15/README.md). Publishing does not automatically install updates on 1.4.x rigs: use the installed client's update control or the admin's advanced update actions after download. Disconnected PCs must reconnect before they can receive commands.
+
+## Version 1.4.5 follow-up
+
+Downloaded updates no longer prevent later automatic/manual checks for a newer release. Failed checks preserve a ready installer with a visible error. Heartbeat recovery retires a dead socket immediately instead of depending on its close handshake; late messages from that connection are ignored. Browser preference failures cannot interrupt registration callbacks before reporting starts.
+
+Nanominer's process-specific file reader drains final output before releasing an exited process, including quick Windows startup failures. File-only output, frozen Windows file timestamps, bounded reads and CPU/GPU independence remain covered. Admin monitoring now raises the existing stale incident when a running process has no fresh hashrate after its startup grace. Direct Play/Pause, selection/fleet controls and activity ordering remain unchanged.
+
+See [release instructions](RELEASING.md) for complete draft verification and [the follow-up audit](../docs/audits/regression-repair-2026-09-15/follow-up.md) for evidence and hardware limits.

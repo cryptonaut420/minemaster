@@ -5,7 +5,8 @@ const fs = require("fs");
 const path = require("path");
 function setup(electronAPI) {
   const sockets = [],
-    timers = new Map();
+    timers = new Map(),
+    intervals = new Map();
   let nextTimer = 0;
   class Socket {
     static OPEN = 1;
@@ -42,8 +43,11 @@ function setup(electronAPI) {
       return nextTimer;
     },
     clearTimeout: (id) => timers.delete(id),
-    setInterval: () => 1,
-    clearInterval() {},
+    setInterval: (fn) => {
+      intervals.set(++nextTimer, fn);
+      return nextTimer;
+    },
+    clearInterval: (id) => intervals.delete(id),
     getSystemId: async () => "fixture-system",
     versionInfo: { displayVersion: "fixture-version" },
   });
@@ -53,8 +57,34 @@ function setup(electronAPI) {
     port: "443",
     autoReconnect: false,
   };
-  return { service, sockets, timers };
+  return { service, sockets, timers, intervals };
 }
+test("heartbeat recovery does not wait for a dead socket to close and rejects its late commands", async () => {
+  const { service, sockets, timers, intervals } = setup();
+  service.config.autoReconnect = true;
+  let commands = 0;
+  service.on("command", () => commands++);
+  const connecting = service.connect();
+  sockets[0].readyState = 1;
+  sockets[0].onopen();
+  await connecting;
+  service.bound = true;
+  service.lastServerMessage = Date.now() - 100000;
+  intervals.get(service.heartbeatTimer)();
+  assert.equal(service.isBound(), false);
+  assert.equal(service.ws, null);
+  assert.ok(service.reconnectTimer);
+  sockets[0].onmessage({ data: JSON.stringify({ type: "command", data: {} }) });
+  assert.equal(commands, 0);
+  const reconnecting = timers.get(service.reconnectTimer)();
+  sockets[1].readyState = 1;
+  sockets[1].onopen();
+  await reconnecting;
+  sockets[0].onclose();
+  assert.equal(service.ws, sockets[1]);
+  assert.equal(service.connected, true);
+  service.disconnect();
+});
 test("desktop reconnect ignores retired socket close and uses TLS for string port 443", async () => {
   const { service, sockets, timers } = setup();
   const first = service.connect().catch((e) => e.message);

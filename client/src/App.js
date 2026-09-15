@@ -32,6 +32,7 @@ import { createCommandRunner } from "./utils/commandRunner";
 import { engineFor } from "./utils/miningConfig";
 
 import { mergeAssignment } from "./utils/configAssignment";
+import { readPreference, writePreference } from "./utils/preferences";
 
 function App() {
   const lineBuffers = useRef({});
@@ -148,10 +149,10 @@ function App() {
   updateStatusRef.current = updateStatus;
   const [isBoundToMaster, setIsBoundToMaster] = useState(() => {
     // Binding is configuration authority; the connection indicator separately reports connectivity.
-    return localStorage.getItem("master-server-bound") === "true";
+    return readPreference("master-server-bound") === "true";
   });
   const [clientName, setClientName] = useState(() => {
-    return localStorage.getItem("minemaster-client-name") || "";
+    return readPreference("minemaster-client-name") || "";
   });
   const clientNameRef = useRef(clientName);
   const statusUpdateInterval = useRef(null);
@@ -175,9 +176,9 @@ function App() {
   useEffect(() => {
     clientNameRef.current = clientName;
     if (clientName) {
-      localStorage.setItem("minemaster-client-name", clientName);
+      writePreference("minemaster-client-name", clientName);
     } else {
-      localStorage.removeItem("minemaster-client-name");
+      writePreference("minemaster-client-name", null);
     }
   }, [clientName]);
 
@@ -659,7 +660,7 @@ function App() {
         try {
           const { devices, systemInfo } = await getDeviceStatesForServer();
           if (systemInfo) {
-            const name = localStorage.getItem("minemaster-client-name") || "";
+            const name = readPreference("minemaster-client-name") || "";
             await masterServer.bind(systemInfo, true, devices, name); // silent = true for reconnect
           }
         } catch (err) {
@@ -674,7 +675,7 @@ function App() {
     // Handle successful bind (explicit user action from MasterServerPanel)
     const handleBound = (data) => {
       setIsBoundToMaster(true);
-      localStorage.setItem("master-server-bound", "true");
+      writePreference("master-server-bound", "true");
       addNotification("Bound to Master Server", "success");
 
       // Apply global configs if provided
@@ -695,7 +696,7 @@ function App() {
     // Handle silent re-registration (auto-reconnect)
     const handleRegistered = (data) => {
       setIsBoundToMaster(true);
-      localStorage.setItem("master-server-bound", "true");
+      writePreference("master-server-bound", "true");
 
       // Apply configs if provided with registration
       if (data?.configs) {
@@ -709,7 +710,7 @@ function App() {
     // Handle unbound (from user action or server)
     const handleUnbound = () => {
       setIsBoundToMaster(false);
-      localStorage.removeItem("master-server-bound");
+      writePreference("master-server-bound", null);
       addNotification("Unbound from Master Server", "info");
       stopStatusUpdatesRef.current?.();
     };

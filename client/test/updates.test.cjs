@@ -2,6 +2,50 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("events");
 const { createUpdateController } = require("../electron/updateController");
+test("a downloaded release does not pin future update checks to an obsolete version", async () => {
+  const updater = new EventEmitter();
+  const c = createUpdateController({ updater });
+  updater.emit("update-downloaded", { version: "1.4.4" });
+  let checks = 0;
+  updater.checkForUpdates = async () => {
+    checks++;
+    updater.emit("checking-for-update");
+    updater.emit("update-available", { version: "1.4.5" });
+    updater.emit("update-downloaded", { version: "1.4.5" });
+    return {};
+  };
+  assert.equal((await c.checkForUpdates()).success, true);
+  assert.equal(checks, 1);
+  assert.equal(c.getState().version, "1.4.5");
+  c.cleanup();
+});
+test("a failed refresh preserves a downloaded installer and install cannot race a check", async () => {
+  const updater = new EventEmitter();
+  const c = createUpdateController({ updater, stopMiners: async () => {} });
+  updater.emit("update-downloaded", { version: "1.4.4" });
+  let reject;
+  updater.checkForUpdates = () => {
+    updater.emit("checking-for-update");
+    return new Promise((_, r) => {
+      reject = r;
+    });
+  };
+  const checking = c.checkForUpdates();
+  await Promise.resolve();
+  assert.equal((await c.install()).success, false);
+  reject(Error("network unavailable"));
+  await checking;
+  assert.equal(c.getState().state, "downloaded");
+  assert.equal(c.getState().version, "1.4.4");
+  assert.match(c.getState().message, /network unavailable/);
+  updater.checkForUpdates = async () => {
+    updater.emit("update-not-available");
+    return {};
+  };
+  await c.checkForUpdates();
+  assert.equal(c.getState().version, "1.4.4");
+  c.cleanup();
+});
 test("downloaded app updates wait for explicit installation and retain their metadata", async () => {
   const updater = new EventEmitter();
   let installed = 0,

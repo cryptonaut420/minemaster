@@ -17,13 +17,20 @@ function followLog(
     identity,
     decoder = new StringDecoder("utf8"),
     closed = false,
-    busy = false;
+    reading = null,
+    finishing = null;
   let lastError = null;
   let lastPollAt = now(),
     resetNext = false;
-  async function poll() {
-    if (closed || busy) return;
-    busy = true;
+  function poll() {
+    if (closed) return Promise.resolve();
+    if (reading) return reading;
+    reading = read().finally(() => {
+      reading = null;
+    });
+    return reading;
+  }
+  async function read() {
     let handle;
     try {
       handle = await fs.promises.open(file, "r");
@@ -83,13 +90,24 @@ function followLog(
       }
     } finally {
       await handle?.close().catch(() => {});
-      busy = false;
     }
   }
   const timer = setInterval(poll, interval);
   timer.unref?.();
   return {
     poll,
+    finish() {
+      // Flush a short-lived miner's final errors before ownership is released.
+      // Wait for an in-flight read, then collect bytes written during that read.
+      if (!finishing)
+        finishing = (async () => {
+          clearInterval(timer);
+          if (reading) await reading;
+          await poll();
+          closed = true;
+        })();
+      return finishing;
+    },
     close() {
       closed = true;
       clearInterval(timer);

@@ -14,7 +14,7 @@ npm --prefix ../server/public run build
 
 Tests use fake native processes and disposable data. They never execute mining binaries. See [the audit](../docs/audits/client-2026-09-13/second-pass.md) for package checks and the remaining Windows/hardware trial.
 
-The version is currently 1.4.3. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
+The version is currently 1.4.5. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
 
 Build locally without publishing:
 
@@ -39,24 +39,19 @@ Changing a pinned engine requires verifying the archive and every selected file,
 
 The configured GitHub release source is `cryptonaut420/minemaster`. Publishing needs repository access and a release token supplied through the build environment (`GH_TOKEN`), never embedded into the app. Runtime access to private release assets is a separate distribution concern; the publisher's token is not a client update solution.
 
-Publishing is a separate operator action after review and hardware validation:
+For a complete Windows/Linux release, use `npm run release` from a clean, committed `master` checkout. Bump and commit the version/lockfile first and add `docs/releases/<version>.md`. The wrapper requires Docker access and an authenticated GitHub CLI (or `GH_TOKEN` in its environment); it no longer reads `client/.env` or bumps versions during publication.
 
-```bash
-npm run publish:linux
-npm run publish:windows
-```
+The wrapper runs both test suites and web builds, packages Windows NSIS/portable and Linux AppImage together with `--publish never` into a fresh version directory, and checks both update feeds against the actual SHA-512 hashes and sizes. It pushes master and an exact source tag, creates a draft with all seven assets, verifies the uploaded SHA-256 digests and sizes, then publishes it as latest. A build, upload or verification failure leaves no partial public release. Existing output/tag conflicts require inspection before retrying; do not overwrite a published release.
 
-These commands use `--publish always`: they build and upload release assets and update metadata to GitHub. The Windows NSIS feed requires its installer plus `latest.yml`; Linux AppImage requires the AppImage plus `latest-linux.yml`. Verify the actual release assets and metadata before rollout. Current macOS packaging produces DMGs; validate a complete signed/notarized macOS update feed on a Mac before promising automatic distribution there.
+For a manually staged release, `node scripts/verify-release.cjs <directory> <version>` validates the complete asset set and writes `SHA256SUMS`; `node scripts/publish-release.cjs <directory> <version> <notes-file>` requires an existing pushed tag and performs draft/upload verification/publication. Also inspect packaged application source/version and miner hashes before publication. Cross-built packages do not establish Windows runtime or installer behavior.
 
-For a complete Windows/Linux release, prefer building both platforms with `--publish never` into a fresh output directory, verifying their packaged versions/miner hashes and update metadata, then uploading all assets to a GitHub draft before publishing it. Push master and create the version tag at the exact source commit first. Include Windows portable, NSIS installer and installer blockmap, Linux AppImage, both update YAML files and a SHA-256 checksum list. This keeps a partially built release out of the update feed.
-
-The inherited `npm run release` wrapper publishes platforms sequentially and reads `GH_TOKEN` from the environment or ignored `client/.env`. It now uses the current version by default; explicit `--bump patch|minor|major` also synchronizes the lockfile. Use the staged workflow above when the release must be checked as a complete set before publication.
+The older `publish:linux` / `publish:windows` shortcuts publish immediately and independently; use the complete-release wrapper for fleet updates. Current macOS packaging produces DMGs; validate a complete signed/notarized macOS update feed on a Mac before promising automatic distribution there.
 
 Keep signing credentials in the release environment. Authenticode signing helps publisher identity and reputation; it does not guarantee that Windows allows XMRig or Nanominer. Signing the wrapper does not sign a separate upstream miner executable. Do not alter the pinned upstream binaries while continuing to claim their original hashes.
 
 ## Update behavior
 
-The app checks roughly 15 seconds after launch and hourly afterward. Windows NSIS installations and Linux AppImage runs support application installation; portable Windows, development runs and ordinary unpacked Linux directories report that installation is unavailable. The controller also supports packaged macOS apps subject to a valid platform update feed.
+The app checks roughly 15 seconds after launch and hourly afterward, including when an older release is already downloaded. Manual checks also refresh the latest release; an unsuccessful refresh retains an already downloaded installer with a visible error. Installation cannot race a check. Windows NSIS installations and Linux AppImage runs support application installation; portable Windows, development runs and ordinary unpacked Linux directories report that installation is unavailable. The controller also supports packaged macOS apps subject to a valid platform update feed.
 
 1. An available update downloads while mining continues.
 2. The header offers **Install and restart**. Download completion alone does not stop miners or install anything.
@@ -77,3 +72,7 @@ A CPU-engine change is an explicit configuration choice. Nanominer RandomX may r
 Installation may also be requested from the admin with whole-rig scope. Its command remains running through installer handoff and requires a registration with the requested new version before success. Exercise this with two actual releases before fleet rollout; a fake updater cannot prove NSIS/AppImage installation, signing, feed availability or relaunch behavior.
 
 Resume state records source and target versions and expires after two hours. Old-app reloads cannot consume it. Linux AppImage updates first retain a sibling `.minemaster-backup`; failed replacement can restore a missing original, and successful target startup removes the recovery copy. Test writable/read-only install directories, low disk space, interrupted replacement and manual recovery. Portable/unpacked packages still cannot prove automatic installation. Application diagnostics are under user data in `logs/client.log` with one rotated predecessor.
+
+## 1.4.5 verification
+
+The regression suite exercises the installed `electron-updater` NSIS and AppImage download paths against a loopback HTTP feed with inert package bytes: 1.4.3 discovers 1.4.4, then refreshes to 1.4.5 without first installing the older download, and rejects a corrupt next download. It tests the source/target resume format and the controller's failed-stop/cancellation paths. It never launches an installer or miner; real Windows/Linux installation and relaunch remain hardware checks. See [the follow-up audit](../docs/audits/regression-repair-2026-09-15/follow-up.md).

@@ -205,7 +205,7 @@ function createProcessManager({
               });
               // An error can also describe a failed kill; retain ownership until exit is observed.
             });
-            child.on("close", (code, signalName) => {
+            const closed = (code, signalName) => {
               if (!owned()) return;
               if (!entry.expected)
                 diagnostics.set(id, {
@@ -223,7 +223,8 @@ function createProcessManager({
                 entry.confirmed &&
                 entry.activeConfig.restartOnCrash === true &&
                 !entry.error &&
-                !closing
+                !closing &&
+                generation === (generations.get(id) || 0)
               ) {
                 const history = (restartHistory.get(id) || []).filter(
                   (at) => at > now() - 3600000,
@@ -263,8 +264,17 @@ function createProcessManager({
               });
               entry.logTail?.close();
               entries.delete(id);
+            };
+            child.on("close", (code, signalName) => {
+              if (entry.logTail?.finish) {
+                entry.finalizing = entry.logTail
+                  .finish()
+                  .catch(() => {})
+                  .then(() => closed(code, signalName));
+              } else closed(code, signalName);
             });
             await wait(startWaitMs);
+            if (!running(entry) && entry.finalizing) await entry.finalizing;
             if (closing || generation !== (generations.get(id) || 0)) {
               const stopped = await stopEntry(id);
               throw Error(
@@ -302,6 +312,7 @@ function createProcessManager({
   async function stopEntry(id) {
     const entry = entries.get(id);
     if (!running(entry)) {
+      await entry?.logTail?.finish?.().catch(() => {});
       entry?.logTail?.close();
       if (entries.get(id) === entry) entries.delete(id);
       return { success: true, alreadyStopped: true };
@@ -316,6 +327,7 @@ function createProcessManager({
       for (let attempt = 0; attempt < stopPolls && running(entry); attempt++)
         await wait(200);
       if (!running(entry)) {
+        await entry.logTail?.finish?.().catch(() => {});
         entry.logTail?.close();
         if (entries.get(id) === entry) entries.delete(id);
         return { success: true };
