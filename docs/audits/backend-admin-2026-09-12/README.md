@@ -1,5 +1,7 @@
 # Backend/admin audit and repair
 
+**September 15 correction:** The [live-fleet regression repair](../regression-repair-2026-09-15/README.md) documents the lost Windows Nanominer file output, legacy update resume migration, registration retry gaps and restored direct admin controls. Earlier successful synthetic tests did not cover these runtime regressions.
+
 The 24 operational findings from the September 12, 2026 audit have corresponding working-tree repairs. The [September 13 second pass](second-pass.md) adds scoped API keys, observer access control, and further reporting/control/overview fixes. Miner registration/reporting remain unauthenticated.
 
 - [First-pass implementation, verification, and remaining deployment/hardware limits](implementation.md)

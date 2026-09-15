@@ -32,6 +32,21 @@ function createResumeStore({ userData, version, now = Date.now }) {
     take() {
       try {
         const data = JSON.parse(fs.readFileSync(file, "utf8"));
+        // Releases through 1.1.3 wrote only these two fields immediately before
+        // updater handoff. Preserve that explicit intent within its original
+        // ten-minute window, once. Modern state stays strictly version-bound.
+        if (
+          Object.keys(data).length === 2 &&
+          !Object.hasOwn(data, "targetVersion") &&
+          Number.isFinite(data.savedAt) &&
+          data.savedAt <= now() + 5000 &&
+          now() - data.savedAt <= 10 * 60 * 1000 &&
+          Array.isArray(data.minerIds) &&
+          data.minerIds.every((id) => ["xmrig-1", "nanominer-1"].includes(id))
+        ) {
+          clear();
+          return { ...data, targetVersion: version, legacyResume: true };
+        }
         if (
           !Number.isFinite(data.savedAt) ||
           data.savedAt > now() + 5000 ||

@@ -23,6 +23,19 @@ function MasterServerPanel({
   const [isBinding, setIsBinding] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState(null);
+  useEffect(() => {
+    const failed = (error) =>
+      setError(error.message || "Connection failed; retrying");
+    const confirmed = () => setError(null);
+    masterServer.on("error", failed);
+    masterServer.on("registered", confirmed);
+    masterServer.on("bound", confirmed);
+    return () => {
+      masterServer.off("error", failed);
+      masterServer.off("registered", confirmed);
+      masterServer.off("bound", confirmed);
+    };
+  }, []);
   const bindTimeoutRef = useRef(null);
 
   // Use refs to get current data in async handlers

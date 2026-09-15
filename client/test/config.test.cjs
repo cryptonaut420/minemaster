@@ -74,7 +74,7 @@ test("Nanominer chooses the explicit algorithm and disables self-update, watchdo
   assert.match(text, /\[autolykos\]/);
   assert.match(text, /devices = 2,3/);
   assert.match(text, /autoUpdate = false/);
-  assert.match(text, /noLog = true/);
+  assert.match(text, /noLog = false/);
   assert.ok(text.indexOf("watchdog") < text.indexOf("[autolykos]"));
   assert.equal(
     validate("nanominer", { ...config, algorithm: "alephium" }).valid,

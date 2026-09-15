@@ -10,6 +10,7 @@ localStorage.setItem('minemaster-config', JSON.stringify({
  'xmrig-1': {engine:'nanominer',pool:'pool.example.test:3333',user:'fixture-account',algorithm:'rx/0',coin:'XMR',threadPercentage:50,version:'fixture-v3'},
  'nanominer-1': {pool:'pool.example.test:4444',user:'fixture-account',algorithm:'etchash',coin:'ETC',rigName:'',gpus:[],version:'fixture-v3'}
 }));
+const connectedFixture = new URLSearchParams(location.search).get('connected') === '1';
 const platform = new URLSearchParams(location.search).get('platform') === 'linux' ? 'linux' : 'win32';
 const arch = new URLSearchParams(location.search).get('arch') === 'arm64' ? 'arm64' : 'x64';
 const listeners = {}, states = {}, diagnostics = {};
@@ -34,9 +35,9 @@ const api = {
   setTimeout(()=>{
    if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.6.7\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
    else if(minerType==='xmrig' && engine==='nanominer') {
-    emit('output',{minerId,runId:state.runId,stream:'stdout',data:'nanominer v3.10.0\\nTotal: 72'});
+    emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'nanominer v3.10.0\\nTotal: 72'});
     emit('output',{minerId,runId:state.runId,stream:'stderr',data:'Simulated pool warning\\n'});
-    emit('output',{minerId,runId:state.runId,stream:'stdout',data:'50 H/s\\n'});
+    emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'50 H/s\\n'});
    } else emit('output',{minerId,runId:state.runId,stream:'stdout',data:minerType==='xmrig'?'XMRig/6.26.0\\ncpu speed 10s/60s/15m 7250.00 n/a n/a H/s\\n':'nanominer v3.10.0\\nTotal: 61.5 Mh/s\\n'});
   },50);
   return{success:true,...state,diagnostic};
@@ -54,7 +55,7 @@ const api = {
  },
  openDiagnosticFolder:async()=>({success:true}),cancelUpdateInstall:async()=>({success:true}),openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
  getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.4.4',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
- invoke:async(channel)=>channel==='load-master-config'?{enabled:false,host:'127.0.0.1',port:65534,autoReconnect:false}:channel==='get-mac-address'?'fixture-only':{success:true}
+ invoke:async(channel)=>channel==='load-master-config'?{enabled:connectedFixture,host:'127.0.0.1',port:connectedFixture?43188:65534,autoReconnect:true}:channel==='get-mac-address'?'fixture-only':{success:true}
 };
 window.electronAPI=window.electron=api;
 `;

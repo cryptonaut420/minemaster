@@ -20,11 +20,13 @@ class MasterServerService {
     this.maxReconnectDelay = 30000;
     this.baseReconnectDelay = 2000;
     this._connecting = false;
+    this.registrationTimer = null;
     this.listeners = {
       connected: [],
       disconnected: [],
       bound: [],
       registered: [],
+      registrationRequired: [],
       unbound: [],
       configUpdate: [],
       command: [],
@@ -167,6 +169,7 @@ class MasterServerService {
           this.reconnectAttempts = 0;
           this.cancelReconnect();
           this.lastServerMessage = Date.now();
+          this.watchRegistration(socket);
           this.emit("connected");
           this.startHeartbeat();
           if (!resolved) {
@@ -189,6 +192,7 @@ class MasterServerService {
           this.connected = false;
           this.bound = false;
           this.stopHeartbeat();
+          this.clearRegistrationTimer();
 
           if (wasConnected) {
             this.emit("disconnected");
@@ -235,6 +239,7 @@ class MasterServerService {
    * Disconnect from master server
    */
   disconnect() {
+    this.clearRegistrationTimer();
     // Disable auto-reconnect
     if (this.config) {
       this.config.enabled = false;
@@ -253,6 +258,33 @@ class MasterServerService {
     this._connecting = false;
     this.emit("disconnected");
     this.reconnectAttempts = 0;
+  }
+
+  clearRegistrationTimer() {
+    clearTimeout(this.registrationTimer);
+    this.registrationTimer = null;
+  }
+
+  watchRegistration(socket = this.ws) {
+    this.clearRegistrationTimer();
+    this.registrationTimer = setTimeout(() => {
+      this.registrationTimer = null;
+      if (
+        this.ws !== socket ||
+        !this.connected ||
+        this.bound ||
+        !this.config?.enabled
+      )
+        return;
+      this.emit(
+        "error",
+        new Error(
+          "Server connection is open but rig registration is not confirmed; retrying",
+        ),
+      );
+      this.emit("registrationRequired");
+      this.watchRegistration(socket);
+    }, 15000);
   }
 
   /**
@@ -368,15 +400,22 @@ class MasterServerService {
           // Server sends connection confirmation with connectionId
           break;
         case "bound":
+          this.clearRegistrationTimer();
           this.bound = true;
           this.emit("bound", message.data);
           break;
         case "registered":
+          this.clearRegistrationTimer();
           // Silent registration acknowledgment (reconnect)
           this.bound = true;
           this.emit("registered", message.data);
           break;
         case "unbound":
+          this.clearRegistrationTimer();
+          if (this.config)
+            this.saveConfig({ ...this.config, enabled: false }).catch((e) =>
+              this.emit("error", e),
+            );
           this.bound = false;
           this.emit("unbound");
           break;
@@ -422,11 +461,25 @@ class MasterServerService {
       }
 
       // Connect to server
-      await this.connect();
+      this.connectingForBind = true;
+      try {
+        await this.connect();
+      } finally {
+        this.connectingForBind = false;
+      }
     }
 
     // Now register/bind
+    const socket = this.ws;
     const systemId = await this.getCachedSystemId();
+    if (this.ws !== socket || !this.connected || !this.config?.enabled)
+      throw new Error(
+        "Registration superseded by a newer connection or Unbind",
+      );
+    if (!systemId || systemId === "unknown-mac")
+      throw new Error(
+        "A stable rig identity is not available yet; registration will retry",
+      );
 
     const registrationData = {
       systemId,
@@ -495,6 +548,10 @@ class MasterServerService {
    * Unbind this client from the master server (unregisters + disconnects)
    */
   async unbind() {
+    // Persist explicit opt-out before touching the socket; a renderer reset
+    // must not undo an operator's decision to unbind.
+    if (!this.config) await this.loadConfig();
+    await this.saveConfig({ ...this.config, enabled: false });
     // First unregister if bound
     if (this.bound) {
       const systemId = await this.getCachedSystemId();
@@ -569,7 +626,12 @@ class MasterServerService {
     });
   }
 
-  queueLog(processId, message, level = "info") {
+  queueLog(
+    processId,
+    message,
+    level = "info",
+    observedAt = new Date().toISOString(),
+  ) {
     if (this.logQueue.length >= 500) {
       this.logQueue.shift();
       this.droppedLogs = (this.droppedLogs || 0) + 1;
@@ -578,7 +640,7 @@ class MasterServerService {
       processId,
       message: String(message).slice(0, 4000),
       level,
-      observedAt: new Date().toISOString(),
+      observedAt,
       sequence: ++this.logSequence,
     });
   }

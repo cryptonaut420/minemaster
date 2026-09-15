@@ -85,3 +85,8 @@ Applies to the whole repository. Read this file before making changes.
 - Native status reconciliation must reject polls started during pending operations or before a newer control/exit/new-run event. Associate parsed observations with native run IDs; retain matching samples during automatic restart reconciliation and clear previous-run counters/version.
 - Missing GPU inventory must not disable Stop/Disable or miner maintenance. Inventory is a launch prerequisite, not proof of process exit; preserve the existing connection/capability/access checks.
 - General rig search includes groups. Keep rig, summary, history and incident selection in agreement; retain per-algorithm H/s storage even when admin display scales to TH/s or PH/s.
+
+## Regression guardrails after desktop 1.4.4
+- Read `docs/audits/regression-repair-2026-09-15/README.md`. Keep direct row, selection and fleet Play/Pause; advanced controls must not replace these daily actions. Whole-fleet scope includes every page and is labeled separately from selection/filters. Show agent confirmation and failures.
+- Windows Nanominer may provide no redirected stdout. Preserve its process-specific file reader and logging config together, with owned cleanup and original observation times. Test file-only output, not just synthetic stdout. Do not infer telemetry compatibility from a successful package build.
+- Validate upgrades from the previously published release's persisted data format, including resume intent and native connection settings. Already deleted resume intent and disconnected Windows processes cannot be repaired by a backend deployment alone.

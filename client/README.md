@@ -154,3 +154,11 @@ Confirmed Stop and process exits now immediately clear the finished run's algori
 ### Version 1.4.3 follow-up
 
 A delayed native status poll can no longer overwrite newer Start/Stop/exit state. Automatic restart observations are associated with their native run, preserving fresh output while clearing old counters/version/pool state. Stop receipts retain the selected CPU/GPU engine instead of reverting to legacy slot names. The accompanying server keeps GPU Stop available when inventory is missing. See the [September 14 end-to-end audit](../docs/audits/end-to-end-2026-09-14.md).
+
+### Version 1.4.4 regression repair
+
+Windows Nanominer logging is restored: each CPU/GPU process writes `miner.log` in its own writable process directory, and MineMaster reads that file instead of relying on Windows redirected stdout. CPU and GPU stay separately owned; XMRig and SRBMiner retain their existing stdout/stderr paths. Each new run clears its prior Nanominer log. Reads are bounded and preserve observation time; the active file grows during a run and is replaced on its next start. This repairs a regression introduced when the legacy file reader and file logging were removed together.
+
+An enabled native server configuration now reconnects after a missing browser binding flag. Explicit Unbind persists the disabled setting. Open but unregistered sockets retry registration every 15 seconds and display errors. Updates directly from 1.1.3 accept its exact old resume file once within ten minutes; newer version-bound resume rules are unchanged. This cannot restore intent already discarded by an earlier update.
+
+See [September 15 findings and remaining hardware limits](../docs/audits/regression-repair-2026-09-15/README.md). Publishing does not automatically install updates on 1.4.x rigs: use the installed client's update control or the admin's advanced update actions after download. Disconnected PCs must reconnect before they can receive commands.

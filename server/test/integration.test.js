@@ -1670,6 +1670,59 @@ test("management keys can organize and stop a rig despite missing GPU inventory"
   }
 });
 
+test("activity sorting puts mining before online and offline across cursor pages", async () => {
+  const now = new Date().toISOString(),
+    group = "activity-sort-fixture";
+  await db.collection("miners").insertMany([
+    {
+      id: "sort-offline",
+      systemId: "sort-offline",
+      name: "AAA",
+      group,
+      lastSeen: now,
+      processes: [],
+    },
+    {
+      id: "sort-idle",
+      systemId: "sort-idle",
+      name: "BBB",
+      group,
+      lastSeen: now,
+      connectionId: "sort-idle-connection",
+      connectionLastSeen: now,
+      telemetryReceivedAt: now,
+      processes: [],
+    },
+    {
+      id: "sort-mining",
+      systemId: "sort-mining",
+      name: "ZZZ",
+      group,
+      lastSeen: now,
+      connectionId: "sort-mining-connection",
+      connectionLastSeen: now,
+      telemetryReceivedAt: now,
+      processes: [{ id: "cpu", running: true, deviceType: "CPU" }],
+    },
+  ]);
+  let cursor = "",
+    ids = [];
+  do {
+    const result = await api(
+      `/v1/rigs?group=${group}&sort=activity&limit=1${cursor ? "&cursor=" + encodeURIComponent(cursor) : ""}`,
+    );
+    assert.equal(result.status, 200);
+    ids.push(...result.data.data.map((r) => r.id));
+    cursor = result.data.nextCursor;
+  } while (cursor);
+  assert.deepEqual(ids, ["sort-mining", "sort-idle", "sort-offline"]);
+  const reverse = await api(`/v1/rigs?group=${group}&sort=activity&order=desc`);
+  assert.deepEqual(
+    reverse.data.data.map((r) => r.id),
+    [...ids].reverse(),
+  );
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

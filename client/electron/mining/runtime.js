@@ -195,6 +195,11 @@ function createRuntime({
       });
     const workDir = path.join(userData, "processes", id);
     await fs.promises.mkdir(workDir, { recursive: true });
+    const logFile =
+      engine === "nanominer" ? path.join(workDir, "miner.log") : null;
+    // The process manager calls preparation only with this process stopped.
+    // Start each run with an empty file so old rates cannot become fresh again.
+    if (logFile) await fs.promises.writeFile(logFile, "", { mode: 0o600 });
     const configPath = path.join(
       workDir,
       engine === "nanominer" ? "config.ini" : "config.json",
@@ -227,6 +232,7 @@ function createRuntime({
       executable: diagnostic.path,
       args,
       cwd: workDir,
+      logFile,
       diagnostic,
       engine,
       effectiveSettings:

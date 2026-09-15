@@ -2,6 +2,7 @@ const { spawn, execFile } = require("child_process");
 const { promisify } = require("util");
 const { randomUUID } = require("crypto");
 const { describeError } = require("./runtime");
+const { followLog } = require("./logTail");
 const { engineFor } = require("../../src/utils/miningConfig");
 const runFile = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,6 +44,7 @@ function createProcessManager({
   schedule = setTimeout,
   unschedule = clearTimeout,
   now = Date.now,
+  tailLog = followLog,
 } = {}) {
   const entries = new Map(),
     queues = new Map(),
@@ -143,7 +145,11 @@ function createProcessManager({
             entries.set(id, entry);
             diagnostics.set(id, spec.diagnostic);
             const owned = () => entries.get(id) === entry;
-            const output = (chunk, stream) => {
+            const output = (
+              chunk,
+              stream,
+              observedAt = new Date(now()).toISOString(),
+            ) => {
               if (!owned()) return;
               const data = String(chunk).replace(
                 /\x1b\[[0-?]*[ -/]*[@-~]/g,
@@ -155,6 +161,7 @@ function createProcessManager({
                 runId: entry.runId,
                 stream,
                 data,
+                observedAt,
               });
             };
             for (const [name, stream] of [
@@ -162,8 +169,21 @@ function createProcessManager({
               ["stderr", child.stderr],
             ]) {
               stream?.setEncoding?.("utf8");
-              stream?.on("data", (chunk) => output(chunk, name));
+              // The file is Nanominer's canonical output source on every OS;
+              // do not count/log its mirrored stdout a second time.
+              stream?.on("data", (chunk) => {
+                if (!spec.logFile || name === "stderr") output(chunk, name);
+              });
             }
+            if (spec.logFile)
+              entry.logTail = tailLog(
+                spec.logFile,
+                (data, observedAt) => output(data, "file", observedAt),
+                {
+                  onError: (error) =>
+                    output(`Log capture failed: ${error.message}\n`, "stderr"),
+                },
+              );
             child.on("error", (error) => {
               if (!owned()) return;
               entry.error = error;
@@ -237,6 +257,7 @@ function createProcessManager({
                 expected: entry.expected,
                 diagnostic: diagnostics.get(id),
               });
+              entry.logTail?.close();
               entries.delete(id);
             });
             await wait(startWaitMs);
@@ -277,6 +298,7 @@ function createProcessManager({
   async function stopEntry(id) {
     const entry = entries.get(id);
     if (!running(entry)) {
+      entry?.logTail?.close();
       if (entries.get(id) === entry) entries.delete(id);
       return { success: true, alreadyStopped: true };
     }
@@ -290,6 +312,7 @@ function createProcessManager({
       for (let attempt = 0; attempt < stopPolls && running(entry); attempt++)
         await wait(200);
       if (!running(entry)) {
+        entry.logTail?.close();
         if (entries.get(id) === entry) entries.delete(id);
         return { success: true };
       }

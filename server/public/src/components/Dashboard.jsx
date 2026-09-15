@@ -23,6 +23,69 @@ import {
   useResource,
 } from "./Operations";
 import "./Dashboard.css";
+import useQuickControls from "../hooks/useQuickControls";
+import {
+  controlUnavailable,
+  quickScope,
+  processRateLabel,
+  needsNanominerTelemetryUpdate,
+} from "../utils/rigControls";
+function QuickButtons({ rig, controls }) {
+  const receipt = controls.receipts[rig.id];
+  const pending =
+    receipt?.sending ||
+    ["queued", "sent", "received", "running"].includes(
+      receipt?.command?.status,
+    );
+  const unavailable = controlUnavailable(rig);
+  const stopPending =
+    (pending && receipt.action === "stop") ||
+    rig.pendingCommands?.some((c) => c.action === "stop");
+  const playPending =
+    pending ||
+    rig.pendingCommands?.some((c) =>
+      ["start", "restart", "app-update-install"].includes(c.action),
+    );
+  return (
+    <div className="op-quick" aria-label={`Mining controls for ${rig.name}`}>
+      <button
+        className="op-play"
+        aria-label={`Play mining on ${rig.name}`}
+        title={unavailable || "Start enabled CPU and GPU mining"}
+        disabled={!!unavailable || !!playPending || !quickScope(rig, "start")}
+        onClick={() => controls.run("start", [rig])}
+      >
+        ▶ Play
+      </button>
+      <button
+        className="op-pause"
+        aria-label={`Pause mining on ${rig.name}`}
+        title={
+          unavailable || "Stop CPU and GPU mining, including pending starts"
+        }
+        disabled={!!unavailable || !!stopPending}
+        onClick={() => controls.run("stop", [rig])}
+      >
+        Ⅱ Pause
+      </button>
+      {receipt && (
+        <small
+          role="status"
+          className={
+            receipt.error ||
+            ["failed", "timed_out"].includes(receipt.command?.status)
+              ? "op-warning"
+              : ""
+          }
+        >
+          {receipt.error ||
+            receipt.command?.error ||
+            `${receipt.action === "start" ? "Play" : "Pause"}: ${receipt.sending ? "sending…" : receipt.command?.status === "succeeded" ? "confirmed" : receipt.command?.status?.replaceAll("_", " ") || "not confirmed"}`}
+        </small>
+      )}
+    </div>
+  );
+}
 function ageLabel(value) {
   const age = value
     ? Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 1000))
@@ -33,7 +96,9 @@ function ageLabel(value) {
       ? `${age}s ago`
       : age < 3600
         ? `${Math.floor(age / 60)}m ago`
-        : `${Math.floor(age / 3600)}h ago`;
+        : age < 86400
+          ? `${Math.floor(age / 3600)}h ago`
+          : `${Math.floor(age / 86400)}d ago`;
 }
 function RateChart({ series, group }) {
   const rows = series.data
@@ -87,7 +152,7 @@ function RateChart({ series, group }) {
     </div>
   );
 }
-function RigDetail({ id, close, onAction, onChanged }) {
+function RigDetail({ id, close, onAction, onChanged, controls }) {
   const { data, error, reload } = useResource(`rigs/${id}`, {}, 15000),
     r = data?.data;
   const [tab, setTab] = useState("Overview"),
@@ -123,10 +188,19 @@ function RigDetail({ id, close, onAction, onChanged }) {
       {r && (
         <>
           <div className="op-row">
-            <Badge status={r.status} />
+            <Badge status={r.status}>
+              {r.status === "online" ? "Stopped · online" : r.status}
+            </Badge>
             <span>{r.reason}</span>
           </div>
           <p className="op-muted">Last telemetry {at(r.telemetryReceivedAt)}</p>
+          {needsNanominerTelemetryUpdate(r) && (
+            <p className="op-warning">
+              Client 1.4.4 restores Nanominer log capture on Windows. Update
+              this agent to recover missing hashrate reporting.
+            </p>
+          )}
+          <QuickButtons rig={r} controls={controls} />
           <div className="op-actions">
             <button
               className="op-primary"
@@ -138,7 +212,7 @@ function RigDetail({ id, close, onAction, onChanged }) {
               }
               onClick={() => onAction([r])}
             >
-              Control processes
+              Advanced actions
             </button>
             <button
               onClick={() =>
@@ -221,8 +295,8 @@ function RigDetail({ id, close, onAction, onChanged }) {
                   </>
                 )}
                 <p className="op-muted">
-                  Use Control processes → Check app updates or Install app
-                  update with whole-rig scope.
+                  Use Advanced actions → Check app updates or Install app update
+                  with whole-rig scope.
                 </p>
               </section>
               {r.processes.map((p) => (
@@ -771,7 +845,8 @@ export default function Dashboard() {
     [action, setAction] = useState(null),
     [cursor, setCursor] = useState(null),
     [pageStack, setPageStack] = useState([]),
-    [timeframe, setTimeframe] = useState("24h");
+    [timeframe, setTimeframe] = useState("24h"),
+    [showPerformance, setShowPerformance] = useState(false);
   const [savedViews, setSavedViews] = useState(() => {
       try {
         return JSON.parse(localStorage.getItem("minemaster-views") || "[]");
@@ -795,14 +870,18 @@ export default function Dashboard() {
       "rigs",
       {
         ...filters,
-        sort: params.sort || "name",
+        sort: params.sort || "activity",
         order: params.order || "asc",
         limit: 50,
         cursor,
       },
       30000,
     ),
-    history = useResource("metrics/hashrate", { ...filters, timeframe }, 60000),
+    history = useResource(
+      showPerformance ? "metrics/hashrate" : null,
+      { ...filters, timeframe },
+      60000,
+    ),
     incidents = useResource("incidents", { ...filters, limit: 8 }, 30000);
   const [socketError, setSocketError] = useState("");
   const reloadRef = useRef(),
@@ -847,12 +926,13 @@ export default function Dashboard() {
     setSelected({});
   }
   const picked = Object.values(selected);
+  const controls = useQuickControls(() => reloadRef.current());
   return (
     <div className="operations">
       <header className="op-header">
         <div>
-          <h1>Fleet operations</h1>
-          <p>Mining rigs, observed performance, and remote controls.</p>
+          <h1>Mining fleet</h1>
+          <p>Play, pause, and see what every rig is doing.</p>
         </div>
         <div className="op-connection">
           <Badge status={connected ? "online" : "offline"}>
@@ -927,6 +1007,56 @@ export default function Dashboard() {
       )}
       {screen === "Fleet" && (
         <>
+          <div className="op-fleet-controls">
+            <div>
+              <h2>Fleet controls</h2>
+              <small>
+                All connected rigs across every page and filter. Play respects
+                disabled CPU/GPU mining.
+              </small>
+            </div>
+            <div className="op-actions">
+              <button
+                className="op-play"
+                disabled={controls.busy || !!fleet.error}
+                onClick={() => controls.run("start")}
+              >
+                ▶ Play all
+              </button>
+              <button
+                className="op-pause"
+                disabled={!!fleet.error}
+                onClick={() => controls.run("stop")}
+              >
+                Ⅱ Pause all
+              </button>
+            </div>
+          </div>
+          {controls.notice && (
+            <div className="op-control-notice" role="status">
+              {controls.notice}
+            </div>
+          )}
+          {Object.values(controls.receipts).some(
+            (r) =>
+              r.error || ["failed", "timed_out"].includes(r.command?.status),
+          ) && (
+            <details className="op-control-errors">
+              <summary>Some rigs need attention — view command results</summary>
+              {Object.values(controls.receipts)
+                .filter(
+                  (r) =>
+                    r.error ||
+                    ["failed", "timed_out"].includes(r.command?.status),
+                )
+                .map((r) => (
+                  <p key={r.minerId}>
+                    {r.name || r.minerId}:{" "}
+                    {r.error || r.command.error || r.command.status}
+                  </p>
+                ))}
+            </details>
+          )}
           <div className="op-toolbar op-filters">
             <label className="op-search">
               Find rigs
@@ -952,39 +1082,60 @@ export default function Dashboard() {
                   "archived",
                   "forgotten",
                 ].map((s) => (
-                  <option key={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s === "online" ? "Stopped · online" : s}
+                  </option>
                 ))}
               </select>
             </label>
-            <label>
-              Group
-              <input
-                value={filters.group}
-                onChange={(e) => filter("group", e.target.value)}
-                placeholder="Any group"
-              />
-            </label>
-            <label>
-              Tag
-              <input
-                value={filters.tag}
-                onChange={(e) => filter("tag", e.target.value)}
-                placeholder="Any tag"
-              />
-            </label>
-            <label>
-              Attention
-              <select
-                value={filters.attention}
-                onChange={(e) => filter("attention", e.target.value)}
+            {Object.values(filters).some(Boolean) && (
+              <button
+                onClick={() => {
+                  setSearch({});
+                  setCursor(null);
+                  setPageStack([]);
+                  setSelected({});
+                }}
               >
-                <option value="">All rigs</option>
-                <option value="true">Needs attention</option>
-                <option value="false">No attention flagged</option>
-              </select>
-            </label>
+                Clear filters
+              </button>
+            )}
             <details>
-              <summary>Saved views & archive</summary>
+              <summary>
+                More filters &amp; saved views
+                {[filters.group, filters.tag, filters.attention].some(Boolean)
+                  ? " · active"
+                  : ""}
+              </summary>
+              <div className="op-toolbar">
+                <label>
+                  Group
+                  <input
+                    value={filters.group}
+                    onChange={(e) => filter("group", e.target.value)}
+                    placeholder="Any group"
+                  />
+                </label>
+                <label>
+                  Tag
+                  <input
+                    value={filters.tag}
+                    onChange={(e) => filter("tag", e.target.value)}
+                    placeholder="Any tag"
+                  />
+                </label>
+                <label>
+                  Attention
+                  <select
+                    value={filters.attention}
+                    onChange={(e) => filter("attention", e.target.value)}
+                  >
+                    <option value="">All rigs</option>
+                    <option value="true">Needs attention</option>
+                    <option value="false">No attention flagged</option>
+                  </select>
+                </label>
+              </div>
               <label>
                 Saved view
                 <select
@@ -1053,20 +1204,333 @@ export default function Dashboard() {
           </div>
           <div className="op-counts" aria-label="Filtered fleet summary">
             {[
-              ["total", "Active rigs"],
+              ["total", "Rigs in view"],
               ["mining", "Mining"],
               ["online", "Connected"],
               ["offline", "Offline"],
               ["stale", "Telemetry overdue"],
               ["attention", "Need attention"],
             ].map(([key, label]) => (
-              <div key={key}>
+              <div key={key} className={`op-count-${key}`}>
                 <strong>{counts?.[key] ?? "—"}</strong>
                 <span>{label}</span>
               </div>
             ))}
           </div>
-          <div className="op-performance">
+          <div className={`op-workspace ${detail ? "op-has-detail" : ""}`}>
+            <section className="op-surface">
+              <div className="op-section-title">
+                <h2>
+                  Rigs{" "}
+                  <span className="op-muted">{fleet.data?.total ?? "—"}</span>
+                </h2>
+                <div className="op-actions">
+                  <details>
+                    <summary>Columns</summary>
+                    {["sensors", "identity"].map((key) => (
+                      <label className="op-check" key={key}>
+                        <input
+                          type="checkbox"
+                          checked={!!columns[key]}
+                          onChange={(e) => {
+                            const next = {
+                              ...columns,
+                              [key]: e.target.checked,
+                            };
+                            setColumns(next);
+                            localStorage.setItem(
+                              "minemaster-columns",
+                              JSON.stringify(next),
+                            );
+                          }}
+                        />
+                        {key}
+                      </label>
+                    ))}
+                  </details>
+                  <label className="op-sort">
+                    Sort rigs
+                    <select
+                      aria-label="Sort rigs"
+                      value={`${params.sort || "activity"}:${params.order || "asc"}`}
+                      onChange={(e) => {
+                        const [sort, order] = e.target.value.split(":");
+                        const next = new URLSearchParams(search);
+                        next.set("sort", sort);
+                        next.set("order", order);
+                        setSearch(next);
+                        setCursor(null);
+                        setPageStack([]);
+                      }}
+                    >
+                      <option value="activity:asc">
+                        Mining &amp; online first
+                      </option>
+                      <option value="activity:desc">Offline first</option>
+                      <option value="name:asc">Name A–Z</option>
+                      <option value="name:desc">Name Z–A</option>
+                      <option value="lastSeen:desc">Recently seen</option>
+                      <option value="lastSeen:asc">Longest absent</option>
+                      <option value="status:asc">State A–Z</option>
+                      <option value="status:desc">State Z–A</option>
+                    </select>
+                  </label>
+                  {!!picked.length && (
+                    <span>{picked.length} selected across pages</span>
+                  )}
+                  {!!picked.length && (
+                    <>
+                      <button
+                        className="op-play"
+                        disabled={controls.busy}
+                        onClick={() => controls.run("start", picked)}
+                      >
+                        ▶ Play selected
+                      </button>
+                      <button
+                        className="op-pause"
+                        onClick={() => controls.run("stop", picked)}
+                      >
+                        Ⅱ Pause selected
+                      </button>
+                    </>
+                  )}
+                  {!!picked.length && (
+                    <button onClick={() => setSelected({})}>
+                      Clear selection
+                    </button>
+                  )}
+                  <button
+                    disabled={!picked.length}
+                    onClick={() => setAction(picked)}
+                  >
+                    Advanced actions
+                  </button>
+                  <button onClick={fleet.reload}>Refresh</button>
+                </div>
+              </div>
+              {fleet.loading && <p className="op-empty">Loading rigs…</p>}
+              {fleet.data?.data.length === 0 && (
+                <p className="op-empty">
+                  No rigs match these filters. Clear filters or register an
+                  agent.
+                </p>
+              )}
+              <div className="op-table-wrap">
+                <table className="op-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        <input
+                          type="checkbox"
+                          aria-label="Select all rigs on this page"
+                          checked={
+                            !!rows.length && rows.every((r) => selected[r.id])
+                          }
+                          onChange={(e) =>
+                            setSelected((prev) => {
+                              const next = { ...prev };
+                              rows.forEach((r) => {
+                                if (e.target.checked) next[r.id] = r;
+                                else delete next[r.id];
+                              });
+                              return next;
+                            })
+                          }
+                        />
+                      </th>
+                      {[
+                        ["name", "Rig"],
+                        ["status", "State"],
+                      ].map(([k, label]) => (
+                        <th
+                          key={k}
+                          aria-sort={
+                            params.sort === k
+                              ? params.order === "desc"
+                                ? "descending"
+                                : "ascending"
+                              : "none"
+                          }
+                        >
+                          <button
+                            onClick={() => {
+                              const next = new URLSearchParams(search);
+                              next.set("sort", k);
+                              next.set(
+                                "order",
+                                params.sort === k && params.order !== "desc"
+                                  ? "desc"
+                                  : "asc",
+                              );
+                              setSearch(next);
+                              setCursor(null);
+                              setPageStack([]);
+                            }}
+                          >
+                            {label} ↕
+                          </button>
+                        </th>
+                      ))}
+                      <th>Mining controls</th>
+                      <th>Process rates</th>
+                      <th>Last seen / agent</th>
+                      {columns.sensors && <th>Sensors</th>}
+                      {columns.identity && <th>Identity</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr
+                        key={r.id}
+                        className={`op-rig-row op-rig-${r.status} ${detail === r.id ? "op-selected" : ""}`}
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${r.name}`}
+                            checked={!!selected[r.id]}
+                            onChange={(e) =>
+                              setSelected((prev) => {
+                                const next = { ...prev };
+                                e.target.checked
+                                  ? (next[r.id] = r)
+                                  : delete next[r.id];
+                                return next;
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="op-rig-name"
+                            onClick={() => setDetail(r.id)}
+                          >
+                            {r.name}
+                          </button>
+                          <small>{r.group || r.hostname}</small>
+                        </td>
+                        <td>
+                          <Badge status={r.status}>
+                            {r.status === "online"
+                              ? "Stopped · online"
+                              : r.status}
+                          </Badge>
+                          {r.maintenance && (
+                            <Badge status="suppressed">Maintenance</Badge>
+                          )}
+                          {!!r.openIncidents?.length && (
+                            <small>
+                              {r.openIncidents.length} open incident
+                              {r.openIncidents.length === 1 ? "" : "s"}
+                            </small>
+                          )}
+                          {!["Mining", "Idle"].includes(r.reason) && (
+                            <small>{r.reason}</small>
+                          )}
+                          {needsNanominerTelemetryUpdate(r) && (
+                            <small className="op-warning">
+                              Nanominer reporting fix: update client to 1.4.4
+                            </small>
+                          )}
+                          {r.pendingCommands?.map((c) => (
+                            <small key={c.id}>
+                              {c.action} {c.deviceType}: {c.status}
+                            </small>
+                          ))}
+                        </td>
+                        <td>
+                          <QuickButtons rig={r} controls={controls} />
+                        </td>
+                        <td>
+                          {!r.processes.length && (
+                            <small>No process report from this agent</small>
+                          )}
+                          {r.processes.map((p) => (
+                            <div className="op-process-rate" key={p.id}>
+                              <span>
+                                {p.deviceType} {p.algorithm || ""}
+                              </span>
+                              <strong>{processRateLabel(r, p, rate)}</strong>
+                            </div>
+                          ))}
+                        </td>
+                        <td>
+                          <time
+                            title={`Last agent contact: ${at(r.lastSeen)} · Telemetry: ${at(r.telemetryReceivedAt)}`}
+                          >
+                            {ageLabel(r.lastSeen || r.telemetryReceivedAt)}
+                          </time>
+                          <small>
+                            {r.version ||
+                              (r.protocolVersion < 2
+                                ? "Legacy agent · version not sent"
+                                : "Version not sent")}
+                          </small>
+                          {!r.telemetryReceivedAt && (
+                            <small>No current telemetry</small>
+                          )}
+                        </td>
+                        {columns.sensors && (
+                          <td>
+                            {r.stats?.quality === "stale"
+                              ? "Stale sensors"
+                              : `CPU ${r.stats?.cpu?.temperature ?? "—"}°C`}
+                            <small>{r.hardware.gpus.length} GPUs</small>
+                          </td>
+                        )}
+                        {columns.identity && (
+                          <td>
+                            {r.hostname}
+                            <small>{r.ip}</small>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="op-pagination">
+                <button
+                  disabled={!pageStack.length}
+                  onClick={() => {
+                    setCursor(pageStack.at(-1));
+                    setPageStack(pageStack.slice(0, -1));
+                  }}
+                >
+                  Previous
+                </button>
+                <span>Page {pageStack.length + 1} · Up to 50 rigs</span>
+                <button
+                  disabled={!fleet.data?.nextCursor}
+                  onClick={() => {
+                    setPageStack([...pageStack, cursor]);
+                    setCursor(fleet.data.nextCursor);
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </section>
+            {detail ? (
+              <RigDetail
+                key={detail}
+                id={detail}
+                close={() => setDetail(null)}
+                onAction={setAction}
+                controls={controls}
+                onChanged={() => {
+                  fleet.reload();
+                  summary.reload();
+                }}
+              />
+            ) : null}
+          </div>
+          <details
+            className="op-performance"
+            onToggle={(e) => setShowPerformance(e.currentTarget.open)}
+          >
+            <summary>Performance, charts &amp; hardware</summary>
             <div
               className="op-health-strip"
               aria-label="Fleet hardware and health"
@@ -1176,255 +1640,7 @@ export default function Dashboard() {
               contribution; hover for coverage. Rates are held for at most 60
               seconds.
             </p>
-          </div>
-          <div className={`op-workspace ${detail ? "op-has-detail" : ""}`}>
-            <section className="op-surface">
-              <div className="op-section-title">
-                <h2>
-                  Rigs{" "}
-                  <span className="op-muted">{fleet.data?.total ?? "—"}</span>
-                </h2>
-                <div className="op-actions">
-                  <details>
-                    <summary>Columns</summary>
-                    {["sensors", "identity"].map((key) => (
-                      <label className="op-check" key={key}>
-                        <input
-                          type="checkbox"
-                          checked={!!columns[key]}
-                          onChange={(e) => {
-                            const next = {
-                              ...columns,
-                              [key]: e.target.checked,
-                            };
-                            setColumns(next);
-                            localStorage.setItem(
-                              "minemaster-columns",
-                              JSON.stringify(next),
-                            );
-                          }}
-                        />
-                        {key}
-                      </label>
-                    ))}
-                  </details>
-                  <span>{picked.length} selected across pages</span>
-                  {!!picked.length && (
-                    <button onClick={() => setSelected({})}>
-                      Clear selection
-                    </button>
-                  )}
-                  <button
-                    disabled={!picked.length}
-                    onClick={() => setAction(picked)}
-                  >
-                    Control selected
-                  </button>
-                  <button onClick={fleet.reload}>Refresh</button>
-                </div>
-              </div>
-              {fleet.loading && <p className="op-empty">Loading rigs…</p>}
-              {fleet.data?.data.length === 0 && (
-                <p className="op-empty">
-                  No rigs match these filters. Clear filters or register an
-                  agent.
-                </p>
-              )}
-              <div className="op-table-wrap">
-                <table className="op-table">
-                  <thead>
-                    <tr>
-                      <th>
-                        <input
-                          type="checkbox"
-                          aria-label="Select all rigs on this page"
-                          checked={
-                            !!rows.length && rows.every((r) => selected[r.id])
-                          }
-                          onChange={(e) =>
-                            setSelected((prev) => {
-                              const next = { ...prev };
-                              rows.forEach((r) => {
-                                if (e.target.checked) next[r.id] = r;
-                                else delete next[r.id];
-                              });
-                              return next;
-                            })
-                          }
-                        />
-                      </th>
-                      {[
-                        ["name", "Rig"],
-                        ["status", "State"],
-                      ].map(([k, label]) => (
-                        <th
-                          key={k}
-                          aria-sort={
-                            params.sort === k
-                              ? params.order === "desc"
-                                ? "descending"
-                                : "ascending"
-                              : "none"
-                          }
-                        >
-                          <button
-                            onClick={() => {
-                              const next = new URLSearchParams(search);
-                              next.set("sort", k);
-                              next.set(
-                                "order",
-                                params.sort === k && params.order !== "desc"
-                                  ? "desc"
-                                  : "asc",
-                              );
-                              setSearch(next);
-                              setCursor(null);
-                              setPageStack([]);
-                            }}
-                          >
-                            {label} ↕
-                          </button>
-                        </th>
-                      ))}
-                      <th>Process rates</th>
-                      <th>Last telemetry</th>
-                      {columns.sensors && <th>Sensors</th>}
-                      {columns.identity && <th>Identity</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr
-                        key={r.id}
-                        className={detail === r.id ? "op-selected" : ""}
-                      >
-                        <td>
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${r.name}`}
-                            checked={!!selected[r.id]}
-                            onChange={(e) =>
-                              setSelected((prev) => {
-                                const next = { ...prev };
-                                e.target.checked
-                                  ? (next[r.id] = r)
-                                  : delete next[r.id];
-                                return next;
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <button
-                            className="op-rig-name"
-                            onClick={() => setDetail(r.id)}
-                          >
-                            {r.name}
-                          </button>
-                          <small>{r.group || r.hostname}</small>
-                        </td>
-                        <td>
-                          <Badge status={r.status} />
-                          {r.maintenance && (
-                            <Badge status="suppressed">Maintenance</Badge>
-                          )}
-                          {!!r.openIncidents?.length && (
-                            <small>
-                              {r.openIncidents.length} open incident
-                              {r.openIncidents.length === 1 ? "" : "s"}
-                            </small>
-                          )}
-                          <small>{r.reason}</small>
-                          {r.pendingCommands?.map((c) => (
-                            <small key={c.id}>
-                              {c.action} {c.deviceType}: {c.status}
-                            </small>
-                          ))}
-                        </td>
-                        <td>
-                          {r.processes.map((p) => (
-                            <div className="op-process-rate" key={p.id}>
-                              <span>
-                                {p.deviceType} {p.algorithm || ""}
-                              </span>
-                              <strong>
-                                {!p.running
-                                  ? "Stopped"
-                                  : ["valid", "zero"].includes(p.quality)
-                                    ? rate(p.hashrate)
-                                    : p.quality}
-                              </strong>
-                            </div>
-                          ))}
-                        </td>
-                        <td>
-                          <time title={at(r.telemetryReceivedAt)}>
-                            {ageLabel(r.telemetryReceivedAt)}
-                          </time>
-                          <small>{r.version || "Version unknown"}</small>
-                        </td>
-                        {columns.sensors && (
-                          <td>
-                            {r.stats?.quality === "stale"
-                              ? "Stale sensors"
-                              : `CPU ${r.stats?.cpu?.temperature ?? "—"}°C`}
-                            <small>{r.hardware.gpus.length} GPUs</small>
-                          </td>
-                        )}
-                        {columns.identity && (
-                          <td>
-                            {r.hostname}
-                            <small>{r.ip}</small>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="op-pagination">
-                <button
-                  disabled={!pageStack.length}
-                  onClick={() => {
-                    setCursor(pageStack.at(-1));
-                    setPageStack(pageStack.slice(0, -1));
-                  }}
-                >
-                  Previous
-                </button>
-                <span>Page {pageStack.length + 1} · Up to 50 rigs</span>
-                <button
-                  disabled={!fleet.data?.nextCursor}
-                  onClick={() => {
-                    setPageStack([...pageStack, cursor]);
-                    setCursor(fleet.data.nextCursor);
-                  }}
-                >
-                  Next
-                </button>
-              </div>
-            </section>
-            {detail ? (
-              <RigDetail
-                key={detail}
-                id={detail}
-                close={() => setDetail(null)}
-                onAction={setAction}
-                onChanged={() => {
-                  fleet.reload();
-                  summary.reload();
-                }}
-              />
-            ) : (
-              <aside className="op-detail">
-                <IncidentList incidents={incidents} onSelect={setDetail} />
-                <p className="op-muted">
-                  Recent fleet incidents. Open Monitoring for rules and the full
-                  list.
-                </p>
-              </aside>
-            )}
-          </div>
+          </details>
         </>
       )}
       {action && (

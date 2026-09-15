@@ -355,7 +355,7 @@ async function handle(c, message) {
       throw Error("Unsupported message type");
   }
 }
-async function close(c) {
+async function close(c, code, reason) {
   c.closed = true;
   connections.delete(c.id);
   if (!c.minerId) return;
@@ -367,7 +367,13 @@ async function close(c) {
     );
     if (miner) {
       broadcastMiner(miner);
-      await monitoring.event(miner.id, "agent-disconnected");
+      await monitoring.event(miner.id, "agent-disconnected", {
+        ...(code ? { code } : {}),
+        reason: String(reason || "Connection closed without a reason").slice(
+          0,
+          200,
+        ),
+      });
     }
   });
 }
@@ -512,8 +518,8 @@ function initialize(wss) {
         sendToMiner(c.id, { type: "error", error: "Invalid JSON message" });
       }
     });
-    ws.on("close", () =>
-      close(c).catch((error) =>
+    ws.on("close", (code, reason) =>
+      close(c, code, reason).catch((error) =>
         console.error("Disconnect update failed:", error.message),
       ),
     );

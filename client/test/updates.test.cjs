@@ -194,3 +194,35 @@ test("expired resume intent is discarded even when the old application restarts"
     false,
   );
 });
+
+test("upgrade from 1.1.3 consumes only fresh explicit legacy resume intent once", (t) => {
+  const fs = require("fs"),
+    os = require("os"),
+    path = require("path");
+  const { createResumeStore } = require("../electron/updateResume");
+  const userData = fs.mkdtempSync(
+    path.join(os.tmpdir(), "minemaster-legacy-resume-"),
+  );
+  t.after(() => fs.rmSync(userData, { recursive: true, force: true }));
+  const file = path.join(userData, "update-resume-state.json"),
+    now = Date.now();
+  const store = createResumeStore({
+    userData,
+    version: "1.4.4",
+    now: () => now,
+  });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ minerIds: ["nanominer-1"], savedAt: now - 30000 }),
+  );
+  assert.equal(store.take().legacyResume, true);
+  assert.equal(store.take(), null);
+  for (const data of [
+    { minerIds: ["nanominer-1"], savedAt: now - 600001 },
+    { minerIds: ["other"], savedAt: now },
+    { minerIds: ["nanominer-1"], savedAt: now, targetVersion: "1.4.3" },
+  ]) {
+    fs.writeFileSync(file, JSON.stringify(data));
+    assert.equal(store.take(), null);
+  }
+});

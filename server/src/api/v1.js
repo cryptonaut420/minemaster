@@ -111,16 +111,18 @@ async function pageRigs(query) {
   const limit = limitOf(query),
     all = await fleet(query);
   const sort = query.sort || "name";
-  if (!["name", "lastSeen", "status", "id"].includes(sort))
+  if (!["name", "lastSeen", "status", "id", "activity"].includes(sort))
     throw fail("Invalid sort");
   const direction = query.order === "desc" ? -1 : 1;
   if (query.order && !["asc", "desc"].includes(query.order))
     throw fail("order must be asc or desc");
   const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const value = (r) =>
+    sort === "activity"
+      ? `${r.mining ? 0 : r.freshness?.connected ? (r.status === "stale" ? 2 : 1) : 3}:${String(r.name || "").toLowerCase()}`
+      : r[sort] || "";
   all.sort(
-    (a, b) =>
-      direction *
-      (compare(a[sort] || "", b[sort] || "") || compare(a.id, b.id)),
+    (a, b) => direction * (compare(value(a), value(b)) || compare(a.id, b.id)),
   );
   const cursor = query.cursor ? decode(query.cursor) : null;
   if (
@@ -137,7 +139,7 @@ async function pageRigs(query) {
     ? all.filter(
         (r) =>
           direction *
-            (compare(r[sort] || "", cursor.value) || compare(r.id, cursor.id)) >
+            (compare(value(r), cursor.value) || compare(r.id, cursor.id)) >
           0,
       )
     : all;
@@ -154,14 +156,12 @@ async function pageRigs(query) {
   const pendingByRig = new Map();
   for (const c of pending) {
     if (!pendingByRig.has(c.minerId)) pendingByRig.set(c.minerId, []);
-    pendingByRig
-      .get(c.minerId)
-      .push({
-        id: c.id,
-        action: c.action,
-        deviceType: c.deviceType,
-        status: c.status,
-      });
+    pendingByRig.get(c.minerId).push({
+      id: c.id,
+      action: c.action,
+      deviceType: c.deviceType,
+      status: c.status,
+    });
   }
   for (const r of data) r.pendingCommands = pendingByRig.get(r.id) || [];
   return {
@@ -169,7 +169,7 @@ async function pageRigs(query) {
     total: all.length,
     nextCursor:
       remaining.length > limit
-        ? encode({ sort, direction, value: last[sort] || "", id: last.id })
+        ? encode({ sort, direction, value: value(last), id: last.id })
         : null,
     asOf: new Date().toISOString(),
   };

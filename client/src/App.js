@@ -331,7 +331,7 @@ function App() {
             if (rate !== null)
               observation = {
                 hashrate: rate,
-                hashrateObservedAt: new Date().toISOString(),
+                hashrateObservedAt: data.observedAt || new Date().toISOString(),
               };
             shares = parseShares(line) || shares;
             Object.assign(details, parseProcessDetails(line));
@@ -339,6 +339,7 @@ function App() {
               data.minerId,
               line,
               /error|failed|fatal/i.test(line) ? "error" : "info",
+              data.observedAt,
             );
           }
           setMiners((prev) =>
@@ -651,7 +652,8 @@ function App() {
 
     // Handle WebSocket reconnection - re-register if was previously bound
     const handleConnected = async () => {
-      const wasBound = localStorage.getItem("master-server-bound") === "true";
+      if (masterServer.connectingForBind) return;
+      const wasBound = masterServer.config?.enabled;
       if (wasBound) {
         try {
           const { devices, systemInfo } = await getDeviceStatesForServer();
@@ -660,7 +662,10 @@ function App() {
             await masterServer.bind(systemInfo, true, devices, name); // silent = true for reconnect
           }
         } catch (err) {
-          // Silent fail - will retry on next reconnect
+          console.warn(
+            "Registration failed; automatic retry is scheduled:",
+            err.message,
+          );
         }
       }
     };
@@ -709,23 +714,21 @@ function App() {
     };
 
     masterServer.on("connected", handleConnected);
+    masterServer.on("registrationRequired", handleConnected);
     masterServer.on("bound", handleBound);
     masterServer.on("registered", handleRegistered);
     masterServer.on("unbound", handleUnbound);
 
     // Initial connection on app start if was previously bound
     const initConnection = async () => {
-      const wasBound = localStorage.getItem("master-server-bound") === "true";
-      if (wasBound) {
-        try {
-          const config = await masterServer.loadConfig();
-          if (config?.enabled) {
-            await masterServer.connect();
-            // 'connected' handler will fire and handle registration
-          }
-        } catch (err) {
-          // Silent fail - user can manually rebind from MasterServerPanel
+      try {
+        const config = await masterServer.loadConfig();
+        if (config?.enabled) {
+          await masterServer.connect();
+          // 'connected' handler will fire and handle registration
         }
+      } catch (err) {
+        console.warn("Initial server connection failed:", err.message);
       }
     };
 
@@ -733,6 +736,7 @@ function App() {
 
     return () => {
       masterServer.off("connected", handleConnected);
+      masterServer.off("registrationRequired", handleConnected);
       masterServer.off("bound", handleBound);
       masterServer.off("registered", handleRegistered);
       masterServer.off("unbound", handleUnbound);

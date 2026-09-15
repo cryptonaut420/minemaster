@@ -237,3 +237,54 @@ test("registration advertises SRBMiner only on supported native targets", async 
       );
   }
 });
+
+test("open but unregistered connections retry until acknowledged and retire their timers", async () => {
+  const { service, sockets, timers } = setup();
+  let retries = 0;
+  service.on("registrationRequired", () => retries++);
+  const ready = service.connect();
+  sockets[0].readyState = 1;
+  sockets[0].onopen();
+  await ready;
+  const timer = service.registrationTimer;
+  timers.get(timer)();
+  assert.equal(retries, 1);
+  const next = service.registrationTimer;
+  assert.ok(timers.has(next));
+  service.handleMessage(JSON.stringify({ type: "registered", data: {} }));
+  assert.equal(service.bound, true);
+  assert.equal(timers.has(next), false);
+  service.disconnect();
+  assert.equal(service.registrationTimer, null);
+});
+
+test("explicit unbind persists disablement and cancels registration recovery", async () => {
+  const { service, sockets } = setup();
+  const ready = service.connect();
+  sockets[0].readyState = 1;
+  sockets[0].onopen();
+  await ready;
+  let saved;
+  service.saveConfig = async (config) => {
+    saved = config;
+    service.config = config;
+  };
+  await service.unbind();
+  assert.equal(saved.enabled, false);
+  assert.equal(service.registrationTimer, null);
+  assert.equal(service.connected, false);
+});
+test("registration awaiting identity cannot send after unbind or to a replacement socket", async () => {
+  const { service, sockets } = setup();
+  const ready = service.connect();
+  sockets[0].readyState = 1;
+  sockets[0].onopen();
+  await ready;
+  let resolve;
+  service.getCachedSystemId = () => new Promise((r) => (resolve = r));
+  const bind = service.bind({ hostname: "fixture" });
+  service.disconnect();
+  resolve("fixture");
+  await assert.rejects(bind, /superseded/);
+  assert.equal(sockets[0].sent.length, 0);
+});

@@ -1,5 +1,7 @@
 # Desktop mining client audit — September 13, 2026
 
+**September 15 correction:** The [live-fleet regression repair](../regression-repair-2026-09-15/README.md) documents the lost Windows Nanominer file output, legacy update resume migration, registration retry gaps and restored direct admin controls. Earlier successful synthetic tests did not cover these runtime regressions.
+
 The prior backend/admin changes were committed as `699c76f` before this client pass. The first client pass was committed as `b97ac1e`, targeting desktop **1.2.0**, then fast-forwarded onto `master` at the owner's request. Subsequent **1.3.0** changes are recorded in the [second pass](second-pass.md). This document describes implemented changes, not a proposed backlog. See [the operating guide](../../../client/README.md) and [the API contract](../../backend-admin.md).
 
 ## Findings repaired

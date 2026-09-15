@@ -347,3 +347,39 @@ test("native output identifies independent stdout and stderr streams", async () 
     ["stdout", "stderr", "stdout"],
   );
 });
+
+test("Nanominer file capture follows process ownership and stops independently", async () => {
+  const followers = [];
+  const f = fixture({
+    tailLog: (file, output) => {
+      const t = {
+        file,
+        output,
+        close() {
+          this.closed = true;
+        },
+      };
+      followers.push(t);
+      return t;
+    },
+  });
+  f.runtime.launchSpec = async () => ({
+    executable: "/fixture/miner",
+    args: [],
+    cwd: "/fixture",
+    logFile: "/fixture/miner.log",
+    diagnostic: { status: "ready" },
+  });
+  await f.manager.start({ ...request, config: { engine: "nanominer" } });
+  f.children[0].stdout.emit("data", "Total: 100 H/s\n");
+  assert.equal(f.messages.filter((m) => m[0] === "miner-output").length, 0);
+  followers[0].output("Total: 100 H/s\n", "2026-09-15T00:00:00.000Z");
+  const message = f.messages.find((m) => m[0] === "miner-output")[1];
+  assert.equal(message.minerId, "cpu");
+  assert.equal(message.stream, "file");
+  assert.equal(message.observedAt, "2026-09-15T00:00:00.000Z");
+  await f.manager.stop({ minerId: "cpu" });
+  assert.equal(followers[0].closed, true);
+  followers[0].output("late output");
+  assert.equal(f.messages.filter((m) => m[0] === "miner-output").length, 1);
+});

@@ -378,7 +378,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["name", "lastSeen", "status", "id"]
+              "enum": ["name", "lastSeen", "status", "id", "activity"]
             }
           },
           {

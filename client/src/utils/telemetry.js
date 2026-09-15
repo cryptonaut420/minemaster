@@ -34,7 +34,7 @@ export function createProcessLineBuffer() {
       currentRun = runId;
       streams = new Map();
     }
-    const key = stream === "stderr" ? "stderr" : "stdout";
+    const key = ["stderr", "file"].includes(stream) ? stream : "stdout";
     if (!streams.has(key)) streams.set(key, createLineBuffer());
     return streams.get(key)(chunk);
   };
