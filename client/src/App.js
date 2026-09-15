@@ -320,6 +320,7 @@ function App() {
     if (window.electronAPI) {
       cleanups.push(
         window.electronAPI.onMinerOutput((data) => {
+          if (data.reset) delete lineBuffers.current[data.minerId];
           const read = (lineBuffers.current[data.minerId] ||=
             createProcessLineBuffer());
           const lines = read(data.data, data.stream, data.runId);

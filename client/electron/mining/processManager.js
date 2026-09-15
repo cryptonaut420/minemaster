@@ -149,6 +149,7 @@ function createProcessManager({
               chunk,
               stream,
               observedAt = new Date(now()).toISOString(),
+              reset = false,
             ) => {
               if (!owned()) return;
               const data = String(chunk).replace(
@@ -162,6 +163,7 @@ function createProcessManager({
                 stream,
                 data,
                 observedAt,
+                reset,
               });
             };
             for (const [name, stream] of [
@@ -178,8 +180,10 @@ function createProcessManager({
             if (spec.logFile)
               entry.logTail = tailLog(
                 spec.logFile,
-                (data, observedAt) => output(data, "file", observedAt),
+                (data, observedAt, reset) =>
+                  output(data, "file", observedAt, reset),
                 {
+                  freshFile: true,
                   onError: (error) =>
                     output(`Log capture failed: ${error.message}\n`, "stderr"),
                 },

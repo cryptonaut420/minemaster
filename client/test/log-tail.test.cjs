@@ -55,3 +55,43 @@ test("file tail bounds each read and preserves UTF-8 split across reads", async 
   await tail.poll();
   assert.equal(rows.join(""), text);
 });
+
+test("owned Windows logs observe new bytes even with a frozen write time and discard old output after a gap", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "minemaster-win-tail-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "miner.log"),
+    rows = [],
+    errors = [];
+  let now = Date.now();
+  const old = new Date(now - 120000);
+  await fs.writeFile(file, "");
+  const tail = followLog(
+    file,
+    (data, at, reset) => rows.push({ data, at, reset }),
+    {
+      interval: 100000,
+      freshFile: true,
+      now: () => now,
+      onError: (e) => errors.push(e.message),
+    },
+  );
+  t.after(() => tail.close());
+  await tail.poll();
+  await fs.appendFile(file, "Total: 100 H/s\n");
+  await fs.utimes(file, old, old);
+  now += 1000;
+  await tail.poll();
+  assert.equal(Date.parse(rows[0].at), now);
+  await tail.poll();
+  assert.equal(rows.length, 1);
+  await fs.appendFile(file, "Total: 200 H/s\n");
+  now += 60000;
+  await tail.poll();
+  assert.equal(rows.length, 1);
+  assert.match(errors[0], /monitoring gap/);
+  await fs.appendFile(file, "Total: 300 H/s\n");
+  now += 1000;
+  await tail.poll();
+  assert.match(rows[1].data, /300/);
+  assert.equal(rows[1].reset, true);
+});
