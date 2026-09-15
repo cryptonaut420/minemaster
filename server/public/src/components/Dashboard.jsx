@@ -933,7 +933,7 @@ export default function Dashboard() {
               <input
                 value={filters.q}
                 onChange={(e) => filter("q", e.target.value)}
-                placeholder="Name, host, address, tag…"
+                placeholder="Name, host, address, group, tag…"
               />
             </label>
             <label>

@@ -403,3 +403,39 @@ test("restart-running-only skips idle processes without issuing Stop or Start", 
     "Process was not running",
   );
 });
+
+test("Stop receipts preserve the selected engine in legacy CPU/GPU slots", async () => {
+  const { createCommandRunner } = await runnerModule();
+  for (const [type, deviceType] of [
+    ["xmrig", "CPU"],
+    ["nanominer", "GPU"],
+  ]) {
+    let miner = {
+      id: "process",
+      type,
+      deviceType,
+      running: true,
+      engine: "srbminer",
+      config: { engine: "srbminer" },
+      activeConfig: { engine: "srbminer" },
+    };
+    const reports = [];
+    const runner = createCommandRunner({
+      getMiners: () => [miner],
+      stop: async () => {
+        miner = { ...miner, running: false, engine: null, activeConfig: null };
+        return { success: true };
+      },
+      report: (r) => reports.push(r),
+    });
+    await runner.execute({
+      id: `stop-${type}`,
+      action: "stop",
+      deviceType,
+      deadline: new Date(Date.now() + 5000).toISOString(),
+    });
+    assert.equal(reports.at(-1).status, "succeeded");
+    assert.equal(reports.at(-1).result.processes[0].engine, "srbminer");
+    assert.equal(reports.at(-1).result.processes[0].appliedConfigVersion, null);
+  }
+});

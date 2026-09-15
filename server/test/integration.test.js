@@ -1584,6 +1584,92 @@ test("SRBMiner configuration, capability gates, telemetry and failed command rec
   }
 });
 
+test("management keys can organize and stop a rig despite missing GPU inventory", async () => {
+  const client = await socket();
+  const data = registration("inventory-failure-rig");
+  data.systemInfo.gpus = [];
+  send(client, "register", data);
+  const bound = await waitFor(() =>
+    client.messages.find((m) => m.type === "bound"),
+  );
+  const id = bound.data.minerId;
+  const key = (
+    await api("/v1/api-keys", "POST", {
+      name: "inventory-control",
+      permission: "manage",
+    })
+  ).data;
+  const headers = { Authorization: `Bearer ${key.secret}` };
+  try {
+    const updated = await api(
+      `/v1/rigs/${id}`,
+      "PATCH",
+      { group: "remote-workshop-unique", tags: ["test-rig"] },
+      headers,
+    );
+    assert.equal(updated.status, 200);
+    const rigs = await api(
+      "/v1/rigs?q=remote-workshop-unique",
+      "GET",
+      undefined,
+      headers,
+    );
+    assert.deepEqual(
+      rigs.data.data.map((r) => r.id),
+      [id],
+    );
+    const summary = await api(
+      "/v1/fleet/summary?q=remote-workshop-unique",
+      "GET",
+      undefined,
+      headers,
+    );
+    assert.equal(summary.data.counts.total, 1);
+    assert.equal(
+      (
+        await api(
+          "/v1/commands",
+          "POST",
+          { minerId: id, action: "start", deviceType: "GPU" },
+          headers,
+        )
+      ).status,
+      422,
+    );
+    const stopped = await api(
+      "/v1/commands",
+      "POST",
+      { minerId: id, action: "stop", deviceType: "GPU" },
+      headers,
+    );
+    assert.equal(stopped.status, 202);
+    const command = stopped.data.data;
+    await waitFor(() =>
+      client.messages.find(
+        (m) => m.type === "command" && m.data.id === command.id,
+      ),
+    );
+    send(client, "command-result", {
+      id: command.id,
+      status: "succeeded",
+      result: { processes: [{ id: "nanominer-1", running: false }] },
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/commands/${command.id}`, "GET", undefined, headers))
+          .data.data.status === "succeeded",
+    );
+    await api(`/v1/api-keys/${key.data.id}`, "DELETE");
+    assert.equal(
+      (await api("/v1/rigs", "GET", undefined, headers)).status,
+      401,
+    );
+  } finally {
+    await require("../src/models/Miner").delete(id);
+    await api(`/v1/api-keys/${key.data.id}`, "DELETE");
+  }
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

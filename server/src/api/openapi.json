@@ -193,7 +193,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Case-insensitive substring search of rig name, hostname, ID, IP, group and tags."
           },
           {
             "name": "status",
@@ -326,7 +327,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Case-insensitive substring search of rig name, hostname, ID, IP, group and tags."
           },
           {
             "name": "status",
@@ -870,7 +872,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Case-insensitive substring search of rig name, hostname, ID, IP, group and tags."
           },
           {
             "name": "status",
@@ -2131,7 +2134,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Case-insensitive substring search of rig name, hostname, ID, IP, group and tags."
           },
           {
             "name": "status",

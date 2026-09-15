@@ -25,6 +25,8 @@ import {
   parseProcessDetails,
   processSnapshot,
   stoppedProcessState,
+  reconcileNativeStatus,
+  applyProcessObservation,
 } from "./utils/telemetry";
 import { createCommandRunner } from "./utils/commandRunner";
 import { engineFor } from "./utils/miningConfig";
@@ -237,30 +239,22 @@ function App() {
       if (busy || !window.electronAPI) return;
       busy = true;
       try {
+        const revisions = new Map(
+          minersRef.current.map((m) => [
+            m.id,
+            m.loading ? null : m.controlRevision || 0,
+          ]),
+        );
         const statuses = await window.electronAPI.getAllMinersStatus();
         if (!disposed)
           setMiners((prev) =>
-            prev.map((miner) => {
-              const status = statuses[miner.id];
-              if (miner.loading || !status) return miner;
-              const changedRun = status.runId && status.runId !== miner.runId;
-              return {
-                ...miner,
-                ...status,
-                startTime: status.startedAt,
-                ...(changedRun || !status.running
-                  ? {
-                      hashrate: null,
-                      hashrateObservedAt: null,
-                      shares: null,
-                      pool: null,
-                      paused: false,
-                      pauseReason: null,
-                    }
-                  : {}),
-                ...(!status.running ? stoppedProcessState() : {}),
-              };
-            }),
+            prev.map((miner) =>
+              reconcileNativeStatus(
+                miner,
+                statuses[miner.id],
+                revisions.get(miner.id),
+              ),
+            ),
           );
       } catch (_) {
       } finally {
@@ -350,13 +344,12 @@ function App() {
           setMiners((prev) =>
             prev.map((miner) =>
               miner.id === data.minerId
-                ? {
-                    ...miner,
+                ? applyProcessObservation(miner, data.runId, {
                     ...details,
                     ...(observation || {}),
                     ...(shares ? { shares } : {}),
                     output: addConsoleOutput(miner.output, data.data),
-                  }
+                  })
                 : miner,
             ),
           );
@@ -380,6 +373,7 @@ function App() {
                 return {
                   ...miner,
                   loading: false,
+                  controlRevision: (miner.controlRevision || 0) + 1,
                   error: data.error,
                   diagnostic: data.diagnostic,
                   output: newOutput,
@@ -414,6 +408,7 @@ function App() {
                 return {
                   ...miner,
                   ...stoppedProcessState(),
+                  controlRevision: (miner.controlRevision || 0) + 1,
                   loading: false,
                   diagnostic: data.diagnostic,
                   error: unexpected
@@ -803,6 +798,8 @@ function App() {
     if (!miner.running) delete lineBuffers.current[minerId];
     patchMiner(minerId, {
       loading: true,
+      controlRevision: (miner.controlRevision || 0) + 1,
+      observationRunId: null,
       validationErrors: [],
       ...(!miner.running
         ? {
@@ -862,7 +859,10 @@ function App() {
     const miner = minersRef.current.find((m) => m.id === minerId);
     if (!miner) return { success: false, error: "Unknown miner" };
     stoppingMinersRef.current.add(minerId);
-    patchMiner(minerId, { loading: true });
+    patchMiner(minerId, {
+      loading: true,
+      controlRevision: (miner.controlRevision || 0) + 1,
+    });
     try {
       const result = await window.electronAPI.stopMiner({ minerId });
       if (!result.success)
@@ -889,7 +889,10 @@ function App() {
     if (!miner || miner.loading)
       return { success: false, error: "Miner operation pending" };
     if (!remote) commandRunnerRef.current?.cancelProcess(minerId);
-    patchMiner(minerId, { loading: true });
+    patchMiner(minerId, {
+      loading: true,
+      controlRevision: (miner.controlRevision || 0) + 1,
+    });
     try {
       const request = {
         minerId,

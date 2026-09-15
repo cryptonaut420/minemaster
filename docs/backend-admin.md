@@ -231,3 +231,11 @@ Both validators reject nondefault settings belonging to the other process scope:
 ### Stopped process reporting — desktop 1.4.2
 
 Desktop snapshots for stopped processes report the desired engine/algorithm together. They clear `activeConfig`, `appliedConfigVersion`, running version, PID/start time, effective settings, hashrate/timestamp, pool/share observations and pause state. The desired revision and pending restart time remain available. Confirmed Stop, exit notifications and native reconciliation apply the same cleanup immediately; running processes still report their actual launch identity until stopped/restarted. This prevents a newly selected engine from appearing alongside the previous engine's algorithm or observations. Negative client hashrates are unavailable, matching backend validation. Historical server records remain unchanged.
+
+## September 14 reliability follow-up — desktop 1.4.3
+
+GPU inventory checks apply to Start, Restart and Enable. Stop/Disable remain available during missing inventory, and maintenance/configuration commands retain their own access/capability checks. A socket dispatch still requires a receipt before execution is considered successful.
+
+Fleet `q` search now also matches group names (case-insensitive substring), alongside name, hostname, ID, IP and tags. Exact `group` and `tag` filters remain available. Fleet summaries, history and incident filtering use the same fleet selection. Admin rendering supports TH/s and PH/s; API rates remain H/s. Incident and pending-command association now uses per-rig maps to avoid repeated full-array scans.
+
+Client native polling rejects responses predating a newer lifecycle operation/event. New-run output carries native run identity for reconciliation, preventing automatic-restart samples from being erased by a later poll or inheriting previous-run counters. Stopped command receipts use the selected engine; running receipts use the active engine. See the [September 14 audit](audits/end-to-end-2026-09-14.md).

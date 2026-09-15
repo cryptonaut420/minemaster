@@ -150,3 +150,7 @@ SRBMiner availability now checks native architecture as well as Windows/Linux pl
 ### Version 1.4.2 follow-up
 
 Confirmed Stop and process exits now immediately clear the finished run's algorithm/configuration, version, PID, pool/share observations and rate. The selected configuration remains available for the next start; scheduled recovery intent is retained until canceled. Outgoing stopped snapshots also enforce this separation, preventing a newly selected SRBMiner engine from being paired with old Nanominer telemetry. Negative hashrates are treated as unavailable. See the [reporting follow-up](../docs/audits/client-2026-09-13/srbminer.md#reporting-follow-up--142).
+
+### Version 1.4.3 follow-up
+
+A delayed native status poll can no longer overwrite newer Start/Stop/exit state. Automatic restart observations are associated with their native run, preserving fresh output while clearing old counters/version/pool state. Stop receipts retain the selected CPU/GPU engine instead of reverting to legacy slot names. The accompanying server keeps GPU Stop available when inventory is missing. See the [September 14 end-to-end audit](../docs/audits/end-to-end-2026-09-14.md).

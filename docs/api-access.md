@@ -54,3 +54,9 @@ The server replies `subscribed` before sending incremental rig/command/monitorin
 This adds an integration access boundary; it does not change the trust model for miner identities. Deploy the matching backend and admin together. No production key is created automatically by the code or tests.
 
 See the [complete operational reference](backend-admin.md) and [OpenAPI document](../server/src/api/openapi.json) for filters, pagination, units, command semantics and rollout behavior.
+
+## Operational control and rig organization
+
+A `manage` key can use the same operational endpoints as the admin session: update rig name/group/tags through `PATCH /api/v1/rigs/:id`, manage configuration revisions, monitoring settings and incidents, and submit scoped commands through `POST /api/v1/commands` with `minerId`, `action` and `deviceType`. Use `GET /api/v1/commands/:id` to inspect completion; HTTP 202 means accepted for dispatch, not executed. `read` keys can inspect data but cannot perform these writes. Existing expiry/revocation checks apply on each request.
+
+Use `GET /api/v1/rigs?group=Workshop` for exact group selection, or `?q=Workshop` to search group/name/host/address/tags together. The same filters work for fleet summaries. GPU Stop remains available when inventory is missing, but the rig must still be connected, bound and capable of acknowledged controls. Keys grant MineMaster operational access, not arbitrary server-shell access. See [the current API contract](backend-admin.md) and [September 14 verification](audits/end-to-end-2026-09-14.md).

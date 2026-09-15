@@ -40,3 +40,5 @@ The maintained [reproduction entry point](reproduce.cjs) runs those regressions.
 - **MM22:** Attention views, matched summary/chart filters, rig details, command progress, saved views, groups/tags, bulk selection, optional columns, and mobile rows retaining rates/freshness.
 - **MM23:** Actual client version/boot ID, observed/proxy address source, immutable native process launch metadata, and optional miner version parsing.
 - **MM24:** Versioned fleet/metrics/command/log/event/incident/config API, bounded queries/CSV exports, complete route OpenAPI coverage, and updated docs/AGENTS.md.
+
+The [September 14 cross-system follow-up](../end-to-end-2026-09-14.md) fixes missing-inventory GPU control, improves group search/fleet association work, and verifies operational management-key controls alongside desktop lifecycle reconciliation. Its test counts supersede the historical counts above.

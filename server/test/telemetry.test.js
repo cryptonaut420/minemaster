@@ -884,3 +884,18 @@ test("stopped desktop engine changes reach API normalization without old launch 
   ])
     assert.equal(normalized[key], null, key);
 });
+
+test("admin rate formatting supports Pearl-scale rates without treating invalid data as zero", async () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../public/src/utils/rates.js"),
+  );
+  const { rate } = await import(
+    `data:text/javascript;base64,${source.toString("base64")}`
+  );
+  assert.equal(rate(65e12), "65.00 TH/s");
+  assert.equal(rate(2e15), "2.00 PH/s");
+  assert.equal(rate(7250), "7.25 kH/s");
+  assert.equal(rate(0), "0.0 H/s");
+  for (const value of [null, undefined, NaN, -1, "5"])
+    assert.equal(rate(value), "Unavailable");
+});

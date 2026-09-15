@@ -41,10 +41,14 @@ async function decorate(rigs) {
     .collection("incidents")
     .find({ minerId: { $in: rigs.map((r) => r.id) }, resolvedAt: null })
     .toArray();
+  const byRig = new Map();
+  for (const incident of incidents) {
+    if (incident.suppressed) continue;
+    if (!byRig.has(incident.minerId)) byRig.set(incident.minerId, []);
+    byRig.get(incident.minerId).push(incident);
+  }
   return rigs.map((r) => {
-    const open = incidents.filter(
-      (i) => i.minerId === r.id && !i.suppressed && !r.maintenance,
-    );
+    const open = r.maintenance ? [] : byRig.get(r.id) || [];
     return {
       ...r,
       openIncidents: open.map((i) => ({
@@ -93,7 +97,7 @@ async function fleet(query = {}) {
   return all.filter(
     (r) =>
       (!q ||
-        [r.name, r.hostname, r.id, r.ip, ...(r.tags || [])]
+        [r.name, r.hostname, r.id, r.ip, r.group, ...(r.tags || [])]
           .join(" ")
           .toLowerCase()
           .includes(q)) &&
@@ -147,15 +151,19 @@ async function pageRigs(query) {
     })
     .sort({ createdAt: -1 })
     .toArray();
-  for (const r of data)
-    r.pendingCommands = pending
-      .filter((c) => c.minerId === r.id)
-      .map((c) => ({
+  const pendingByRig = new Map();
+  for (const c of pending) {
+    if (!pendingByRig.has(c.minerId)) pendingByRig.set(c.minerId, []);
+    pendingByRig
+      .get(c.minerId)
+      .push({
         id: c.id,
         action: c.action,
         deviceType: c.deviceType,
         status: c.status,
-      }));
+      });
+  }
+  for (const r of data) r.pendingCommands = pendingByRig.get(r.id) || [];
   return {
     data,
     total: all.length,

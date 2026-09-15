@@ -141,7 +141,11 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       "A supported downloaded update and fresh rig status are required",
       409,
     );
-  if (spec.deviceType === "GPU" && !miner.hardware?.gpus?.length)
+  if (
+    spec.deviceType === "GPU" &&
+    ["start", "restart", "device-enable"].includes(spec.action) &&
+    !miner.hardware?.gpus?.length
+  )
     throw problem("No physical GPUs reported", 422);
   if (
     !["stop", "device-disable"].includes(spec.action) &&

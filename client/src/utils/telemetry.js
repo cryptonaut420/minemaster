@@ -56,6 +56,7 @@ export function parseShares(line) {
 export function stoppedProcessState() {
   return {
     running: false,
+    observationRunId: null,
     hashrate: null,
     hashrateObservedAt: null,
     activeConfig: null,
@@ -68,6 +69,58 @@ export function stoppedProcessState() {
     pool: null,
     paused: false,
     pauseReason: null,
+  };
+}
+// Poll replies may arrive after a control or exit event. Never replace newer lifecycle state.
+export function reconcileNativeStatus(miner, status, requestedRevision) {
+  if (
+    !status ||
+    miner.loading ||
+    (miner.controlRevision || 0) !== requestedRevision
+  )
+    return miner;
+  const changedRun = status.runId && status.runId !== miner.runId;
+  const observationsMatch =
+    status.runId && status.runId === miner.observationRunId;
+  return {
+    ...miner,
+    ...status,
+    startTime: status.startedAt,
+    ...(changedRun && !observationsMatch
+      ? {
+          hashrate: null,
+          hashrateObservedAt: null,
+          shares: null,
+          pool: null,
+          minerVersion: null,
+          paused: false,
+          pauseReason: null,
+          observationRunId: null,
+        }
+      : {}),
+    ...(!status.running ? stoppedProcessState() : {}),
+  };
+}
+export function applyProcessObservation(miner, runId, observation) {
+  const changedRun = runId && runId !== (miner.observationRunId || miner.runId);
+  return {
+    ...miner,
+    ...(changedRun
+      ? {
+          hashrate: null,
+          hashrateObservedAt: null,
+          shares: null,
+          pool: null,
+          minerVersion: null,
+          paused: false,
+          pauseReason: null,
+        }
+      : {}),
+    ...observation,
+    ...(changedRun
+      ? { controlRevision: (miner.controlRevision || 0) + 1 }
+      : {}),
+    observationRunId: runId || null,
   };
 }
 export function processSnapshot(miner, now = Date.now()) {

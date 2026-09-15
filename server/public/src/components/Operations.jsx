@@ -17,16 +17,7 @@ export const requestId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 export const errorText = (e) =>
   e.response?.data?.error || e.message || "Request failed";
-export const rate = (n) =>
-  n == null || !Number.isFinite(n)
-    ? "Unavailable"
-    : n >= 1e9
-      ? `${(n / 1e9).toFixed(2)} GH/s`
-      : n >= 1e6
-        ? `${(n / 1e6).toFixed(2)} MH/s`
-        : n >= 1e3
-          ? `${(n / 1e3).toFixed(2)} kH/s`
-          : `${n.toFixed(1)} H/s`;
+export { rate } from "../utils/rates";
 export const at = (value) =>
   value ? new Date(value).toLocaleString() : "Not reported";
 export function Badge({ children, status = "" }) {

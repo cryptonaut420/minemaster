@@ -159,3 +159,85 @@ test("stopped snapshots cannot mix desired SRBMiner identity with a previous lau
     null,
   );
 });
+
+test("late native polls cannot undo a completed control or an exit", async () => {
+  const { reconcileNativeStatus } = await esm("telemetry.js");
+  const stopped = {
+    id: "gpu",
+    controlRevision: 2,
+    running: false,
+    config: { engine: "srbminer" },
+  };
+  assert.equal(
+    reconcileNativeStatus(stopped, { running: true, runId: "old", pid: 12 }, 1),
+    stopped,
+  );
+  assert.equal(
+    reconcileNativeStatus(stopped, { running: true, runId: "old" }, null),
+    stopped,
+    "poll begun during an operation remains ineligible after it completes",
+  );
+  const started = {
+    ...stopped,
+    controlRevision: 3,
+    running: true,
+    runId: "new",
+    pid: 13,
+  };
+  assert.equal(
+    reconcileNativeStatus(started, { running: false, runId: "old" }, 2),
+    started,
+  );
+  assert.equal(
+    reconcileNativeStatus({ ...started, loading: true }, { running: false }, 3)
+      .running,
+    true,
+  );
+  const accepted = reconcileNativeStatus(
+    started,
+    { running: true, runId: "new", pid: 13 },
+    3,
+  );
+  assert.equal(accepted.pid, 13);
+});
+
+test("automatic restart retains output from its own run and discards the previous run's counters", async () => {
+  const { applyProcessObservation, reconcileNativeStatus } =
+    await esm("telemetry.js");
+  const old = {
+    id: "cpu",
+    controlRevision: 1,
+    runId: "old",
+    running: true,
+    hashrate: 10,
+    shares: { accepted: 100 },
+    minerVersion: "old-version",
+    pool: { status: "connected" },
+  };
+  const output = applyProcessObservation(old, "new", {
+    hashrate: 20,
+    hashrateObservedAt: "2026-09-14T12:00:00Z",
+    minerVersion: "3.6.7",
+  });
+  assert.equal(output.shares, null);
+  assert.equal(output.pool, null);
+  assert.equal(
+    reconcileNativeStatus(output, { running: false, runId: "old" }, 1),
+    output,
+  );
+  const next = reconcileNativeStatus(
+    output,
+    { running: true, runId: "new", pid: 22, startedAt: 1000 },
+    output.controlRevision,
+  );
+  assert.equal(next.hashrate, 20);
+  assert.equal(next.minerVersion, "3.6.7");
+  assert.equal(next.runId, "new");
+  const silent = reconcileNativeStatus(
+    old,
+    { running: true, runId: "new", pid: 22 },
+    1,
+  );
+  assert.equal(silent.hashrate, null);
+  assert.equal(silent.minerVersion, null);
+});

@@ -80,3 +80,8 @@ Applies to the whole repository. Read this file before making changes.
 - Preserve canonical algorithm identities across engines: SRBMiner `randomx`, `randomarq`, `autolykos2` map to `rx/0`, `rx/arq`, `autolykos` in MineMaster. API/native/admin/client validation must agree.
 - Keep SRBMiner foreground-owned, with MSR tweaks, built-in watchdog and GPU clock changes disabled. Extract/package only the executable and supplied notices; never extract optional WinRing0 drivers or execute miners in tests.
 - Engine changes clear custom paths and legacy GPU indices. CPU/GPU SRBMiner instances share verified files but have independent work directories and Stop; repair requires both stopped.
+
+## Desktop 1.4.3 and fleet follow-up
+- Native status reconciliation must reject polls started during pending operations or before a newer control/exit/new-run event. Associate parsed observations with native run IDs; retain matching samples during automatic restart reconciliation and clear previous-run counters/version.
+- Missing GPU inventory must not disable Stop/Disable or miner maintenance. Inventory is a launch prerequisite, not proof of process exit; preserve the existing connection/capability/access checks.
+- General rig search includes groups. Keep rig, summary, history and incident selection in agreement; retain per-algorithm H/s storage even when admin display scales to TH/s or PH/s.
