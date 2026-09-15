@@ -74,6 +74,12 @@
   color: #fff;
 }
 
+.update-indicator.checking {
+  background: rgba(52, 152, 219, 0.25);
+  border: 1px solid rgba(52, 152, 219, 0.5);
+  color: #fff;
+}
+
 .update-indicator.update-error {
   background: rgba(231, 76, 60, 0.25);
   border: 1px solid rgba(231, 76, 60, 0.5);

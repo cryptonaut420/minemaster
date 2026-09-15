@@ -67,6 +67,13 @@ test("actual miner logs retain units, split observations, shares, versions and p
   assert.equal(parseAggregate("GPU 0: 18.0 Mh/s"), null);
   assert.equal(parseAggregate("Total: 65.00 TH/s"), 65e12);
   assert.equal(parseAggregate("Total: 0.00 H/s"), 0);
+  assert.equal(parseAggregate("Total: 1,234.56 kH/s"), 1234560);
+  assert.equal(
+    parseAggregate("cpu speed 10s/60s/15m 1,234.5 n/a n/a H/s"),
+    1234.5,
+  );
+  assert.equal(parseAggregate("Total: 12,34 H/s"), null);
+  assert.equal(parseAggregate("GPU 0: 1,234.56 kH/s"), null);
   assert.equal(
     parseProcessDetails("SRBMiner-MULTI 3.6.7").minerVersion,
     "3.6.7",

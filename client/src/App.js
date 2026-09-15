@@ -1009,6 +1009,12 @@ function App() {
             >
               Diagnostic logs
             </button>
+            {updateStatus.state === "checking" && (
+              <div className="update-indicator checking" role="status">
+                <span className="update-spinner"></span>
+                Checking for updates...
+              </div>
+            )}
             {updateStatus.state === "downloading" && (
               <div className="update-indicator downloading">
                 <span className="update-spinner"></span>
@@ -1053,6 +1059,7 @@ function App() {
               </button>
             )}
             <button
+              disabled={updateStatus.state === "checking"}
               onClick={() =>
                 window.electronAPI
                   ?.checkForUpdate()
@@ -1068,7 +1075,9 @@ function App() {
                   )
               }
             >
-              Check for updates
+              {updateStatus.state === "error"
+                ? "Retry update check"
+                : "Check for updates"}
             </button>
             <div
               className="app-version"

@@ -44,7 +44,8 @@
     "publish": {
       "provider": "github",
       "owner": "cryptonaut420",
-      "repo": "minemaster"
+      "repo": "minemaster",
+      "releaseType": "release"
     },
     "directories": {
       "buildResources": "assets",

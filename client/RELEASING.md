@@ -48,6 +48,10 @@ npm run publish:windows
 
 These commands use `--publish always`: they build and upload release assets and update metadata to GitHub. The Windows NSIS feed requires its installer plus `latest.yml`; Linux AppImage requires the AppImage plus `latest-linux.yml`. Verify the actual release assets and metadata before rollout. Current macOS packaging produces DMGs; validate a complete signed/notarized macOS update feed on a Mac before promising automatic distribution there.
 
+For a complete Windows/Linux release, prefer building both platforms with `--publish never` into a fresh output directory, verifying their packaged versions/miner hashes and update metadata, then uploading all assets to a GitHub draft before publishing it. Push master and create the version tag at the exact source commit first. Include Windows portable, NSIS installer and installer blockmap, Linux AppImage, both update YAML files and a SHA-256 checksum list. This keeps a partially built release out of the update feed.
+
+The inherited `npm run release` wrapper publishes platforms sequentially and reads `GH_TOKEN` from the environment or ignored `client/.env`. It now uses the current version by default; explicit `--bump patch|minor|major` also synchronizes the lockfile. Use the staged workflow above when the release must be checked as a complete set before publication.
+
 Keep signing credentials in the release environment. Authenticode signing helps publisher identity and reputation; it does not guarantee that Windows allows XMRig or Nanominer. Signing the wrapper does not sign a separate upstream miner executable. Do not alter the pinned upstream binaries while continuing to claim their original hashes.
 
 ## Update behavior

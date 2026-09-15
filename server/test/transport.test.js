@@ -92,6 +92,31 @@ test("desktop registration reports real build metadata and log buffering stays b
   assert.equal(service.logQueue.length, 401);
   assert.equal(service.droppedLogs, 0);
 });
+
+test("explicit WebSocket origins and custom TLS ports survive reconnect configuration", async () => {
+  for (const [config, expected] of [
+    [
+      { host: "wss://fixture.local:8443/", port: 443 },
+      "wss://fixture.local:8443",
+    ],
+    [{ host: "ws://fixture.local", port: 8080 }, "ws://fixture.local:8080"],
+    [
+      { host: "fixture.local", port: 8443, secure: true },
+      "wss://fixture.local:8443",
+    ],
+    [{ host: "fixture.local:8080", port: 8080 }, "ws://fixture.local:8080"],
+    [{ host: "[::1]", port: 8080 }, "ws://[::1]:8080"],
+  ]) {
+    const { service, sockets } = setup();
+    service.config = { ...service.config, ...config };
+    const connected = service.connect();
+    assert.equal(sockets[0].url, expected);
+    sockets[0].readyState = 1;
+    sockets[0].onopen();
+    await connected;
+    service.disconnect();
+  }
+});
 test("a socket error keeps the connection deadline armed and send applies backpressure", async () => {
   const { service, sockets, timers } = setup();
   const pending = service.connect().catch((e) => e.message);

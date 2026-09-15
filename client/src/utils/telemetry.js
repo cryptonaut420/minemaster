@@ -3,14 +3,14 @@ export function parseAggregate(line) {
   const text = String(line || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""); // eslint-disable-line no-control-regex
   const match =
     text.match(
-      /\bspeed\s+\S+\s+(\d+(?:\.\d+)?)\s+(?:[\d.]+|n\/a)\s+(?:[\d.]+|n\/a)\s*([kmgt]?h\/s)\b/i,
+      /\bspeed\s+\S+\s+((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s+(?:[\d.,]+|n\/a)\s+(?:[\d.,]+|n\/a)\s*([kmgt]?h\/s)\b/i,
     ) ||
     text.match(
-      /\bTotal(?:\s+speed|\s+hashrate)?\s*:\s*(\d+(?:\.\d+)?)\s*([kmgt]?h\/s)\b/i,
+      /\bTotal(?:\s+speed|\s+hashrate)?\s*:\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([kmgt]?h\/s)\b/i,
     );
   if (!match) return null;
   const rate =
-    Number(match[1]) *
+    Number(match[1].replace(/,/g, "")) *
     { "h/s": 1, "kh/s": 1e3, "mh/s": 1e6, "gh/s": 1e9, "th/s": 1e12 }[
       match[2].toLowerCase()
     ];

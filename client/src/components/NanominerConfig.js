@@ -3,7 +3,7 @@ import EngineOptions from "./EngineOptions";
 import { algorithmsFor, engineFor, srbAlgorithm } from "../utils/miningConfig";
 import "./MinerConfig.css";
 import { formatMinerRate } from "../utils/formatters";
-import { useSystemInfo, useGpuList } from "../hooks/useSystemInfo";
+import { useGpuList } from "../hooks/useSystemInfo";
 
 function NanominerConfig({
   miner,
@@ -18,8 +18,7 @@ function NanominerConfig({
   const algorithmInfo = srb
     ? srbAlgorithm(miner.type, miner.config.algorithm)
     : null;
-  const systemInfo = useSystemInfo();
-  const gpuList = useGpuList();
+  const { gpuList, systemInfo } = useGpuList();
   const gpuDetectionComplete = systemInfo?.gpuDetectionStatus === "complete";
 
   // Check if GPU is detected

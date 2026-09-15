@@ -102,12 +102,25 @@ class MasterServerService {
 
     this._connecting = true;
 
-    // Use wss:// for port 443 (HTTPS/TLS via nginx-proxy), ws:// for local dev
-    const secure = Number(this.config.port) === 443;
-    const protocol = secure ? "wss" : "ws";
-    const url = secure
-      ? `${protocol}://${this.config.host}`
-      : `${protocol}://${this.config.host}:${this.config.port}`;
+    // Preserve explicit WebSocket origins and custom TLS ports.
+    const rawHost = String(this.config.host || "")
+      .trim()
+      .replace(/\/+$/, "");
+    const explicitProtocol = /^wss?:\/\//i.test(rawHost);
+    const secure =
+      this.config.secure === true || Number(this.config.port) === 443;
+    const protocol = explicitProtocol
+      ? rawHost.split("://")[0].toLowerCase()
+      : secure
+        ? "wss"
+        : "ws";
+    const host = rawHost.replace(/^wss?:\/\//i, "");
+    const defaultPort =
+      Number(this.config.port) === (protocol === "wss" ? 443 : 80);
+    const url =
+      /:\d+$/.test(host) || !this.config.port || defaultPort
+        ? `${protocol}://${host}`
+        : `${protocol}://${host}:${this.config.port}`;
 
     return new Promise((resolve, reject) => {
       let resolved = false;
