@@ -30,3 +30,16 @@ Final suite totals, package verification, browser checks and deployed source/rel
 - The production renderer in the Windows browser fixture connected to the disposable backend. Direct row Play showed agent confirmation and separate CPU 7.25 kH/s / GPU 61.50 MH/s readings. Row Pause confirmed and stopped both processes.
 - A separate synthetic agent with repeated OpenCL errors produced the new visible incident and the enabled `miner errors` rule switch in the admin. No production command was involved.
 - The monitoring page fit the measured 1280-pixel document width. A requested 640-pixel browser override did not change its actual viewport; narrow-screen validation in this pass is therefore unverified. No CSS/layout change was made.
+
+
+### Live verification follow-up and published artifacts
+
+The deployed monitor revealed repeated GPU errors on PG_Z1, PG_Z2 and PG_Z3, including errors that a nonzero aggregate rate previously concealed. PG_GH1 still had pool jobs without speed output. These are observed miner/driver symptoms, not confirmed hardware repairs.
+
+A final live UI check found that a stopped, explicitly disabled CPU miner's old error could mask active GPU mining as a fleet error. The backend now excludes only that inactive error from operational status/reason; diagnostics remain in the process record. Enabled failures and a disabled process that is still running continue to raise error status. The added regression verifies fleet summary counts as well. **Final suites: 83 client and 100 backend tests**, with shared native coverage overlapping.
+
+The fixture's simulated database outage retained existing data, showed the error and disabled whole-fleet actions. The live admin reload confirmed direct Play/Pause and the new error incidents. No real rig commands were sent.
+
+Client [v1.4.6](https://github.com/cryptonaut420/minemaster/releases/tag/v1.4.6) was published from source/tag `876b13f`, build `1.4.6+86.876b13f`. All 26 packaged native/shared/build files match source on Windows and Linux. Every pinned XMRig, Nanominer and SRBMiner file verifies on both platforms, and optional driver files are absent. The application archives embedded in Windows Setup, Windows Portable and Linux AppImage match the checked unpacked archives. All seven uploaded release assets passed digest/size checks while still in a draft. No executable package was launched.
+
+Initial backend deployment `876b13f` is healthy on tsqr, with rollback image `minemaster:before-876b13f`; 14 of 27 active inventory records were connected after deployment. The inactive-CPU status correction is a subsequent backend-only change and does not alter the client release contents.

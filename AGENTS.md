@@ -100,3 +100,4 @@ Applies to the whole repository. Read this file before making changes.
 - Nanominer rolling `last 10 min` totals must never replace current hashrate or refresh observation age. Pool/share observations also preserve the native timestamp.
 - Update install requests carry the selected version through renderer/preload/native IPC. Validate it in the native owner before stopping miners; renderer-only checks can race downloads.
 - Repeated miner-error incidents require recent original observation times from the current running, unpaused launch. Keep scans bounded, exclude backlog, preserve maintenance/filter agreement, and never infer automatic recovery authorization from an error alert.
+- A stopped, explicitly disabled process's retained error must not mask active GPU mining in fleet state/reason/counts. Preserve its diagnostics; enabled or still-running process failures remain operational errors.

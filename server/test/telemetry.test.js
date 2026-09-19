@@ -88,6 +88,34 @@ const rig = {
   telemetryReceivedAt: timestamp,
   processes: [p],
 };
+test("disabled stopped process diagnostics do not mask active mining or idle fleet status", () => {
+  const disabled = {
+    ...p,
+    id: "disabled-cpu",
+    enabled: false,
+    running: false,
+    hashrate: null,
+    error: "Executable missing",
+  };
+  const mining = t.viewRig({ ...rig, processes: [disabled, p] }, now);
+  assert.equal(mining.status, "mining");
+  assert.equal(mining.reason, "Mining");
+  assert.equal(mining.attention, false);
+  assert.equal(mining.processes[0].error, "Executable missing");
+  assert.equal(t.summary([mining], now).counts.error, 0);
+  const idle = t.viewRig({ ...rig, processes: [disabled] }, now);
+  assert.equal(idle.status, "online");
+  assert.equal(idle.reason, "Idle");
+  for (const overrides of [{ enabled: true }, { running: true }]) {
+    const error = t.viewRig(
+      { ...rig, processes: [{ ...disabled, ...overrides }, p] },
+      now,
+    );
+    assert.equal(error.status, "error");
+    assert.equal(error.reason, "Executable missing");
+    assert.equal(error.attention, true);
+  }
+});
 test("monitoring flags missing and stale miner output after startup grace, excluding pause, stop and zero", () => {
   for (const quality of ["unavailable", "stale"]) {
     const process = { ...p, quality, hashrate: null, hashrateObservedAt: null };

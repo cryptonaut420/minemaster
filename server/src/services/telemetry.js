@@ -357,6 +357,11 @@ function viewRig(rig, now = Date.now()) {
           ? "stale"
           : r.stats.quality,
     };
+  // Keep disabled-process diagnostics available without letting an intentional
+  // stopped/disabled CPU slot mask the GPU's current operational state.
+  const operationalError = r.processes.find(
+    (p) => p.error && (p.enabled !== false || p.running),
+  )?.error;
   r.status = r.forgottenAt
     ? "forgotten"
     : r.archivedAt
@@ -365,7 +370,7 @@ function viewRig(rig, now = Date.now()) {
         ? "offline"
         : !fresh
           ? "stale"
-          : r.processes.some((p) => p.error)
+          : operationalError
             ? "error"
             : r.processes.some((p) => p.running && !p.paused)
               ? "mining"
@@ -406,7 +411,7 @@ function viewRig(rig, now = Date.now()) {
     ? "Agent disconnected"
     : !fresh
       ? "Telemetry overdue"
-      : r.processes.find((p) => p.error)?.error ||
+      : operationalError ||
         (r.configDrift.length
           ? "Configuration pending"
           : r.processes.some(
