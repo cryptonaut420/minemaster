@@ -1,0 +1,506 @@
+/* Mining performance is the primary dashboard content. */
+.fleet-performance {
+  margin: 12px 0 18px;
+}
+.fleet-performance-heading,
+.fleet-history-heading,
+.fleet-history-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.fleet-performance-heading {
+  margin-bottom: 12px;
+}
+.fleet-performance-title > span {
+  color: var(--op-muted);
+  font-size: 11px;
+}
+.fleet-all-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.fleet-all-actions > small {
+  color: var(--op-muted);
+  font-size: 11px;
+}
+.fleet-total-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(190px, 0.6fr);
+  border: 1px solid var(--op-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--op-surface);
+}
+.fleet-total {
+  padding: 14px 20px;
+  border-right: 1px solid var(--op-border);
+}
+.operations .fleet-total h3 {
+  color: var(--op-muted);
+  font-size: 13px;
+  font-weight: 550;
+}
+.fleet-total-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+.fleet-total-reading + .fleet-total-reading {
+  margin-top: 12px;
+}
+.fleet-total-reading > strong {
+  font-size: 34px;
+  line-height: 1.25;
+  letter-spacing: -0.8px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.fleet-gpu .fleet-total-reading > strong,
+.fleet-gpu .fleet-rig-rate > strong:not(.fleet-rate-unavailable) {
+  color: #67d7df;
+}
+.fleet-cpu .fleet-total-reading > strong,
+.fleet-cpu .fleet-rig-rate > strong:not(.fleet-rate-unavailable) {
+  color: #c1aff5;
+}
+.fleet-total-reading > span {
+  font-size: 13px;
+}
+.operations .fleet-total-reading small {
+  font-size: 11px;
+  margin-top: 2px;
+}
+.fleet-at-a-glance {
+  padding: 14px 20px;
+}
+.fleet-at-a-glance > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.fleet-at-a-glance strong {
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.operations .fleet-at-a-glance strong small {
+  display: inline;
+  font-size: 16px;
+  font-weight: 400;
+}
+.fleet-at-a-glance > div > span {
+  font-size: 12px;
+  color: var(--op-muted);
+}
+.operations .fleet-at-a-glance p {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fleet-online-dot,
+.fleet-offline-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 100%;
+  background: #56cc85;
+}
+.fleet-offline-dot {
+  margin-left: 8px;
+  background: #939daa;
+}
+.operations .fleet-attention {
+  background: none;
+  border: 0;
+  color: #efb969;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 0;
+  text-align: left;
+}
+.fleet-history {
+  margin-top: 12px;
+  border: 1px solid var(--op-border);
+  background: var(--op-surface);
+  border-radius: 10px;
+  padding: 14px 18px 10px;
+}
+.operations .fleet-history-heading h3 {
+  font-size: 15px;
+}
+.fleet-history-tools {
+  justify-content: flex-end;
+}
+.fleet-history-tools [role="tablist"] {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.operations .fleet-history-tools button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--op-muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  min-height: 30px;
+}
+.operations .fleet-history-tools button[aria-selected="true"] {
+  color: var(--op-text);
+  background: #28323e;
+  border-color: #465568;
+}
+.operations .fleet-timeframe select {
+  width: auto;
+  min-height: 32px;
+  padding: 4px 8px;
+}
+.fleet-chart {
+  font-size: 11px;
+  margin-top: 8px;
+}
+.fleet-chart-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--op-muted);
+  font-size: 11px;
+  padding-top: 4px;
+}
+.fleet-chart-empty {
+  min-height: 140px;
+  display: grid;
+  place-items: center;
+  color: var(--op-muted);
+  font-size: 13px;
+}
+.operations .fleet-table {
+  font-size: 13px;
+  table-layout: fixed;
+}
+.fleet-table th:first-child {
+  width: 28px;
+}
+.fleet-table th:nth-child(2) {
+  width: 17%;
+}
+.fleet-table th:nth-child(3) {
+  width: 100px;
+}
+.fleet-table th:nth-child(4),
+.fleet-table th:nth-child(5) {
+  width: 25%;
+}
+.fleet-table th:nth-child(6) {
+  width: 100px;
+}
+.fleet-table th:nth-child(7) {
+  width: 85px;
+}
+.fleet-table th,
+.fleet-table td {
+  overflow-wrap: anywhere;
+}
+.operations .fleet-table td {
+  padding: 16px 10px;
+  vertical-align: top;
+}
+.operations .fleet-table .op-rig-name {
+  color: var(--op-text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.25;
+  margin-bottom: 4px;
+}
+.operations .fleet-rig-identity > small {
+  font-size: 11px;
+  color: var(--op-muted);
+}
+.fleet-rig-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.operations .fleet-issue-link {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 11px;
+  color: #efb969;
+  text-align: left;
+  margin-top: 6px;
+  line-height: 1.4;
+  min-height: 22px;
+}
+.operations .fleet-issue-link:hover {
+  background: none;
+  text-decoration: underline;
+}
+.fleet-mining-cell {
+  min-width: 0;
+}
+.fleet-rig-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.fleet-rig-rate strong {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+}
+.fleet-rig-rate > span {
+  font-size: 11px;
+  color: var(--op-muted);
+}
+.fleet-rig-rate strong.fleet-rate-unavailable {
+  font-size: 15px;
+  color: var(--op-muted);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.fleet-device + .fleet-device {
+  margin-top: 7px;
+}
+.fleet-device-model {
+  display: block;
+  color: #cbd5df;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.fleet-sensors {
+  display: flex;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--op-muted);
+}
+.fleet-sensors b {
+  font-weight: 550;
+  color: #dfe7ef;
+}
+.fleet-sensors .fleet-hot,
+.fleet-sensors .fleet-hot b {
+  color: #ffb47d;
+}
+.fleet-system {
+  font-size: 12px;
+}
+.fleet-system strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 550;
+}
+.operations .fleet-system small {
+  font-size: 11px;
+}
+.fleet-last-seen {
+  color: var(--op-muted);
+  font-size: 12px;
+}
+.operations .op-quick {
+  min-width: 0;
+  max-width: 160px;
+  gap: 6px;
+}
+.operations .op-quick button {
+  min-width: 83px;
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.operations .op-quick .op-command-error {
+  color: #ffb47d;
+  font-size: 11px;
+}
+.operations .op-table-wrap {
+  overflow-x: auto;
+}
+.operations .op-rig-row.op-rig-mining {
+  background: rgba(47, 138, 85, 0.045);
+}
+.operations .op-rig-row.op-rig-offline {
+  background: transparent;
+}
+.operations .op-rig-row.op-rig-offline .op-rig-name {
+  color: var(--op-muted);
+}
+.operations .op-rig-row.op-selected {
+  background: #23344a;
+}
+.operations .op-table td:first-child {
+  padding-left: 8px;
+}
+.operations .op-workspace.op-has-detail {
+  grid-template-columns: minmax(0, 1fr);
+}
+.operations .op-has-detail .op-detail {
+  position: relative;
+  top: auto;
+  max-height: none;
+  order: -1;
+  scroll-margin-top: 85px;
+}
+.operations .op-detail .op-quick {
+  margin: 12px 0;
+}
+@media (max-width: 1050px) {
+  .fleet-table th:nth-child(2) {
+    width: 16%;
+  }
+  .fleet-table th:nth-child(3) {
+    width: 88px;
+  }
+  .fleet-table th:nth-child(6) {
+    width: 72px;
+  }
+  .fleet-table th:nth-child(7) {
+    width: 72px;
+  }
+  .fleet-rig-rate strong {
+    font-size: 20px;
+  }
+  .operations .fleet-table td {
+    padding: 12px 7px;
+  }
+}
+@media (max-width: 760px) {
+  .fleet-all-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .operations .fleet-table tbody td:nth-child(8) {
+    grid-column: 2 / 4;
+  }
+  .fleet-total-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .fleet-total {
+    padding: 14px;
+  }
+  .fleet-total:nth-child(2) {
+    border-right: 0;
+  }
+  .fleet-at-a-glance {
+    grid-column: 1/-1;
+    border-top: 1px solid var(--op-border);
+    padding: 10px 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 12px;
+  }
+  .fleet-at-a-glance strong {
+    font-size: 22px;
+  }
+  .fleet-total-reading > strong {
+    font-size: 27px;
+  }
+  .fleet-history {
+    padding: 12px 10px 8px;
+  }
+  .fleet-history-heading {
+    align-items: flex-start;
+  }
+  .fleet-history-tools {
+    justify-content: flex-start;
+  }
+  .operations .fleet-table {
+    min-width: 0;
+    table-layout: auto;
+  }
+  .fleet-table thead {
+    display: none;
+  }
+  .operations .fleet-table tbody tr {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px 8px;
+    padding: 15px 6px;
+    border-bottom: 1px solid var(--op-border);
+  }
+  .operations .fleet-table tbody td {
+    display: block;
+    border: 0;
+    padding: 0;
+    min-width: 0;
+  }
+  .operations .fleet-table tbody td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+    padding-top: 4px;
+    width: auto;
+  }
+  .operations .fleet-table tbody td:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .operations .fleet-table tbody td:nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .operations .fleet-table tbody td:nth-child(4) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .operations .fleet-table tbody td:nth-child(5) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .operations .fleet-table tbody td:nth-child(6) {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .operations .fleet-table tbody td:nth-child(7) {
+    grid-column: 3;
+    grid-row: 3;
+  }
+  .operations .fleet-table tbody td:nth-child(8) {
+    grid-column: 2/-1;
+  }
+  .fleet-table tbody td[data-label]:nth-child(n + 4)::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    color: var(--op-muted);
+    margin-bottom: 5px;
+    font-weight: 600;
+  }
+  .operations .fleet-table tbody time::before {
+    content: none;
+  }
+  .fleet-system strong {
+    display: inline;
+    margin-left: 6px;
+    font-size: 14px;
+  }
+}
+@media (max-width: 420px) {
+  .fleet-total-reading > strong {
+    font-size: 23px;
+  }
+  .fleet-total-reading > span {
+    font-size: 12px;
+  }
+  .fleet-rig-rate strong {
+    font-size: 18px;
+  }
+  .fleet-sensors {
+    gap: 4px 9px;
+  }
+}

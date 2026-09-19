@@ -101,3 +101,10 @@ Applies to the whole repository. Read this file before making changes.
 - Update install requests carry the selected version through renderer/preload/native IPC. Validate it in the native owner before stopping miners; renderer-only checks can race downloads.
 - Repeated miner-error incidents require recent original observation times from the current running, unpaused launch. Keep scans bounded, exclude backlog, preserve maintenance/filter agreement, and never infer automatic recovery authorization from an error alert.
 - A stopped, explicitly disabled process's retained error must not mask active GPU mining in fleet state/reason/counts. Preserve its diagnostics; enabled or still-running process failures remain operational errors.
+
+## Admin UX regression guardrails — September 18
+- Keep fleet GPU/CPU totals and the hashrate history chart visible above the rig list. Keep algorithms separate and missing/partial readings explicit; secondary monitoring counts must not replace mining performance.
+- Each rig gets one primary mining control: Pause for owned/running/recovering processes, Play when stopped, Cancel start during preparation. Whole-fleet and selection controls remain explicit. Refresh selected Play targets before choosing CPU/GPU scope; never restart already running processes as a side effect of Play.
+- Show prominent per-rig GPU/CPU rates with hardware models, temperatures, utilization and power in the ordinary table/card view. Sensor matching uses stable device IDs and missing/stale data stays missing.
+- Use brief action toasts for progress and terminal results; do not leave successful command receipts as permanent row clutter or treat dispatch as execution. Preserve persistent failures and command history. Toast timers must survive periodic dashboard renders.
+- Keep startup logs out of table rows: show a compact issue with access to full details. Verify desktop and a measured narrow viewport, controls, toast success/failure, chart switching, partial telemetry and backend outages. See `docs/audits/admin-ux-2026-09-18.md`.

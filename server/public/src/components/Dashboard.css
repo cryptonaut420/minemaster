@@ -1,9 +1,9 @@
 .operations {
-  --op-bg: #142535;
-  --op-surface: #1c3043;
-  --op-border: #39536b;
-  --op-text: #edf4fa;
-  --op-muted: #acbfce;
+  --op-bg: #0d1117;
+  --op-surface: #161b22;
+  --op-border: #303a46;
+  --op-text: #e6edf3;
+  --op-muted: #9daab8;
   --op-accent: #68bde9;
   color: var(--op-text);
   font-size: 14px;
@@ -41,7 +41,7 @@
   font: inherit;
   color: inherit;
   border: 1px solid var(--op-border);
-  background: #20394e;
+  background: #242e3b;
   border-radius: 5px;
   padding: 8px 11px;
   min-height: 36px;
@@ -52,7 +52,7 @@
   white-space: normal;
 }
 .operations button:hover:enabled {
-  background: #304e65;
+  background: #303d4d;
   border-color: #7894ad;
 }
 .operations button:disabled {
@@ -62,7 +62,7 @@
 .operations input:not([type="checkbox"]),
 .operations select {
   width: 100%;
-  background: #152a3d;
+  background: #111820;
 }
 .operations input[type="checkbox"] {
   width: 17px;
@@ -233,7 +233,7 @@
   position: relative;
 }
 .op-toolbar details[open] {
-  background: #294257;
+  background: #202b38;
   padding: 10px;
   border: 1px solid var(--op-border);
   border-radius: 6px;
@@ -354,7 +354,7 @@
 }
 .op-table td {
   padding: 14px 10px;
-  border-bottom: 1px solid #30485d;
+  border-bottom: 1px solid #2c3540;
   vertical-align: top;
 }
 .op-table td:first-child,
@@ -363,7 +363,7 @@
   width: 22px;
 }
 .op-table tr.op-selected {
-  background: #294b63;
+  background: #273b51;
 }
 .op-table td small {
   font-size: 11px;
@@ -439,7 +439,7 @@
   padding: 16px 0;
 }
 .op-log {
-  background: #112436;
+  background: #0d1117;
   border: 1px solid var(--op-border);
   padding: 12px;
   max-height: 430px;
@@ -694,7 +694,7 @@
   flex-wrap: wrap;
   gap: 18px 32px;
   padding: 16px 0;
-  border-bottom: 1px solid #355069;
+  border-bottom: 1px solid #303a46;
   margin-bottom: 20px;
 }
 .op-health-strip span {
@@ -726,7 +726,7 @@
   padding: 18px 20px;
   border: 1px solid var(--op-border);
   border-radius: 8px;
-  background: #172e40;
+  background: #161b22;
 }
 .operations .op-play {
   background: #125b3f;

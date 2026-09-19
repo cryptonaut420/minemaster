@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
+import { useNotifications } from "./Notifications";
 const actionLabel = (action) =>
   ({
     start: "Start mining",
@@ -101,6 +102,7 @@ export function useResource(path, params = {}, interval = 0) {
   return { ...state, reload: () => loader.current?.() };
 }
 export function CommandHistory({ minerId, refresh = 0 }) {
+  const notify = useNotifications();
   const [status, setStatus] = useState(""),
     [cursor, setCursor] = useState(null),
     [pages, setPages] = useState([]);
@@ -116,10 +118,15 @@ export function CommandHistory({ minerId, refresh = 0 }) {
   const cancel = async (id) => {
     try {
       await api.post(`/v1/commands/${id}/cancel`);
+      notify.info(
+        "Cancellation requested. Check the command's final result.",
+        5000,
+      );
       setActionError("");
       reload();
     } catch (e) {
       setActionError(errorText(e));
+      notify.error(errorText(e), 10000);
     }
   };
   return (
@@ -373,6 +380,8 @@ export function ActionDialog({
   onDone,
   initialAction = "restart",
 }) {
+  const notify = useNotifications();
+  const commandToast = useRef(null);
   const [action, setAction] = useState(initialAction),
     [deviceType, setScope] = useState("CPU"),
     [pending, setPending] = useState(false),
@@ -395,8 +404,19 @@ export function ActionDialog({
       ["queued", "sent", "received", "running"].includes(r.command?.status),
     ) || [];
   useEffect(() => {
-    if (liveResults && !active.length) {
+    if (liveResults && !active.length && !complete) {
       setComplete(true);
+      const failed = liveResults.filter(
+        (r) => r.command?.status !== "succeeded",
+      ).length;
+      notify.updateToast(
+        commandToast.current,
+        failed
+          ? `${actionLabel(action)}: ${failed} rigs need attention. See command results.`
+          : `${actionLabel(action)} completed on ${liveResults.length} ${liveResults.length === 1 ? "rig" : "rigs"}.`,
+        failed ? "error" : "success",
+        failed ? 10000 : 5000,
+      );
       onDone();
     }
   }, [results, tracking.data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -409,6 +429,10 @@ export function ActionDialog({
     e.preventDefault();
     setPending(true);
     setError("");
+    commandToast.current = notify.info(
+      `${actionLabel(action)} requested. Waiting for rig results…`,
+      6000,
+    );
     try {
       const { data } = await api.post(
         "/v1/commands",
@@ -420,6 +444,7 @@ export function ActionDialog({
       onDone();
     } catch (e) {
       setError(errorText(e));
+      notify.updateToast(commandToast.current, errorText(e), "error", 10000);
     } finally {
       setPending(false);
     }

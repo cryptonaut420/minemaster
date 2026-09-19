@@ -9,8 +9,8 @@
   justify-content: space-between;
   gap: 20px;
   padding: 14px 28px;
-  background: #1a2e40;
-  border-bottom: 1px solid #3a536b;
+  background: #161b22;
+  border-bottom: 1px solid #303a46;
   position: sticky;
   top: 0;
   z-index: 20;
@@ -36,7 +36,7 @@
 }
 .navbar-links a.active {
   color: #eaf4fc;
-  background: #34536d;
+  background: #273548;
 }
 .user-info {
   display: flex;
@@ -67,7 +67,7 @@
 .loading-screen {
   display: grid;
   place-items: center;
-  background: #142535;
+  background: #0d1117;
 }
 .loading-content {
   text-align: center;

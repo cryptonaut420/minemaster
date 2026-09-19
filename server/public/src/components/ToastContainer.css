@@ -2,7 +2,7 @@
   position: fixed;
   top: 90px;
   right: var(--space-6);
-  z-index: 1000;
+  z-index: 10000;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -16,19 +16,19 @@
 }
 
 /* Stack effect for multiple toasts */
-.toast-container .toast:nth-child(n+4) {
+.toast-container .toast:nth-child(n + 4) {
   opacity: 0.7;
   transform: scale(0.95);
 }
 
-.toast-container .toast:nth-child(n+5) {
+.toast-container .toast:nth-child(n + 5) {
   display: none;
 }
 
 @media (max-width: 600px) {
   .toast-container {
-    right: 0;
-    left: 0;
-    padding: 0 var(--space-3);
+    right: 12px;
+    left: 12px;
+    padding: 0;
   }
 }

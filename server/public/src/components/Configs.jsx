@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
+import { useNotifications } from "./Notifications";
 import SRB from "../../../src/services/srbminer.json";
 import {
   Badge,
@@ -72,6 +73,7 @@ function availableAlgorithms(type, engine) {
     : algorithms[type];
 }
 export default function Configs() {
+  const notify = useNotifications();
   const resource = useResource("configs"),
     [type, setType] = useState("xmrig"),
     [drafts, setDrafts] = useState(() => {
@@ -145,9 +147,14 @@ export default function Configs() {
       );
       revisions.reload();
       rolloutKey.current = requestId();
+      notify.success(
+        "Configuration saved. Choose rigs below to apply it.",
+        5000,
+      );
     } catch (e) {
       setError(errorText(e));
       setFields(e.response?.data?.fields || {});
+      notify.error(errorText(e), 10000);
     } finally {
       setPending(false);
     }
@@ -163,11 +170,22 @@ export default function Configs() {
         { headers: { "Idempotency-Key": rolloutKey.current } },
       );
       setResults(data.results);
+      const rejected = data.results.filter(
+        (r) => r.error || r.command?.status === "failed",
+      ).length;
+      notify.showToast(
+        rejected
+          ? `Configuration rollout: ${rejected} rigs could not accept the request. See results below.`
+          : "Configuration sent. Waiting for rig results in command history.",
+        rejected ? "error" : "info",
+        6000,
+      );
       setMessage(
         "Rollout dispatched. Each rig reports its own outcome in command history.",
       );
     } catch (e) {
       setError(errorText(e));
+      notify.error(errorText(e), 10000);
     } finally {
       setPending(false);
     }
@@ -186,8 +204,13 @@ export default function Configs() {
         "Prior values restored as a new desired revision. Apply separately.",
       );
       setError("");
+      notify.success(
+        "Prior configuration restored. Apply it to rigs separately.",
+        5000,
+      );
     } catch (e) {
       setError(errorText(e));
+      notify.error(errorText(e), 10000);
     } finally {
       setPending(false);
     }

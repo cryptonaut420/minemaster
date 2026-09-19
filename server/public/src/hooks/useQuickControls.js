@@ -1,21 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
-import { controlUnavailable, quickScope } from "../utils/rigControls";
+import {
+  controlUnavailable,
+  quickScope,
+  controlOutcome,
+} from "../utils/rigControls";
+import { useNotifications } from "../components/Notifications";
 
 const active = (c) =>
   ["queued", "sent", "received", "running"].includes(c?.status);
 const message = (e) => e.response?.data?.error || e.message || "Request failed";
 export default function useQuickControls(onChanged) {
+  const notify = useNotifications();
   const [receipts, setReceipts] = useState({});
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const jobs = useRef([]),
+    operations = useRef(new Map()),
     current = useRef({}),
     writes = useRef(new Set()),
     generation = useRef(0);
   const changed = useRef(onChanged);
   changed.current = onChanged;
   function record(rows) {
+    for (const row of rows) {
+      const op = operations.current.get(row.operation);
+      if (!op) continue;
+      op.rows.set(row.minerId, row);
+      const outcome =
+        op.rows.size === op.count &&
+        controlOutcome(op.action, [...op.rows.values()], op.skipped);
+      if (outcome) {
+        notify.updateToast(
+          op.toast,
+          outcome.message,
+          outcome.type,
+          outcome.type === "error" ? 10000 : 5000,
+        );
+        operations.current.delete(row.operation);
+      }
+    }
     setReceipts((prev) => {
       const next = { ...prev };
       for (const row of rows) {
@@ -73,10 +97,19 @@ export default function useQuickControls(onChanged) {
     const own = generation.current;
     setBusy(true);
     setNotice("");
+    const toast = notify.info(
+      `${action === "start" ? "Starting" : "Pausing"} ${rigs?.length === 1 ? rigs[0].name : rigs ? `${rigs.length} selected rigs` : "the fleet"}…`,
+      10000,
+    );
     try {
       if (action === "stop") await Promise.allSettled([...writes.current]);
       let targets = rigs;
-      if (!targets) {
+      // Selection can span pages and outlive a prior command. Refresh Play's
+      // observed state before choosing scope; never restart a running process.
+      if (action === "start" && rigs?.length === 1) {
+        const { data } = await api.get(`/v1/rigs/${rigs[0].id}`);
+        targets = [data.data];
+      } else if (!targets || (action === "start" && rigs.length > 1)) {
         targets = [];
         let cursor;
         do {
@@ -86,16 +119,35 @@ export default function useQuickControls(onChanged) {
           targets.push(...data.data);
           cursor = data.nextCursor;
         } while (cursor && own === generation.current);
+        if (rigs) {
+          const ids = new Set(rigs.map((r) => r.id));
+          targets = targets.filter((r) => ids.has(r.id));
+        }
       }
-      if (own !== generation.current) return;
+      if (own !== generation.current) {
+        notify.updateToast(toast, "Play canceled by a newer Pause.", "info");
+        return;
+      }
       targets = [...new Map(targets.map((r) => [r.id, r])).values()];
       const eligible = targets.filter(
         (r) => !controlUnavailable(r) && quickScope(r, action),
       );
-      const skipped = targets.length - eligible.length;
-      setNotice(
-        `${action === "start" ? "Play" : "Pause"} requested for ${eligible.length} rigs${skipped ? ` · ${skipped} offline, unsupported or disabled rigs skipped` : ""}. Results below reflect agent confirmation.`,
-      );
+      const skipped = (rigs?.length || targets.length) - eligible.length;
+      if (!eligible.length) {
+        notify.updateToast(
+          toast,
+          "No rigs need this action or are currently available.",
+          "info",
+        );
+        return;
+      }
+      operations.current.set(operation, {
+        toast,
+        action,
+        skipped,
+        count: eligible.length,
+        rows: new Map(),
+      });
       for (const rig of eligible) current.current[rig.id] = operation;
       record(
         eligible.map((r) => ({
@@ -111,14 +163,12 @@ export default function useQuickControls(onChanged) {
         for (let i = 0; i < group.length; i += 8) {
           if (own !== generation.current) {
             record(
-              group
-                .slice(i)
-                .map((r) => ({
-                  minerId: r.id,
-                  operation,
-                  action,
-                  error: "Play superseded by Pause before dispatch",
-                })),
+              group.slice(i).map((r) => ({
+                minerId: r.id,
+                operation,
+                action,
+                error: "Play superseded by Pause before dispatch",
+              })),
             );
             break;
           }
@@ -161,6 +211,7 @@ export default function useQuickControls(onChanged) {
       changed.current();
     } catch (e) {
       setNotice(message(e));
+      notify.updateToast(toast, message(e), "error", 10000);
     } finally {
       setBusy(false);
     }

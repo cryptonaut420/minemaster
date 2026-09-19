@@ -7,6 +7,7 @@ import Login from "./components/Login";
 import Register from "./components/Register";
 import { authAPI, removeToken } from "./services/auth";
 import "./App.css";
+import NotificationProvider from "./components/Notifications";
 
 class ViewBoundary extends React.Component {
   state = { failed: false };
@@ -144,56 +145,58 @@ function App() {
 
   // Show main app if authenticated
   return (
-    <div className="app">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <h1>MineMaster</h1>
-        </div>
-
-        <div className="navbar-links">
-          <Link to="/" className={location.pathname === "/" ? "active" : ""}>
-            Fleet
-          </Link>
-          <Link
-            to="/configs"
-            className={location.pathname === "/configs" ? "active" : ""}
-          >
-            Configurations
-          </Link>
-          <Link
-            to="/api-access"
-            className={location.pathname === "/api-access" ? "active" : ""}
-          >
-            API access
-          </Link>
-        </div>
-
-        <div className="navbar-right">
-          <div className="user-info">
-            <div className="user-avatar">
-              {authState.user?.email?.charAt(0).toUpperCase() || "?"}
-            </div>
-            <span className="user-email">{authState.user?.email}</span>
-            <button className="logout-button" onClick={handleLogout}>
-              Logout
-            </button>
+    <NotificationProvider>
+      <div className="app">
+        <nav className="navbar">
+          <div className="navbar-brand">
+            <h1>MineMaster</h1>
           </div>
-        </div>
-      </nav>
 
-      <main className="main-content">
-        <ViewBoundary key={location.pathname}>
-          <Suspense fallback={<p role="status">Loading view…</p>}>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/configs" element={<Configs />} />
-              <Route path="/api-access" element={<ApiKeys />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </ViewBoundary>
-      </main>
-    </div>
+          <div className="navbar-links">
+            <Link to="/" className={location.pathname === "/" ? "active" : ""}>
+              Fleet
+            </Link>
+            <Link
+              to="/configs"
+              className={location.pathname === "/configs" ? "active" : ""}
+            >
+              Configurations
+            </Link>
+            <Link
+              to="/api-access"
+              className={location.pathname === "/api-access" ? "active" : ""}
+            >
+              API access
+            </Link>
+          </div>
+
+          <div className="navbar-right">
+            <div className="user-info">
+              <div className="user-avatar">
+                {authState.user?.email?.charAt(0).toUpperCase() || "?"}
+              </div>
+              <span className="user-email">{authState.user?.email}</span>
+              <button className="logout-button" onClick={handleLogout}>
+                Logout
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        <main className="main-content">
+          <ViewBoundary key={location.pathname}>
+            <Suspense fallback={<p role="status">Loading view…</p>}>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/configs" element={<Configs />} />
+                <Route path="/api-access" element={<ApiKeys />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </ViewBoundary>
+        </main>
+      </div>
+    </NotificationProvider>
   );
 }
 

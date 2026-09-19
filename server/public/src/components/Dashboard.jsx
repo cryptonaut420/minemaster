@@ -1,14 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
 import api from "../services/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import {
@@ -24,65 +15,139 @@ import {
 } from "./Operations";
 import "./Dashboard.css";
 import useQuickControls from "../hooks/useQuickControls";
+import FleetOverview, { algorithmName } from "./FleetOverview";
+import { useNotifications } from "./Notifications";
 import {
-  controlUnavailable,
-  quickScope,
+  primaryControl,
+  compactIssue,
+  rigSensors,
   processRateLabel,
   needsNanominerTelemetryUpdate,
 } from "../utils/rigControls";
-function QuickButtons({ rig, controls }) {
+function QuickButtons({ rig, controls, blocked = false }) {
   const receipt = controls.receipts[rig.id];
-  const pending =
-    receipt?.sending ||
-    ["queued", "sent", "received", "running"].includes(
-      receipt?.command?.status,
-    );
-  const unavailable = controlUnavailable(rig);
-  const stopPending =
-    (pending && receipt.action === "stop") ||
-    rig.pendingCommands?.some((c) => c.action === "stop");
-  const playPending =
-    pending ||
-    rig.pendingCommands?.some((c) =>
-      ["start", "restart", "app-update-install"].includes(c.action),
-    );
+  const control = primaryControl(rig, receipt);
+  const failure =
+    receipt?.error ||
+    (["failed", "timed_out", "canceled"].includes(receipt?.command?.status) &&
+      (receipt.command.error || "Action did not complete"));
   return (
     <div className="op-quick" aria-label={`Mining controls for ${rig.name}`}>
       <button
-        className="op-play"
-        aria-label={`Play mining on ${rig.name}`}
-        title={unavailable || "Start enabled CPU and GPU mining"}
-        disabled={!!unavailable || !!playPending || !quickScope(rig, "start")}
-        onClick={() => controls.run("start", [rig])}
-      >
-        ▶ Play
-      </button>
-      <button
-        className="op-pause"
-        aria-label={`Pause mining on ${rig.name}`}
+        className={control.action === "stop" ? "op-pause" : "op-play"}
+        aria-label={`${control.action === "stop" ? "Pause" : "Play"} mining on ${rig.name}`}
         title={
-          unavailable || "Stop CPU and GPU mining, including pending starts"
+          blocked
+            ? "Refresh rig status before sending a command"
+            : control.reason
         }
-        disabled={!!unavailable || !!stopPending}
-        onClick={() => controls.run("stop", [rig])}
+        disabled={blocked || control.disabled}
+        onClick={() => controls.run(control.action, [rig])}
       >
-        Ⅱ Pause
+        <span aria-hidden="true">{control.action === "stop" ? "Ⅱ" : "▶"}</span>{" "}
+        {control.label}
       </button>
-      {receipt && (
-        <small
-          role="status"
-          className={
-            receipt.error ||
-            ["failed", "timed_out"].includes(receipt.command?.status)
-              ? "op-warning"
-              : ""
-          }
-        >
-          {receipt.error ||
-            receipt.command?.error ||
-            `${receipt.action === "start" ? "Play" : "Pause"}: ${receipt.sending ? "sending…" : receipt.command?.status === "succeeded" ? "confirmed" : receipt.command?.status?.replaceAll("_", " ") || "not confirmed"}`}
+      {failure && (
+        <small role="alert" className="op-command-error" title={failure}>
+          {String(failure).slice(0, 110)}
+          {String(failure).length > 110 ? "…" : ""}
         </small>
       )}
+    </div>
+  );
+}
+const sensorValue = (value, suffix) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? `${Math.round(value)}${suffix}`
+    : "—";
+function RigMiningCell({ rig, scope }) {
+  const processes = (rig.processes || []).filter((p) => p.deviceType === scope);
+  const sensors = rigSensors(rig);
+  const cpu = rig.hardware?.cpu;
+  return (
+    <div className={`fleet-mining-cell fleet-${scope.toLowerCase()}`}>
+      {processes.length ? (
+        processes.map((p) => (
+          <div className="fleet-rig-rate" key={p.id}>
+            <strong
+              className={
+                p.running &&
+                rig.freshness?.telemetryFresh &&
+                ["valid", "zero"].includes(p.quality)
+                  ? ""
+                  : "fleet-rate-unavailable"
+              }
+            >
+              {processRateLabel(rig, p, rate)}
+            </strong>
+            <span>
+              {algorithmName(p.algorithm)}
+              {p.engine
+                ? ` · ${{ nanominer: "Nanominer", xmrig: "XMRig", srbminer: "SRBMiner" }[p.engine] || p.engine}`
+                : ""}
+            </span>
+          </div>
+        ))
+      ) : (
+        <div className="fleet-rig-rate">
+          <strong className="fleet-rate-unavailable">Not reported</strong>
+        </div>
+      )}
+      {scope === "CPU" ? (
+        <div className="fleet-device">
+          <span className="fleet-device-model" title={cpu?.brand || cpu?.model}>
+            {cpu?.brand || cpu?.model || "CPU not reported"}
+          </span>
+          <div className="fleet-sensors">
+            <span className={sensors.cpu.temperature >= 85 ? "fleet-hot" : ""}>
+              Temp <b>{sensorValue(sensors.cpu.temperature, "°C")}</b>
+            </span>
+            <span>
+              Load <b>{sensorValue(sensors.cpu.usage, "%")}</b>
+            </span>
+          </div>
+        </div>
+      ) : sensors.gpus.length ? (
+        sensors.gpus.map((g) => (
+          <div className="fleet-device" key={g.deviceId}>
+            <span
+              className="fleet-device-model"
+              title={`${g.model || "GPU"} · ${g.deviceId}`}
+            >
+              {g.model || "GPU"}
+            </span>
+            <div className="fleet-sensors">
+              <span className={g.sensor.temperature >= 85 ? "fleet-hot" : ""}>
+                Temp <b>{sensorValue(g.sensor.temperature, "°C")}</b>
+              </span>
+              <span>
+                Load <b>{sensorValue(g.sensor.usage, "%")}</b>
+              </span>
+              <span>
+                <b>{sensorValue(g.sensor.powerWatts, " W")}</b>
+              </span>
+            </div>
+          </div>
+        ))
+      ) : (
+        <small>GPU hardware not reported</small>
+      )}
+    </div>
+  );
+}
+function RigSystemCell({ rig }) {
+  const { memory } = rigSensors(rig);
+  const total = rig.hardware?.ram?.total || memory.total;
+  return (
+    <div className="fleet-system">
+      <span>
+        RAM <strong>{sensorValue(memory.usage, "%")}</strong>
+      </span>
+      <small>
+        {total
+          ? `${(total / 1024 ** 3).toFixed(0)} GB installed`
+          : "Capacity not reported"}
+      </small>
     </div>
   );
 }
@@ -100,59 +165,17 @@ function ageLabel(value) {
           ? `${Math.floor(age / 3600)}h ago`
           : `${Math.floor(age / 86400)}d ago`;
 }
-function RateChart({ series, group }) {
-  const rows = series.data
-    .filter((p) => p.key === group.key)
-    .map((p) => ({ ...p, time: Date.parse(p.timestamp) }));
-  return (
-    <div className="op-chart">
-      <ResponsiveContainer width="100%" height={170}>
-        <LineChart
-          data={rows}
-          margin={{ right: 15, left: 0, top: 12, bottom: 0 }}
-        >
-          <CartesianGrid stroke="#355069" vertical={false} />
-          <XAxis
-            dataKey="time"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            tickFormatter={(t) =>
-              new Date(t).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            }
-            minTickGap={60}
-            stroke="#9eafbe"
-          />
-          <YAxis width={75} tickFormatter={rate} stroke="#9eafbe" />
-          <Tooltip
-            labelFormatter={at}
-            formatter={(value, name, item) => [
-              `${rate(value)} · ${Math.round(item.payload.coverage * 100)}% coverage`,
-              group.algorithm,
-            ]}
-            contentStyle={{
-              background: "#1c3043",
-              border: "1px solid #58718a",
-              color: "#edf4fa",
-            }}
-          />
-          <Line
-            dataKey="hashrate"
-            type="linear"
-            stroke="#68bde9"
-            strokeWidth={2}
-            dot={false}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
 function RigDetail({ id, close, onAction, onChanged, controls }) {
+  const notify = useNotifications();
+  const panel = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    panel.current?.focus({ preventScroll: true });
+    panel.current?.scrollIntoView({ block: "start" });
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [id]);
   const { data, error, reload } = useResource(`rigs/${id}`, {}, 15000),
     r = data?.data;
   const [tab, setTab] = useState("Overview"),
@@ -172,14 +195,21 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
       setSaveError("");
       reload();
       onChanged();
+      notify.success(`${r?.name || "Rig"} updated.`);
     } catch (e) {
       setSaveError(errorText(e));
+      notify.error(errorText(e), 10000);
     } finally {
       setSaving(false);
     }
   }
   return (
-    <aside className="op-detail" aria-label="Rig details">
+    <aside
+      ref={panel}
+      tabIndex={-1}
+      className="op-detail"
+      aria-label="Rig details"
+    >
       <div className="op-section-title">
         <h2>{r?.name || "Rig details"}</h2>
         <button onClick={close}>Close</button>
@@ -200,7 +230,7 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
               this agent to recover missing hashrate reporting.
             </p>
           )}
-          <QuickButtons rig={r} controls={controls} />
+          <QuickButtons rig={r} controls={controls} blocked={!!error} />
           <div className="op-actions">
             <button
               className="op-primary"
@@ -582,10 +612,12 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                     setSaving(true);
                     try {
                       await api.delete(`/v1/rigs/${id}`);
+                      notify.success(`${r.name} forgotten and disconnected.`);
                       onChanged();
                       close();
                     } catch (e) {
                       setSaveError(errorText(e));
+                      notify.error(errorText(e), 10000);
                     } finally {
                       setSaving(false);
                     }
@@ -634,6 +666,7 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
   );
 }
 function Monitoring({ filters = {}, onSelect }) {
+  const notify = useNotifications();
   const [resolved, setResolved] = useState("false"),
     [severity, setSeverity] = useState(""),
     [cursor, setCursor] = useState(null),
@@ -656,8 +689,10 @@ function Monitoring({ filters = {}, onSelect }) {
       await api.put("/v1/monitoring/rules", draft);
       setError("");
       setSaved(true);
+      notify.success("Monitoring rules saved.");
     } catch (e) {
       setError(errorText(e));
+      notify.error(errorText(e), 10000);
     }
   };
   return (
@@ -845,8 +880,7 @@ export default function Dashboard() {
     [action, setAction] = useState(null),
     [cursor, setCursor] = useState(null),
     [pageStack, setPageStack] = useState([]),
-    [timeframe, setTimeframe] = useState("24h"),
-    [showPerformance, setShowPerformance] = useState(false);
+    [timeframe, setTimeframe] = useState("24h");
   const [savedViews, setSavedViews] = useState(() => {
       try {
         return JSON.parse(localStorage.getItem("minemaster-views") || "[]");
@@ -877,11 +911,7 @@ export default function Dashboard() {
       },
       30000,
     ),
-    history = useResource(
-      showPerformance ? "metrics/hashrate" : null,
-      { ...filters, timeframe },
-      60000,
-    ),
+    history = useResource("metrics/hashrate", { ...filters, timeframe }, 60000),
     incidents = useResource("incidents", { ...filters, limit: 8 }, 30000);
   const [socketError, setSocketError] = useState("");
   const reloadRef = useRef(),
@@ -916,7 +946,6 @@ export default function Dashboard() {
   });
   useEffect(() => () => clearTimeout(invalidation.current), []);
   const rows = fleet.data?.data || [];
-  const counts = summary.data?.counts;
   function filter(key, value) {
     const next = new URLSearchParams(search);
     value ? next.set(key, value) : next.delete(key);
@@ -932,13 +961,11 @@ export default function Dashboard() {
       <header className="op-header">
         <div>
           <h1>Mining fleet</h1>
-          <p>Play, pause, and see what every rig is doing.</p>
+          <p>Mining performance, hardware and controls.</p>
         </div>
         <div className="op-connection">
           <Badge status={connected ? "online" : "offline"}>
-            {connected
-              ? "Live updates connected"
-              : "Reconnecting · periodic refresh active"}
+            {connected ? "Live" : "Reconnecting"}
           </Badge>
           <small>Summary updated {at(summary.data?.asOf)}</small>
         </div>
@@ -957,21 +984,25 @@ export default function Dashboard() {
           totals may be out of date.
         </p>
       )}
-      {summary.data?.monitoring && (
-        <p
-          className={
-            ["healthy", "starting"].includes(summary.data.monitoring.status)
-              ? "op-muted"
-              : "op-warning"
-          }
-          role="status"
-        >
-          Monitoring {summary.data.monitoring.status} · Last sweep{" "}
-          {at(summary.data.monitoring.lastSweepAt)}
-          {summary.data.monitoring.failedRigs > 0 &&
-            ` · ${summary.data.monitoring.failedRigs} rigs could not be checked`}
-        </p>
-      )}
+      {summary.data?.monitoring &&
+        (screen === "Monitoring" ||
+          !["healthy", "starting"].includes(
+            summary.data.monitoring.status,
+          )) && (
+          <p
+            className={
+              ["healthy", "starting"].includes(summary.data.monitoring.status)
+                ? "op-muted"
+                : "op-warning"
+            }
+            role="status"
+          >
+            Monitoring {summary.data.monitoring.status} · Last sweep{" "}
+            {at(summary.data.monitoring.lastSweepAt)}
+            {summary.data.monitoring.failedRigs > 0 &&
+              ` · ${summary.data.monitoring.failedRigs} rigs could not be checked`}
+          </p>
+        )}
       <div className="op-tabs" role="tablist" aria-label="Operations views">
         {["Fleet", "Activity", "Monitoring"].map((t) => (
           <button
@@ -1007,31 +1038,6 @@ export default function Dashboard() {
       )}
       {screen === "Fleet" && (
         <>
-          <div className="op-fleet-controls">
-            <div>
-              <h2>Fleet controls</h2>
-              <small>
-                All connected rigs across every page and filter. Play respects
-                disabled CPU/GPU mining.
-              </small>
-            </div>
-            <div className="op-actions">
-              <button
-                className="op-play"
-                disabled={controls.busy || !!fleet.error}
-                onClick={() => controls.run("start")}
-              >
-                ▶ Play all
-              </button>
-              <button
-                className="op-pause"
-                disabled={!!fleet.error}
-                onClick={() => controls.run("stop")}
-              >
-                Ⅱ Pause all
-              </button>
-            </div>
-          </div>
           {controls.notice && (
             <div className="op-control-notice" role="status">
               {controls.notice}
@@ -1057,6 +1063,43 @@ export default function Dashboard() {
                 ))}
             </details>
           )}
+          <FleetOverview
+            actions={
+              <div
+                className="fleet-all-actions"
+                role="group"
+                aria-label="Whole fleet controls"
+              >
+                <small>Whole fleet · every page &amp; filter</small>
+                <div className="op-actions">
+                  <button
+                    className="op-play"
+                    disabled={controls.busy || !!fleet.error}
+                    onClick={() => controls.run("start")}
+                    title="Start enabled, stopped mining across the fleet"
+                  >
+                    ▶ Play all
+                  </button>
+                  <button
+                    className="op-pause"
+                    disabled={!!fleet.error}
+                    onClick={() => controls.run("stop")}
+                    title="Pause all connected rigs, including pending starts"
+                  >
+                    Ⅱ Pause all
+                  </button>
+                </div>
+              </div>
+            }
+            summary={summary.data}
+            history={history}
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+            filtered={Object.values(filters).some(Boolean)}
+            onAttention={() =>
+              filter("attention", filters.attention === "true" ? "" : "true")
+            }
+          />
           <div className="op-toolbar op-filters">
             <label className="op-search">
               Find rigs
@@ -1202,21 +1245,6 @@ export default function Dashboard() {
               </label>
             </details>
           </div>
-          <div className="op-counts" aria-label="Filtered fleet summary">
-            {[
-              ["total", "Rigs in view"],
-              ["mining", "Mining"],
-              ["online", "Connected"],
-              ["offline", "Offline"],
-              ["stale", "Telemetry overdue"],
-              ["attention", "Need attention"],
-            ].map(([key, label]) => (
-              <div key={key} className={`op-count-${key}`}>
-                <strong>{counts?.[key] ?? "—"}</strong>
-                <span>{label}</span>
-              </div>
-            ))}
-          </div>
           <div className={`op-workspace ${detail ? "op-has-detail" : ""}`}>
             <section className="op-surface">
               <div className="op-section-title">
@@ -1227,7 +1255,7 @@ export default function Dashboard() {
                 <div className="op-actions">
                   <details>
                     <summary>Columns</summary>
-                    {["sensors", "identity"].map((key) => (
+                    {["identity"].map((key) => (
                       <label className="op-check" key={key}>
                         <input
                           type="checkbox"
@@ -1244,7 +1272,7 @@ export default function Dashboard() {
                             );
                           }}
                         />
-                        {key}
+                        Host &amp; IP address
                       </label>
                     ))}
                   </details>
@@ -1282,13 +1310,14 @@ export default function Dashboard() {
                     <>
                       <button
                         className="op-play"
-                        disabled={controls.busy}
+                        disabled={controls.busy || !!fleet.error}
                         onClick={() => controls.run("start", picked)}
                       >
                         ▶ Play selected
                       </button>
                       <button
                         className="op-pause"
+                        disabled={!!fleet.error}
                         onClick={() => controls.run("stop", picked)}
                       >
                         Ⅱ Pause selected
@@ -1317,7 +1346,7 @@ export default function Dashboard() {
                 </p>
               )}
               <div className="op-table-wrap">
-                <table className="op-table">
+                <table className="op-table fleet-table">
                   <thead>
                     <tr>
                       <th>
@@ -1339,43 +1368,12 @@ export default function Dashboard() {
                           }
                         />
                       </th>
-                      {[
-                        ["name", "Rig"],
-                        ["status", "State"],
-                      ].map(([k, label]) => (
-                        <th
-                          key={k}
-                          aria-sort={
-                            params.sort === k
-                              ? params.order === "desc"
-                                ? "descending"
-                                : "ascending"
-                              : "none"
-                          }
-                        >
-                          <button
-                            onClick={() => {
-                              const next = new URLSearchParams(search);
-                              next.set("sort", k);
-                              next.set(
-                                "order",
-                                params.sort === k && params.order !== "desc"
-                                  ? "desc"
-                                  : "asc",
-                              );
-                              setSearch(next);
-                              setCursor(null);
-                              setPageStack([]);
-                            }}
-                          >
-                            {label} ↕
-                          </button>
-                        </th>
-                      ))}
-                      <th>Mining controls</th>
-                      <th>Process rates</th>
-                      <th>Last seen / agent</th>
-                      {columns.sensors && <th>Sensors</th>}
+                      <th>Rig</th>
+                      <th>Mining</th>
+                      <th>GPU hashrate &amp; hardware</th>
+                      <th>CPU hashrate &amp; hardware</th>
+                      <th>System</th>
+                      <th>Last seen</th>
                       {columns.identity && <th>Identity</th>}
                     </tr>
                   </thead>
@@ -1401,7 +1399,7 @@ export default function Dashboard() {
                             }
                           />
                         </td>
-                        <td>
+                        <td className="fleet-rig-identity" data-label="Rig">
                           <button
                             className="op-rig-name"
                             onClick={() => setDetail(r.id)}
@@ -1409,78 +1407,57 @@ export default function Dashboard() {
                             {r.name}
                           </button>
                           <small>{r.group || r.hostname}</small>
+                          <div className="fleet-rig-state">
+                            <Badge status={r.status}>
+                              {r.status === "online"
+                                ? "Stopped"
+                                : r.status === "error"
+                                  ? "Needs attention"
+                                  : r.status}
+                            </Badge>
+                            {r.maintenance && (
+                              <Badge status="suppressed">Maintenance</Badge>
+                            )}
+                          </div>
+                          {compactIssue(r) && (
+                            <button
+                              className="fleet-issue-link"
+                              onClick={() => setDetail(r.id)}
+                            >
+                              {compactIssue(r)}
+                            </button>
+                          )}
                         </td>
-                        <td>
-                          <Badge status={r.status}>
-                            {r.status === "online"
-                              ? "Stopped · online"
-                              : r.status}
-                          </Badge>
-                          {r.maintenance && (
-                            <Badge status="suppressed">Maintenance</Badge>
-                          )}
-                          {!!r.openIncidents?.length && (
-                            <small>
-                              {r.openIncidents.length} open incident
-                              {r.openIncidents.length === 1 ? "" : "s"}
-                            </small>
-                          )}
-                          {!["Mining", "Idle"].includes(r.reason) && (
-                            <small>{r.reason}</small>
-                          )}
-                          {needsNanominerTelemetryUpdate(r) && (
-                            <small className="op-warning">
-                              Nanominer reporting fix: update client to 1.4.4
-                            </small>
-                          )}
-                          {r.pendingCommands?.map((c) => (
-                            <small key={c.id}>
-                              {c.action} {c.deviceType}: {c.status}
-                            </small>
-                          ))}
+                        <td className="fleet-rig-control" data-label="Mining">
+                          <QuickButtons
+                            rig={r}
+                            controls={controls}
+                            blocked={!!fleet.error}
+                          />
                         </td>
-                        <td>
-                          <QuickButtons rig={r} controls={controls} />
+                        <td data-label="GPU mining">
+                          <RigMiningCell rig={r} scope="GPU" />
                         </td>
-                        <td>
-                          {!r.processes.length && (
-                            <small>No process report from this agent</small>
-                          )}
-                          {r.processes.map((p) => (
-                            <div className="op-process-rate" key={p.id}>
-                              <span>
-                                {p.deviceType} {p.algorithm || ""}
-                              </span>
-                              <strong>{processRateLabel(r, p, rate)}</strong>
-                            </div>
-                          ))}
+                        <td data-label="CPU mining">
+                          <RigMiningCell rig={r} scope="CPU" />
                         </td>
-                        <td>
+                        <td data-label="System">
+                          <RigSystemCell rig={r} />
+                        </td>
+                        <td className="fleet-last-seen" data-label="Last seen">
                           <time
                             title={`Last agent contact: ${at(r.lastSeen)} · Telemetry: ${at(r.telemetryReceivedAt)}`}
                           >
                             {ageLabel(r.lastSeen || r.telemetryReceivedAt)}
                           </time>
-                          <small>
-                            {r.version ||
-                              (r.protocolVersion < 2
-                                ? "Legacy agent · version not sent"
-                                : "Version not sent")}
+                          <small title={r.version}>
+                            {r.version
+                              ? `v${r.version.split("+")[0]}`
+                              : "Version not reported"}
                           </small>
-                          {!r.telemetryReceivedAt && (
-                            <small>No current telemetry</small>
-                          )}
                         </td>
-                        {columns.sensors && (
-                          <td>
-                            {r.stats?.quality === "stale"
-                              ? "Stale sensors"
-                              : `CPU ${r.stats?.cpu?.temperature ?? "—"}°C`}
-                            <small>{r.hardware.gpus.length} GPUs</small>
-                          </td>
-                        )}
                         {columns.identity && (
-                          <td>
+                          <td data-label="Identity">
                             {r.hostname}
                             <small>{r.ip}</small>
                           </td>
@@ -1526,121 +1503,6 @@ export default function Dashboard() {
               />
             ) : null}
           </div>
-          <details
-            className="op-performance"
-            onToggle={(e) => setShowPerformance(e.currentTarget.open)}
-          >
-            <summary>Performance, charts &amp; hardware</summary>
-            <div
-              className="op-health-strip"
-              aria-label="Fleet hardware and health"
-            >
-              <span>
-                <strong>{summary.data?.hardware?.gpus ?? "—"} GPUs</strong>
-                <small>Reported inventory</small>
-              </span>
-              <span>
-                <strong>
-                  {summary.data?.hardware?.gpuPowerWatts == null
-                    ? "Power unavailable"
-                    : `${summary.data.hardware.gpuPowerWatts.toLocaleString(undefined, { maximumFractionDigits: 0 })} W`}
-                </strong>
-                <small>
-                  GPU power ·{" "}
-                  {summary.data?.hardware?.gpuPowerReportingDevices ?? 0}/
-                  {summary.data?.hardware?.gpus ?? 0} cards reporting
-                </small>
-              </span>
-              <span>
-                <strong>
-                  {summary.data?.hardware?.maxTemperatureC == null
-                    ? "Temperature unavailable"
-                    : `${summary.data.hardware.maxTemperatureC}°C`}
-                </strong>
-                <small>Highest fresh sensor</small>
-              </span>
-              <span>
-                <strong>
-                  {summary.data?.incidents?.critical ?? "—"} critical ·{" "}
-                  {summary.data?.incidents?.open ?? "—"} open
-                </strong>
-                <small>Current filtered incidents</small>
-              </span>
-              <span>
-                <strong>{counts?.maintenance ?? "—"} in maintenance</strong>
-                <small>
-                  {counts?.configDrift ?? "—"} rigs with configuration drift
-                </small>
-              </span>
-            </div>
-            <div className="op-section-title">
-              <div>
-                <h2>Observed hashrate</h2>
-                <p className="op-muted">
-                  Current filters apply to rates and history. Algorithms remain
-                  separate.
-                </p>
-              </div>
-              <label>
-                History
-                <select
-                  value={timeframe}
-                  onChange={(e) => setTimeframe(e.target.value)}
-                >
-                  {["1h", "24h", "7d", "30d", "90d"].map((t) => (
-                    <option key={t}>{t}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <ErrorNotice error={history.error} retry={history.reload} />
-            <div className="op-rates">
-              {[
-                ...(summary.data?.algorithms || []),
-                ...(history.data?.series || [])
-                  .filter(
-                    (g) =>
-                      !summary.data?.algorithms.some((a) => a.key === g.key),
-                  )
-                  .map((g) => ({
-                    ...g,
-                    reportingProcesses: 0,
-                    runningProcesses: 0,
-                  })),
-              ].map((g) => (
-                <section key={g.key}>
-                  <div className="op-row">
-                    <h3>
-                      {g.deviceType} · {g.algorithm}
-                    </h3>
-                    <Badge
-                      status={g.unavailableProcesses ? "warning" : "online"}
-                    >
-                      {g.reportingProcesses}/{g.runningProcesses} reporting
-                    </Badge>
-                  </div>
-                  <strong className="op-rate">
-                    {g.reportingProcesses ? rate(g.hashrate) : "Unavailable"}
-                  </strong>
-                  {history.data && (
-                    <RateChart series={history.data} group={g} />
-                  )}
-                </section>
-              ))}
-            </div>
-            {summary.data?.algorithms.length === 0 &&
-              !history.data?.series?.length && (
-                <p className="op-empty">
-                  No algorithms reported in this view. Connect an agent and
-                  start a configured process to see rates.
-                </p>
-              )}
-            <p className="op-muted">
-              Chart gaps mean unknown data. Partial buckets show observed
-              contribution; hover for coverage. Rates are held for at most 60
-              seconds.
-            </p>
-          </details>
         </>
       )}
       {action && (

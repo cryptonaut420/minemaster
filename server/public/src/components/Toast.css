@@ -1,7 +1,8 @@
 .toast {
   position: relative;
-  min-width: 320px;
-  max-width: 500px;
+  width: min(380px, calc(100vw - 32px));
+  min-width: 0;
+  max-width: 380px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -17,7 +18,7 @@
 }
 
 .toast::before {
-  content: '';
+  content: "";
   position: absolute;
   bottom: 0;
   left: 0;
@@ -27,8 +28,12 @@
 }
 
 @keyframes toastProgress {
-  from { width: 100%; }
-  to { width: 0%; }
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
 }
 
 @keyframes toastSlideIn {
@@ -60,7 +65,11 @@
 /* Toast Types */
 .toast-success {
   border-left: 4px solid var(--accent-green);
-  background: linear-gradient(90deg, rgba(63, 185, 80, 0.08) 0%, var(--bg-card) 15%);
+  background: linear-gradient(
+    90deg,
+    rgba(63, 185, 80, 0.08) 0%,
+    var(--bg-card) 15%
+  );
 }
 
 .toast-success::before {
@@ -69,7 +78,11 @@
 
 .toast-error {
   border-left: 4px solid var(--accent-red);
-  background: linear-gradient(90deg, rgba(248, 81, 73, 0.08) 0%, var(--bg-card) 15%);
+  background: linear-gradient(
+    90deg,
+    rgba(248, 81, 73, 0.08) 0%,
+    var(--bg-card) 15%
+  );
 }
 
 .toast-error::before {
@@ -78,7 +91,11 @@
 
 .toast-info {
   border-left: 4px solid var(--accent-blue);
-  background: linear-gradient(90deg, rgba(88, 166, 255, 0.08) 0%, var(--bg-card) 15%);
+  background: linear-gradient(
+    90deg,
+    rgba(88, 166, 255, 0.08) 0%,
+    var(--bg-card) 15%
+  );
 }
 
 .toast-info::before {
@@ -87,7 +104,11 @@
 
 .toast-warning {
   border-left: 4px solid var(--accent-orange);
-  background: linear-gradient(90deg, rgba(240, 136, 62, 0.08) 0%, var(--bg-card) 15%);
+  background: linear-gradient(
+    90deg,
+    rgba(240, 136, 62, 0.08) 0%,
+    var(--bg-card) 15%
+  );
 }
 
 .toast-warning::before {
@@ -138,6 +159,14 @@
   font-size: 0.9rem;
   font-weight: 500;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast::before {
+    animation: none;
+  }
 }
 
 /* Close Button */
@@ -170,6 +199,7 @@
   .toast {
     min-width: auto;
     max-width: none;
-    margin: 0 var(--space-3);
+    width: 100%;
+    margin: 0;
   }
 }

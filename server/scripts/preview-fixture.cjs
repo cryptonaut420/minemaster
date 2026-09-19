@@ -15,7 +15,8 @@ const { ObjectId } = require("mongodb");
     db = await storage.connect();
   const admin = { _id: new ObjectId(), email: "fixture@local.test" },
     token = require("../src/middleware/auth").generateToken(admin);
-  let failure = false;
+  let failure = false,
+    commandFailure = false;
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => {
@@ -30,13 +31,18 @@ const { ObjectId } = require("mongodb");
   app.get("/api/auth/me", (req, res) => res.json({ admin }));
   app.post("/__fixture/failure", (req, res) => {
     failure = req.body.enabled === true;
-    res.json({ failure });
+    commandFailure = req.body.commands === true;
+    res.json({ failure, commandFailure });
   });
   app.get("/api/v1/fixture-failure", (req, res) =>
     res.status(503).json({ error: "Synthetic database outage" }),
   );
   app.use(
     "/api/v1",
+    (req, res, next) =>
+      commandFailure && req.method === "POST" && req.path === "/commands"
+        ? res.status(503).json({ error: "Synthetic command failure" })
+        : next(),
     (req, res, next) =>
       failure || req.headers["x-fixture-failure"]
         ? res.status(503).json({ error: "Synthetic database outage" })
@@ -195,7 +201,12 @@ const { ObjectId } = require("mongodb");
               },
             },
             deviceType: "CPU",
-            running: true,
+            running: i !== 4,
+            ...(i === 4
+              ? {
+                  error: `Process exited with code 1\n * ${"Synthetic startup diagnostic. ".repeat(100)}`,
+                }
+              : {}),
             enabled: true,
             algorithm: "rx/0",
             hashrate: i === 7 ? 0 : 18000 + i * 450,

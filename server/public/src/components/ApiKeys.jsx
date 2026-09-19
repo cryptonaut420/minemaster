@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import api from "../services/api";
+import { useNotifications } from "./Notifications";
 import { at, Badge, ErrorNotice, errorText, useResource } from "./Operations";
 import "./Dashboard.css";
 
 export default function ApiKeys() {
+  const notify = useNotifications();
   const [cursor, setCursor] = useState(null),
     [pages, setPages] = useState([]);
   const keys = useResource("api-keys", { limit: 50, cursor }, 30000);
@@ -32,8 +34,13 @@ export default function ApiKeys() {
       setCursor(null);
       setPages([]);
       keys.reload();
+      notify.success(
+        "API key created. Copy it before leaving this page.",
+        6000,
+      );
     } catch (e) {
       setError(errorText(e));
+      notify.error(errorText(e), 10000);
     } finally {
       setBusy(false);
     }
@@ -44,8 +51,10 @@ export default function ApiKeys() {
     try {
       await api.delete(`/v1/api-keys/${id}`);
       keys.reload();
+      notify.success("API key revoked.");
     } catch (e) {
       setError(errorText(e));
+      notify.error(errorText(e), 10000);
     } finally {
       setBusy(false);
     }
