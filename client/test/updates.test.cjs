@@ -2,6 +2,29 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("events");
 const { createUpdateController } = require("../electron/updateController");
+test("native installation refuses an obsolete requested version before stopping any miner", async () => {
+  const updater = new EventEmitter();
+  let stops = 0,
+    installs = 0;
+  updater.quitAndInstall = () => installs++;
+  const controller = createUpdateController({
+    updater,
+    stopMiners: async () => stops++,
+  });
+  updater.emit("update-downloaded", { version: "1.4.5" });
+  const requestedVersion = controller.getState().version;
+  updater.emit("update-downloaded", { version: "1.4.6" });
+  const result = await controller.install(requestedVersion);
+  assert.equal(result.success, false);
+  assert.match(result.error, /requested update/);
+  assert.equal(stops, 0);
+  assert.equal(installs, 0);
+  assert.equal(controller.getState().state, "downloaded");
+  assert.equal((await controller.install("1.4.6")).success, true);
+  assert.equal(stops, 1);
+  assert.equal(installs, 1);
+  controller.cleanup();
+});
 test("a downloaded release does not pin future update checks to an obsolete version", async () => {
   const updater = new EventEmitter();
   const c = createUpdateController({ updater });

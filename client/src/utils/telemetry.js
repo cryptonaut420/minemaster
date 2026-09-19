@@ -1,6 +1,9 @@
 // Process aggregates only: a per-GPU line must never replace the process total.
 export function parseAggregate(line) {
   const text = String(line || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""); // eslint-disable-line no-control-regex
+  // Nanominer prints a separate rolling average with the same "Total:" label.
+  // It must not refresh or replace the current process observation.
+  if (/\blast\s+\d+\s+(?:min(?:ute)?s?|hours?|h)\b/i.test(text)) return null;
   const match =
     text.match(
       /\bspeed\s+\S+\s+((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s+(?:[\d.,]+|n\/a)\s+(?:[\d.,]+|n\/a)\s*([kmgt]?h\/s)\b/i,
@@ -39,7 +42,7 @@ export function createProcessLineBuffer() {
     return streams.get(key)(chunk);
   };
 }
-export function parseShares(line) {
+export function parseShares(line, observedAt = new Date().toISOString()) {
   const match = String(line).match(
     /\b(?:accepted|rejected)\s*\((\d+)\/(\d+)\)/i,
   );
@@ -47,7 +50,7 @@ export function parseShares(line) {
     ? {
         accepted: Number(match[1]),
         rejected: Number(match[2]),
-        observedAt: new Date().toISOString(),
+        observedAt,
         source: "xmrig-counter",
       }
     : null;
@@ -173,7 +176,10 @@ export function processSnapshot(miner, now = Date.now()) {
     pool: miner.pool || null,
   };
 }
-export function parseProcessDetails(line) {
+export function parseProcessDetails(
+  line,
+  observedAt = new Date().toISOString(),
+) {
   const text = String(line || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""), // eslint-disable-line no-control-regex
     result = {};
   const version =
@@ -186,7 +192,7 @@ export function parseProcessDetails(line) {
     result.pool = {
       address: pool[1],
       status: /\bnew job from\b/i.test(text) ? "connected" : "connecting",
-      observedAt: new Date().toISOString(),
+      observedAt,
       source: "process-log",
     };
   else if (
@@ -194,7 +200,7 @@ export function parseProcessDetails(line) {
   )
     result.pool = {
       status: "disconnected",
-      observedAt: new Date().toISOString(),
+      observedAt,
       source: "process-log",
     };
   if (/\bpaused\b/i.test(text)) {

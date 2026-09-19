@@ -78,3 +78,7 @@ Resume state records source and target versions and expires after two hours. Old
 The regression suite exercises the installed `electron-updater` NSIS and AppImage download paths against a loopback HTTP feed with inert package bytes: 1.4.3 discovers 1.4.4, then refreshes to 1.4.5 without first installing the older download, and rejects a corrupt next download. It tests the source/target resume format and the controller's failed-stop/cancellation paths. It never launches an installer or miner; real Windows/Linux installation and relaunch remain hardware checks. See [the follow-up audit](../docs/audits/regression-repair-2026-09-15/follow-up.md).
 
 Clients older than 1.4.5 that already downloaded an older release may still offer that cached installer. Install it and check again, or install the latest Windows Setup directly. Publishing 1.4.5 cannot change an already-running older updater.
+
+## 1.4.6 verification
+
+The inert-file download regression now refreshes 1.4.5 to 1.4.6 and validates the previously published resume-state format for that destination. Local and remote install calls pass the requested version through IPC; the native owner rejects a mismatched ready version before stopping miners. All draft, checksum, package and hardware-verification requirements above remain applicable.

@@ -95,3 +95,8 @@ Applies to the whole repository. Read this file before making changes.
 ## Desktop 1.4.5 follow-up
 - A ready downloaded update must not suppress future latest-release checks. Verify real updater feed parsing/download checksums with inert files; never execute installers or miners in automated tests. Publish all Windows/Linux assets through a verified draft before making the release latest.
 - Preserve final file-only startup errors before process ownership is released. A newer Stop must cancel recovery even while the final log read is pending. Heartbeat recovery retires socket ownership before waiting for close. Browser preference failures must not interrupt registration/reporting.
+
+## Desktop 1.4.6 follow-up
+- Nanominer rolling `last 10 min` totals must never replace current hashrate or refresh observation age. Pool/share observations also preserve the native timestamp.
+- Update install requests carry the selected version through renderer/preload/native IPC. Validate it in the native owner before stopping miners; renderer-only checks can race downloads.
+- Repeated miner-error incidents require recent original observation times from the current running, unpaused launch. Keep scans bounded, exclude backlog, preserve maintenance/filter agreement, and never infer automatic recovery authorization from an error alert.

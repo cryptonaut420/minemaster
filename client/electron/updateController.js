@@ -120,7 +120,15 @@ function createUpdateController({
     });
     return check;
   }
-  async function install() {
+  async function install(targetVersion) {
+    // Validate in the native owner, atomically with claiming the install attempt.
+    // A renderer's earlier status read can race a completed background download.
+    if (targetVersion !== undefined && targetVersion !== state.version)
+      return {
+        success: false,
+        error:
+          "The requested update is no longer downloaded. Check update status again.",
+      };
     if (
       disposed ||
       !supported() ||

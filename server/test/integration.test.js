@@ -1723,6 +1723,106 @@ test("activity sorting puts mining before online and offline across cursor pages
   );
 });
 
+test("repeated current-run miner errors produce actionable incidents with shared API filtering", async (t) => {
+  const monitoring = require("../src/services/monitoring");
+  const now = Date.now();
+  const id = "fixture-repeated-errors";
+  const at = (ms) => new Date(ms).toISOString();
+  const process = {
+    id: "nanominer-1",
+    type: "nanominer",
+    engine: "nanominer",
+    deviceType: "GPU",
+    running: true,
+    enabled: true,
+    startedAt: at(now - 120000),
+    algorithm: "kawpow",
+    hashrate: 36519,
+    hashrateObservedAt: at(now),
+    quality: "valid",
+  };
+  const rig = {
+    id,
+    name: "Repeated errors fixture",
+    group: "error-fixture",
+    connectionId: "fixture-error-socket",
+    connectionLastSeen: at(now),
+    telemetryReceivedAt: at(now),
+    processes: [process],
+  };
+  await db.collection("miners").insertOne(rig);
+  t.after(async () => {
+    await db.collection("miners").deleteOne({ id });
+    for (const collection of ["logs", "incidents", "events"])
+      await db.collection(collection).deleteMany({ minerId: id });
+  });
+  const logs = (observedAt, overrides = {}) =>
+    Array.from({ length: 3 }, () => ({
+      minerId: id,
+      processId: process.id,
+      timestamp: new Date(now),
+      observedAt: new Date(observedAt),
+      level: "error",
+      message: "GPU 1 OpenCL call error -49(106)",
+      ...overrides,
+    }));
+  const active = () =>
+    db
+      .collection("incidents")
+      .findOne({ minerId: id, rule: "miner_errors", resolvedAt: null });
+  // Old runs, unknown observation time, and other process output cannot trigger it.
+  await db
+    .collection("logs")
+    .insertMany([
+      ...logs(now - 130000),
+      ...logs(now, { observedAt: null }),
+      ...logs(now, { processId: "old-process" }),
+    ]);
+  await monitoring.check(rig, monitoring.DEFAULT_RULES, now);
+  assert.equal(await active(), null);
+  await db.collection("logs").insertMany(logs(now - 1000));
+  await monitoring.check(rig, monitoring.DEFAULT_RULES, now);
+  assert.match((await active()).message, /nanominer-1.*OpenCL/);
+  const query = "q=error-fixture&attention=true";
+  assert.equal((await api(`/v1/rigs?${query}`)).data.total, 1);
+  assert.equal((await api(`/v1/fleet/summary?${query}`)).data.counts.total, 1);
+  assert.equal((await api(`/v1/incidents?${query}`)).data.data.length, 1);
+  await monitoring.check(
+    { ...rig, maintenanceUntil: at(now + 60000) },
+    monitoring.DEFAULT_RULES,
+    now,
+  );
+  assert.equal((await active()).suppressed, true);
+  for (const update of [
+    { paused: true },
+    { running: false },
+    { startedAt: at(now + 1) },
+  ]) {
+    await monitoring.check(
+      { ...rig, processes: [{ ...process, ...update }] },
+      monitoring.DEFAULT_RULES,
+      now,
+    );
+    assert.equal(await active(), null);
+    await monitoring.check(rig, monitoring.DEFAULT_RULES, now);
+    assert.ok(await active());
+  }
+  await monitoring.check(
+    rig,
+    { ...monitoring.DEFAULT_RULES, miner_errors: false },
+    now,
+  );
+  assert.equal(await active(), null);
+  await monitoring.check(rig, monitoring.DEFAULT_RULES, now);
+  const later = now + 6 * 60000;
+  await monitoring.check(
+    { ...rig, connectionLastSeen: at(later), telemetryReceivedAt: at(later) },
+    monitoring.DEFAULT_RULES,
+    later,
+  );
+  assert.equal(await active(), null);
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

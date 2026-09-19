@@ -14,6 +14,7 @@ const DEFAULT_RULES = {
   missing_gpu: true,
   rejects: true,
   crash_loop: true,
+  miner_errors: true,
   temperatureC: 85,
   zeroGraceSeconds: 120,
   rejectPercent: 5,
@@ -172,6 +173,50 @@ async function rules() {
 async function checkOne(raw, settings, now) {
   const db = getDb(),
     issues = evaluate(raw, settings, now);
+  const rig = viewRig(raw, now);
+  const processes = rig.processes.filter(
+    (p) => p.running && !p.paused && date(p.startedAt) !== null,
+  );
+  if (
+    settings.miner_errors &&
+    !rig.archivedAt &&
+    !rig.forgottenAt &&
+    rig.freshness.telemetryFresh &&
+    processes.length
+  ) {
+    // Bound the window and result size. Delayed backlog and previous launches
+    // must not produce a new alert just because their logs arrived recently.
+    const since = now - 5 * 60000;
+    const logs = await db
+      .collection("logs")
+      .find(
+        {
+          minerId: raw.id,
+          level: "error",
+          timestamp: { $gte: new Date(since), $lte: new Date(now) },
+          $or: processes.map((p) => ({
+            processId: p.id,
+            observedAt: {
+              $gte: new Date(Math.max(since, date(p.startedAt))),
+              $lte: new Date(now + 5000),
+            },
+          })),
+        },
+        { maxTimeMS: 5000, projection: { processId: 1, message: 1 } },
+      )
+      .sort({ timestamp: -1, _id: -1 })
+      .limit(200)
+      .toArray();
+    for (const p of processes) {
+      const errors = logs.filter((l) => l.processId === p.id);
+      if (errors.length >= 3)
+        issues.push({
+          rule: "miner_errors",
+          severity: "warning",
+          message: `${p.id} logged repeated errors in the last 5 minutes. Latest: ${String(errors[0].message).slice(0, 280)}`,
+        });
+    }
+  }
   if (!raw.archivedAt && !raw.forgottenAt && settings.crash_loop) {
     const exits = await db.collection("events").countDocuments({
       minerId: raw.id,

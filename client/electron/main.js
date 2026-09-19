@@ -393,7 +393,9 @@ ipcMain.handle("open-diagnostic-folder", async () => {
 });
 ipcMain.handle("check-for-update", () => checkForUpdates());
 ipcMain.handle("get-update-status", () => getUpdateState());
-ipcMain.handle("install-update", () => installUpdate());
+ipcMain.handle("install-update", (_event, targetVersion) =>
+  installUpdate(targetVersion),
+);
 ipcMain.handle("cancel-update-install", () => cancelInstall());
 ipcMain.handle("get-update-resume-state", () => getResumeStore().take());
 ipcMain.handle("start-miner", (_event, request) =>

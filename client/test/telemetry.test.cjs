@@ -22,6 +22,40 @@ async function esm(name) {
   );
   return import(uri(source));
 }
+test("Nanominer rolling averages cannot overwrite current speed or freshen an old sample", async () => {
+  const { parseAggregate } = await esm("telemetry.js");
+  const lines = [
+    "2026-Sep-18 19:35:11: Raven - Total speed: 36.519 kH/s, Total shares: 54 Rejected: 3, Time: 1d 01h 23m 19s",
+    "2026-Sep-18 19:35:11: Raven last 10 min - GPU 0: 48.138 kH/s, GPU 1: 0.000 H/s. Total: 48.138 kH/s.",
+  ];
+  assert.equal(parseAggregate(lines[0]), 36519);
+  assert.equal(parseAggregate(lines[1]), null);
+  assert.equal(parseAggregate("Monero last 10 min - Total: 3.50 kH/s."), null);
+  assert.equal(
+    parseAggregate(
+      "Raven - Total speed: 0.000 H/s, Total shares: 0 Rejected: 0",
+    ),
+    0,
+  );
+  assert.equal(parseAggregate("Total: 65.00 TH/s"), 65e12);
+});
+test("delayed share and pool output keeps the original native observation time", async () => {
+  const { parseShares, parseProcessDetails } = await esm("telemetry.js");
+  const observedAt = "2026-09-18T00:00:00.000Z";
+  assert.equal(
+    parseShares("accepted (10/2)", observedAt).observedAt,
+    observedAt,
+  );
+  for (const line of [
+    "new job from example.test:3333",
+    "use pool example.test:3333",
+    "connection refused",
+  ])
+    assert.equal(
+      parseProcessDetails(line, observedAt).pool.observedAt,
+      observedAt,
+    );
+});
 test("zero, missing, stale, paused, stopped and live rates stay distinguishable in the desktop UI", async () => {
   const { formatMinerRate } = await esm("formatters.js");
   const now = Date.now(),

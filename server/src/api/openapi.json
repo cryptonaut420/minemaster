@@ -2443,7 +2443,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Shared incident rules. miner_errors is enabled by default and flags at least three error-level log entries in the last five minutes for a currently running, unpaused process. Entries must belong to its current launch and retain a recent original observation time. No automatic restart is performed for log errors."
       },
       "put": {
         "summary": "Update monitoring rules",
@@ -2529,11 +2530,12 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/MonitoringRules"
               }
             }
           }
-        }
+        },
+        "description": "Merge supplied fields with existing rules. Shared incident rules. miner_errors is enabled by default and flags at least three error-level log entries in the last five minutes for a currently running, unpaused process. Entries must belong to its current launch and retain a recent original observation time. No automatic restart is performed for log errors."
       }
     },
     "/configs": {
@@ -4140,6 +4142,74 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        }
+      },
+      "MonitoringRules": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "offline": {
+            "type": "boolean",
+            "default": true
+          },
+          "stale": {
+            "type": "boolean",
+            "default": true
+          },
+          "zero": {
+            "type": "boolean",
+            "default": true
+          },
+          "temperature": {
+            "type": "boolean",
+            "default": true
+          },
+          "missing_gpu": {
+            "type": "boolean",
+            "default": true
+          },
+          "rejects": {
+            "type": "boolean",
+            "default": true
+          },
+          "crash_loop": {
+            "type": "boolean",
+            "default": true
+          },
+          "miner_errors": {
+            "type": "boolean",
+            "default": true
+          },
+          "temperatureC": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 150,
+            "default": 85
+          },
+          "zeroGraceSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600,
+            "default": 120
+          },
+          "rejectPercent": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 100,
+            "default": 5
+          },
+          "restartWindowMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440,
+            "default": 15
+          },
+          "restartCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 3
           }
         }
       }

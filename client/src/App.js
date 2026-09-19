@@ -335,8 +335,8 @@ function App() {
                 hashrate: rate,
                 hashrateObservedAt: data.observedAt || new Date().toISOString(),
               };
-            shares = parseShares(line) || shares;
-            Object.assign(details, parseProcessDetails(line));
+            shares = parseShares(line, data.observedAt) || shares;
+            Object.assign(details, parseProcessDetails(line, data.observedAt));
             masterServer.queueLog(
               data.minerId,
               line,
@@ -475,7 +475,7 @@ function App() {
         };
         signal.addEventListener("abort", cancel, { once: true });
         try {
-          return await window.electronAPI.installUpdate();
+          return await window.electronAPI.installUpdate(targetVersion);
         } finally {
           signal.removeEventListener("abort", cancel);
         }
@@ -1050,7 +1050,9 @@ function App() {
               <button
                 onClick={async () => {
                   try {
-                    const result = await window.electronAPI.installUpdate();
+                    const result = await window.electronAPI.installUpdate(
+                      updateStatus.version,
+                    );
                     if (!result?.success)
                       addNotification(
                         result?.error || "Install failed",

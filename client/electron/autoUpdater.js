@@ -40,7 +40,7 @@ module.exports = {
   initAutoUpdater,
   checkForUpdates: () => controller?.checkForUpdates(),
   getUpdateState: () => controller?.getState() || { state: "idle" },
-  installUpdate: () => controller?.install(),
+  installUpdate: (targetVersion) => controller?.install(targetVersion),
   cancelInstall: () => controller?.cancelInstall(),
   cleanup,
 };
