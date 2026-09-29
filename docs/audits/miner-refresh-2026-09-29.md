@@ -30,7 +30,7 @@ Browser checks used disposable fixtures: admin Quantus editing displays SRBMiner
 
 Read-only production snapshot before deployment: 27 registrations, 13 connected Windows clients still on 1.4.7, five running SRBMiner Quantus GPUs reporting 3.6.7 and one running Nanominer CPU. Six stopped SRBMiner rigs retain the previously identified file/preparation errors (KAM_Z1, PGZ9, PG_GH1, PG_Z3, PG_Z6, PG_Z8); antivirus involvement remains unconfirmed. PG_Z4 and PG_Z7 were idle in this snapshot. No live command was sent.
 
-Release and deployment results are recorded below after completion.
+Final release and deployment evidence follows below.
 
 
 ## Added automatic installation
@@ -69,3 +69,12 @@ No archive obfuscation, hardcoded-password encryption, filename camouflage or pr
 
 
 The extra pass passed 107 client tests and 121 backend tests, with both production builds successful. The desktop fixture shows the exact executable/archive path list and preserves the caution that unavailable/no-match history does not establish permission. Automated tests cover scope/expiry and HTTP/WebSocket preservation. No real miner, installer or Windows PowerShell probe was executed.
+
+
+## Final deployment and publication
+
+Source `e62af57` is committed/pushed to master and deployed on tsqr. The running backend container is `4fb3b6c72b8379485d432c7a339925afe1818346c3c6e1bf6100e0e8820d57ce`. Rollback images preserve the preceding deployed code (`minemaster:before-1.4.9-final`) and the original 1.4.8 deployment (`minemaster:before-1.4.9`). Public readiness reports database/index readiness; authenticated health reports healthy monitoring with zero failed rigs. All 13 previously connected agents reconnected, with five GPU and one CPU processes still running and no before/after changes to mining enablement, engine, algorithm or desired/applied config versions. Six archive-preparation failures and 14 disconnected registrations remain; no repair, start/stop or update-install commands were issued.
+
+[Client 1.4.9](https://github.com/cryptonaut420/minemaster/releases/tag/v1.4.9) was published on September 29 at 16:46:52 UTC from `e62af57`. The complete pipeline reran **107 client tests and 121 backend tests**, both web builds, current-upstream checks, packaged miner allowlist/hash checks and update-feed checks. All seven uploaded asset digests/sizes were verified before publication. Both public latest feeds exactly match the locally verified 1.4.9 feeds. Windows/Linux packaged native sources, manifests/catalogs and renderer provenance (`1.4.9+103.e62af57`) match the committed source.
+
+The owner requested a further pass before fleet rollout; it was completed before publication. **Fleet installation remains on hold.** Existing connected clients report 1.4.7 and require one installation request before they adopt 1.4.9's automatic-install behavior. Publication alone does not change their running code. Real Windows install/relaunch, PowerShell/Defender behavior, driver compatibility and miner performance were not exercised; automated tests use inert files and fake processes.
