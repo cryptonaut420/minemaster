@@ -4,6 +4,7 @@ const Miner = require("../models/Miner");
 const Config = require("../models/Config");
 const ConfigProfile = require("../models/ConfigProfile");
 const { viewRig } = require("./telemetry");
+const PROFILE_SNAPSHOT = Symbol("profile snapshot");
 const FINAL = ["succeeded", "failed", "timed_out", "canceled"];
 const ACTIVE = ["queued", "sent", "received", "running"];
 let transport = () => false,
@@ -94,7 +95,16 @@ function normalize(input = {}) {
         "A saved profile ID, version and matching configuration type are required",
       );
   }
+  if (
+    input.targetVersion != null &&
+    (action !== "app-update-install" ||
+      !/^\d+\.\d+\.\d+$/.test(input.targetVersion))
+  )
+    throw problem(
+      "targetVersion requires an app installation and a release version",
+    );
   return {
+    ...(input.targetVersion ? { targetVersion: input.targetVersion } : {}),
     ...(input.profileId
       ? { profileId: input.profileId, profileVersion: input.profileVersion }
       : {}),
@@ -159,6 +169,11 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       "A supported downloaded update and fresh rig status are required",
       409,
     );
+  if (spec.targetVersion && miner.appUpdate?.version !== spec.targetVersion)
+    throw problem(
+      "The downloaded update does not match the requested release",
+      409,
+    );
   if (
     spec.deviceType === "GPU" &&
     ["start", "restart", "device-enable"].includes(spec.action) &&
@@ -208,7 +223,8 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
   if (idempotencyKey) command.idempotencyKey = storedKey;
   if (spec.action === "config-update" || spec.configType) {
     if (spec.profileId) {
-      const profile = await ConfigProfile.get(spec.profileId);
+      const profile =
+        input[PROFILE_SNAPSHOT] || (await ConfigProfile.get(spec.profileId));
       if (profile.version !== spec.profileVersion)
         throw problem("Profile changed. Reload before delivering it.", 409);
       if (profile.type !== spec.configType)
@@ -271,6 +287,23 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
         if (error.status !== 409) throw error;
       }
     }
+  }
+  if (command.configs || ["stop", "device-disable"].includes(command.action)) {
+    const types =
+      command.deviceType === "ALL"
+        ? ["xmrig", "nanominer"]
+        : [command.deviceType === "CPU" ? "xmrig" : "nanominer"];
+    await db.collection("miners").updateOne(
+      { id: minerId },
+      {
+        $unset: Object.fromEntries(
+          types.flatMap((type) => [
+            [`pendingProfileActivation.${type}`, ""],
+            [`profileDeliveryError.${type}`, ""],
+          ]),
+        ),
+      },
+    );
   }
   if (command.configs) {
     const changes = {};
@@ -341,6 +374,18 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
   return changed(await db.collection("commands").findOne({ id: command.id }));
 }
 const dispatchQueues = new Map();
+function profileSpec(profile, extra = {}) {
+  return {
+    ...extra,
+    action: "restart",
+    deviceType: profile.type === "xmrig" ? "CPU" : "GPU",
+    configType: profile.type,
+    profileId: profile.id,
+    profileVersion: profile.version,
+    restartRunningOnly: true,
+    [PROFILE_SNAPSHOT]: profile,
+  };
+}
 async function create(minerId, input, actor, key) {
   const previous = dispatchQueues.get(minerId) || Promise.resolve();
   const next = previous
@@ -534,6 +579,7 @@ async function bulk(ids, spec, actor, key) {
   return { batchId, results };
 }
 module.exports = {
+  profileSpec,
   configure,
   confirmAppVersion,
   normalize,

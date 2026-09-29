@@ -1193,6 +1193,23 @@ test("admin app install waits for a new matching-version registration and reject
       (await db.collection("miners").findOne({ id })).appUpdate?.state ===
       "downloaded",
   );
+  assert.equal(
+    (
+      await api("/v1/commands", "POST", {
+        minerId: id,
+        action: "app-update-install",
+        deviceType: "ALL",
+        targetVersion: "1.4.7",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    await db
+      .collection("commands")
+      .countDocuments({ minerId: id, action: "app-update-install" }),
+    0,
+  );
   const created = await api("/v1/commands", "POST", {
     minerId: id,
     action: "app-update-install",
@@ -2033,6 +2050,206 @@ test("direct profile delivery isolates the selected GPU assignment and captures 
   assert.equal(bound.data.configs.nanominer.version, profile.version);
   ws.terminate();
   second.terminate();
+});
+
+test("fleet profile activation snapshots offline delivery, preserves CPU and rejects stale defaults", async () => {
+  const Config = require("../src/models/Config"),
+    Profiles = require("../src/models/ConfigProfile");
+  const reg = registration("fleet-profile-offline");
+  reg.capabilities.gpuEngines = ["nanominer", "srbminer"];
+  const ws = await socket();
+  send(ws, "register", reg);
+  await waitFor(() => ws.messages.some((m) => m.type === "bound"));
+  const rig = await db.collection("miners").findOne({ systemId: reg.systemId }),
+    cpu = rig.desiredConfigs.xmrig;
+  ws.close();
+  await waitFor(
+    async () =>
+      !(await db.collection("miners").findOne({ id: rig.id })).connectionId,
+  );
+  const profile = await Profiles.create(
+    {
+      name: "Fleet test Quantus",
+      type: "nanominer",
+      config: {
+        engine: "srbminer",
+        algorithm: "quantus",
+        coin: "QUAN",
+        pool: "original.example:1234",
+        user: "fixture-wallet",
+      },
+    },
+    "test",
+  );
+  const config = await Config.get("nanominer"),
+    url = `/v1/config-profiles/${profile.id}/activate`,
+    headers = { "If-Match": profile.version };
+  assert.equal((await api(url, "POST", {}, headers)).status, 428);
+  assert.equal(
+    (await api(url, "POST", { expectedConfigVersion: "old" }, headers)).status,
+    409,
+  );
+  const response = await api(
+    url,
+    "POST",
+    { expectedConfigVersion: config.version },
+    headers,
+  );
+  assert.equal(response.status, 202);
+  assert.equal(
+    response.data.results.find((r) => r.minerId === rig.id).status,
+    "awaiting_reconnect",
+  );
+  let assigned = await db.collection("miners").findOne({ id: rig.id });
+  assert.deepEqual(assigned.desiredConfigs.xmrig, cpu);
+  assert.equal(
+    assigned.pendingProfileActivation.nanominer.profile.version,
+    profile.version,
+  );
+  await Profiles.update(
+    profile.id,
+    {
+      name: profile.name,
+      type: profile.type,
+      config: { ...profile.config, pool: "edited.example:1234" },
+    },
+    "test",
+    profile.version,
+  );
+  const second = await socket();
+  send(second, "register", reg);
+  const message = await waitFor(() =>
+    second.messages.find(
+      (m) => m.type === "command" && m.data.profileId === profile.id,
+    ),
+  );
+  assert.equal(message.data.configs.nanominer.pool, "original.example:1234");
+  assert.equal(message.data.restartRunningOnly, true);
+  assert.equal(message.data.configs.xmrig, undefined);
+  assigned = await db.collection("miners").findOne({ id: rig.id });
+  assert.equal(assigned.pendingProfileActivation?.nanominer, undefined);
+  await db.collection("miners").updateOne(
+    { id: rig.id },
+    {
+      $set: {
+        "pendingProfileActivation.nanominer": { id: "older", profile },
+      },
+    },
+  );
+  await api("/v1/commands", "POST", {
+    minerId: rig.id,
+    action: "stop",
+    deviceType: "GPU",
+  });
+  assert.equal(
+    (await db.collection("miners").findOne({ id: rig.id }))
+      .pendingProfileActivation?.nanominer,
+    undefined,
+  );
+  second.terminate();
+});
+
+test("server profitability schedule persists daily deduplication and isolates provider/Discord failures", async () => {
+  const service = require("../src/services/profitability");
+  const jobs = db.collection("scheduledJobs");
+  const previous = process.env.PROFITABILITY_DISCORD_WEBHOOK;
+  process.env.PROFITABILITY_DISCORD_WEBHOOK =
+    "https://discord.com/api/webhooks/123/synthetic-never-used";
+  let reviews = 0,
+    sends = 0;
+  const result = {
+    checkedAt: new Date().toISOString(),
+    opportunities: [],
+    gaps: ["Synthetic missing model"],
+    groupsChecked: 0,
+    activeGroups: 1,
+  };
+  const options = {
+    clock: () => new Date("2026-09-29T16:00:00Z"),
+    reviewFn: async () => {
+      reviews++;
+      return result;
+    },
+    discordFetch: async (url, request) => {
+      sends++;
+      assert.deepEqual(JSON.parse(request.body).allowed_mentions, {
+        parse: [],
+      });
+      return {
+        ok: true,
+        json: async () => ({ id: "synthetic-discord-receipt" }),
+      };
+    },
+  };
+  try {
+    await jobs.deleteOne({ _id: "daily-profitability" });
+    await service.run({
+      ...options,
+      clock: () => new Date("2026-09-29T15:59:00Z"),
+    });
+    assert.equal(reviews, 0);
+    await Promise.all([service.run(options), service.run(options)]);
+    assert.equal(reviews, 1);
+    assert.equal(sends, 1);
+    await service.run(options);
+    assert.equal(reviews, 1);
+    let state = await service.status();
+    assert.equal(state.lastDelivery.status, "sent");
+    assert.equal(state.running, false);
+    assert.equal(JSON.stringify(state).includes("synthetic-never-used"), false);
+    await service.run({
+      ...options,
+      force: true,
+      discordFetch: async () => {
+        throw Error("network unavailable");
+      },
+    });
+    state = await service.status();
+    assert.equal(state.lastDelivery.status, "failed-or-uncertain");
+    assert.equal(state.running, false);
+    await service.run(options);
+    assert.equal(reviews, 2); // no blind retry after uncertain delivery
+    await service.run({
+      ...options,
+      force: true,
+      reviewFn: async () => {
+        throw Error("provider unavailable");
+      },
+    });
+    assert.equal(
+      (await service.status()).lastResult.error,
+      "provider unavailable",
+    );
+    const key = (
+      await api("/v1/api-keys", "POST", {
+        name: "Profitability read",
+        permission: "read",
+      })
+    ).data;
+    const read = { Authorization: "", "X-API-Key": key.secret };
+    assert.equal(
+      (await api("/v1/profitability", "GET", undefined, read)).status,
+      200,
+    );
+    assert.equal(
+      (await api("/v1/profitability/check", "POST", {}, read)).status,
+      403,
+    );
+    await api(`/v1/api-keys/${key.data.id}`, "DELETE");
+    assert.equal(
+      (await api("/v1/profitability", "GET", undefined, read)).status,
+      401,
+    );
+    delete process.env.PROFITABILITY_DISCORD_WEBHOOK;
+    assert.equal(
+      (await api("/v1/profitability/check", "POST", {})).status,
+      422,
+    );
+  } finally {
+    if (previous === undefined)
+      delete process.env.PROFITABILITY_DISCORD_WEBHOOK;
+    else process.env.PROFITABILITY_DISCORD_WEBHOOK = previous;
+  }
 });
 
 test("database failures are unavailable responses, never successful empty data", async () => {

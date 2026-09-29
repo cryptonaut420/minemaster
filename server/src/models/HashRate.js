@@ -1,5 +1,5 @@
 const { getDb, rawRetention } = require("../db/mongodb");
-const { number, date, FRESH_MS } = require("../services/telemetry");
+const { number, date, rateFreshMs } = require("../services/telemetry");
 const MINUTE = 60000;
 function intervalParts(previous, nextAt) {
   const start = date(previous?.hashrateObservedAt);
@@ -12,7 +12,7 @@ function intervalParts(previous, nextAt) {
     nextAt <= start
   )
     return [];
-  const end = Math.min(nextAt, start + FRESH_MS),
+  const end = Math.min(nextAt, start + rateFreshMs(previous)),
     parts = [];
   for (let cursor = start; cursor < end;) {
     const bucket = Math.floor(cursor / MINUTE) * MINUTE,

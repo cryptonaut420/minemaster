@@ -195,8 +195,9 @@ function createRuntime({
       });
     const workDir = path.join(userData, "processes", id);
     await fs.promises.mkdir(workDir, { recursive: true });
-    const logFile =
-      engine === "nanominer" ? path.join(workDir, "miner.log") : null;
+    const logFile = ["nanominer", "srbminer"].includes(engine)
+      ? path.join(workDir, "miner.log")
+      : null;
     // The process manager calls preparation only with this process stopped.
     // Start each run with an empty file so old rates cannot become fresh again.
     if (logFile) await fs.promises.writeFile(logFile, "", { mode: 0o600 });
@@ -217,7 +218,13 @@ function createRuntime({
     await fs.promises.rename(`${configPath}.tmp`, configPath);
     const args =
       engine === "srbminer"
-        ? srbArguments(type, config, hostname, logicalCores)
+        ? [
+            ...srbArguments(type, config, hostname, logicalCores),
+            "--log-file",
+            logFile,
+            "--log-file-mode",
+            "0",
+          ]
         : engine === "xmrig"
           ? [
               "--config",

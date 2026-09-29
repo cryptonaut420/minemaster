@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useNotifications } from "./Notifications";
 import SRB from "../../../src/services/srbminer.json";
 import ConfigProfiles from "./ConfigProfiles";
+import Profitability from "./Profitability";
 import { compactIssue } from "../utils/rigControls";
 import {
   Badge,
@@ -77,7 +78,7 @@ function availableAlgorithms(type, engine) {
 export default function Configs() {
   const notify = useNotifications();
   const resource = useResource("configs"),
-    [type, setType] = useState("xmrig"),
+    [type, setType] = useState("nanominer"),
     [drafts, setDrafts] = useState(() => {
       try {
         return JSON.parse(
@@ -103,6 +104,7 @@ export default function Configs() {
     rigs = useResource("rigs", { q, limit: 100, cursor });
   const rolloutKey = useRef(requestId());
   const deliverySection = useRef(null);
+  const editor = useRef(null);
   useEffect(() => {
     setDeliveryProfile(null);
     rolloutKey.current = requestId();
@@ -237,8 +239,8 @@ export default function Configs() {
         <div>
           <h1>Mining configurations</h1>
           <p>
-            Save desired settings, deliver them to selected rigs, and inspect
-            the running version.
+            Switch the fleet between saved coins. Pools, wallets and tuning stay
+            ready to use.
           </p>
         </div>
         <Badge status={dirty ? "warning" : "online"}>
@@ -278,10 +280,19 @@ export default function Configs() {
         key={type}
         type={type}
         draft={draft}
+        baseline={baseline[type]}
+        onActivated={(config) => {
+          setDrafts((prev) => ({ ...prev, [type]: config }));
+          setBaseline((prev) => ({ ...prev, [type]: config }));
+          setResults(null);
+          setDeliveryProfile(null);
+          revisions.reload();
+        }}
         dirty={currentDirty}
         disabled={pending}
         onBusyChange={setPending}
         onChooseDelivery={(profile) => {
+          if (editor.current) editor.current.open = true;
           setDeliveryProfile(profile);
           setResults(null);
           rolloutKey.current = requestId();
@@ -296,6 +307,13 @@ export default function Configs() {
           );
         }}
         onLoad={(config) => {
+          if (editor.current) {
+            editor.current.open = true;
+            editor.current.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          }
           setDrafts((prev) => ({
             ...prev,
             [type]: { ...config, version: baseline[type]?.version || "legacy" },
@@ -307,393 +325,405 @@ export default function Configs() {
           rolloutKey.current = requestId();
         }}
       />
-      <div className="op-config-layout">
-        <section className="op-surface">
-          <h2>Desired settings</h2>
-          <p className="op-muted">
-            Current saved version {baseline[type]?.version || "Loading…"}
-          </p>
-          {draft && (
-            <form onSubmit={save} className="op-config-form">
-              {type === "xmrig" && draft.engine === "nanominer" && (
-                <p>
-                  Nanominer CPU and GPU are separate processes. RandomX has a 2%
-                  fee. Thread limits and crash recovery are supported; advanced
-                  activity, priority and TLS controls require XMRig. Older
-                  clients must be upgraded before receiving Nanominer CPU
-                  settings.
-                </p>
-              )}
-              {draft.engine === "srbminer" && (
-                <p>
-                  SRBMiner 3.6.7 ·{" "}
-                  {SRB.algorithms.find((r) => r.algorithm === draft.algorithm)
-                    ?.fee ?? "—"}
-                  % developer fee for this algorithm. One algorithm per process.
-                  Requires MineMaster 1.4 on Windows/Linux x64. Specific GPU
-                  model/driver support varies; the listed vendors are{" "}
-                  {SRB.algorithms
-                    .find((r) => r.algorithm === draft.algorithm)
-                    ?.devices.join(", ")}
-                  . MSR tuning, miner-owned restarts and automatic clock changes
-                  are disabled.
-                </p>
-              )}
-              {Object.entries(draft)
-                .filter(
-                  ([k]) =>
-                    labels[k] &&
-                    (!SRB.fields[k] ||
-                      (draft.engine === "srbminer" &&
-                        (type === "xmrig"
-                          ? k !== "srbGpuIntensity"
-                          : k !== "srbCpuPriority"))) &&
-                    !(
-                      draft.engine === "srbminer" &&
-                      [
-                        "additionalArgs",
-                        "cpuPriority",
-                        "pauseOnBattery",
-                        "pauseOnActive",
-                      ].includes(k)
-                    ) &&
-                    !(
-                      type === "nanominer" &&
-                      draft.engine !== "srbminer" &&
-                      ["password", "tls", "keepAlive"].includes(k)
-                    ) &&
-                    !(
-                      type === "xmrig" &&
-                      draft.engine === "nanominer" &&
-                      [
-                        "cpuPriority",
-                        "pauseOnBattery",
-                        "pauseOnActive",
-                        "tls",
-                        "keepAlive",
-                        "hugePages",
-                        "additionalArgs",
-                      ].includes(k)
-                    ),
-                )
-                .map(([k, value]) => (
-                  <label key={k} htmlFor={`config-${type}-${k}`}>
-                    {labels[k]}
-                    {k === "engine" ? (
-                      <select
-                        id={`config-${type}-${k}`}
-                        disabled={pending}
-                        value={value}
-                        onChange={(e) =>
-                          setDrafts({
-                            ...drafts,
-                            [type]: {
-                              ...draft,
-                              engine: e.target.value,
-                              algorithm: availableAlgorithms(
-                                type,
-                                e.target.value,
-                              ).includes(draft.algorithm)
-                                ? draft.algorithm
-                                : type === "xmrig"
-                                  ? "rx/0"
-                                  : "kawpow",
-                              ...(type === "xmrig"
-                                ? {
-                                    additionalArgs: "",
-                                    cpuPriority: 0,
-                                    pauseOnBattery: false,
-                                    pauseOnActive: 0,
-                                    hugePages: true,
-                                  }
-                                : {}),
-                              tls: false,
-                              keepAlive: false,
-                            },
-                          })
-                        }
-                      >
-                        <option value="nanominer">
-                          Nanominer{" "}
-                          {type === "xmrig" ? "· RandomX · 2% fee" : "· GPU"}
-                        </option>
-                        {type === "xmrig" && (
-                          <option value="xmrig">
-                            XMRig · advanced CPU controls
+      <details ref={editor} className="op-profile-editor">
+        <summary>Edit settings & individual rig delivery</summary>
+        <div className="op-config-layout">
+          <section className="op-surface">
+            <h2>Desired settings</h2>
+            <p className="op-muted">
+              Current saved version {baseline[type]?.version || "Loading…"}
+            </p>
+            {draft && (
+              <form onSubmit={save} className="op-config-form">
+                {type === "xmrig" && draft.engine === "nanominer" && (
+                  <p>
+                    Nanominer CPU and GPU are separate processes. RandomX has a
+                    2% fee. Thread limits and crash recovery are supported;
+                    advanced activity, priority and TLS controls require XMRig.
+                    Older clients must be upgraded before receiving Nanominer
+                    CPU settings.
+                  </p>
+                )}
+                {draft.engine === "srbminer" && (
+                  <p>
+                    SRBMiner 3.6.7 ·{" "}
+                    {SRB.algorithms.find((r) => r.algorithm === draft.algorithm)
+                      ?.fee ?? "—"}
+                    % developer fee for this algorithm. One algorithm per
+                    process. Requires MineMaster 1.4 on Windows/Linux x64.
+                    Specific GPU model/driver support varies; the listed vendors
+                    are{" "}
+                    {SRB.algorithms
+                      .find((r) => r.algorithm === draft.algorithm)
+                      ?.devices.join(", ")}
+                    . MSR tuning, miner-owned restarts and automatic clock
+                    changes are disabled.
+                  </p>
+                )}
+                {Object.entries(draft)
+                  .filter(
+                    ([k]) =>
+                      labels[k] &&
+                      (!SRB.fields[k] ||
+                        (draft.engine === "srbminer" &&
+                          (type === "xmrig"
+                            ? k !== "srbGpuIntensity"
+                            : k !== "srbCpuPriority"))) &&
+                      !(
+                        draft.engine === "srbminer" &&
+                        [
+                          "additionalArgs",
+                          "cpuPriority",
+                          "pauseOnBattery",
+                          "pauseOnActive",
+                        ].includes(k)
+                      ) &&
+                      !(
+                        type === "nanominer" &&
+                        draft.engine !== "srbminer" &&
+                        ["password", "tls", "keepAlive"].includes(k)
+                      ) &&
+                      !(
+                        type === "xmrig" &&
+                        draft.engine === "nanominer" &&
+                        [
+                          "cpuPriority",
+                          "pauseOnBattery",
+                          "pauseOnActive",
+                          "tls",
+                          "keepAlive",
+                          "hugePages",
+                          "additionalArgs",
+                        ].includes(k)
+                      ),
+                  )
+                  .map(([k, value]) => (
+                    <label key={k} htmlFor={`config-${type}-${k}`}>
+                      {labels[k]}
+                      {k === "engine" ? (
+                        <select
+                          id={`config-${type}-${k}`}
+                          disabled={pending}
+                          value={value}
+                          onChange={(e) =>
+                            setDrafts({
+                              ...drafts,
+                              [type]: {
+                                ...draft,
+                                engine: e.target.value,
+                                algorithm: availableAlgorithms(
+                                  type,
+                                  e.target.value,
+                                ).includes(draft.algorithm)
+                                  ? draft.algorithm
+                                  : type === "xmrig"
+                                    ? "rx/0"
+                                    : "kawpow",
+                                ...(type === "xmrig"
+                                  ? {
+                                      additionalArgs: "",
+                                      cpuPriority: 0,
+                                      pauseOnBattery: false,
+                                      pauseOnActive: 0,
+                                      hugePages: true,
+                                    }
+                                  : {}),
+                                tls: false,
+                                keepAlive: false,
+                              },
+                            })
+                          }
+                        >
+                          <option value="nanominer">
+                            Nanominer{" "}
+                            {type === "xmrig" ? "· RandomX · 2% fee" : "· GPU"}
                           </option>
-                        )}
-                        <option value="srbminer">
-                          SRBMiner-MULTI · CPU/GPU algorithms
-                        </option>
-                      </select>
-                    ) : k === "algorithm" ? (
-                      <select
-                        id={`config-${type}-${k}`}
-                        disabled={pending}
-                        value={value}
-                        onChange={(e) =>
-                          setDrafts({
-                            ...drafts,
-                            [type]: { ...draft, [k]: e.target.value },
-                          })
-                        }
-                      >
-                        {availableAlgorithms(type, draft.engine).map((a) => (
-                          <option key={a}>{a}</option>
-                        ))}
-                      </select>
-                    ) : typeof value === "boolean" ? (
-                      <input
-                        id={`config-${type}-${k}`}
-                        disabled={pending}
-                        type="checkbox"
-                        checked={value}
-                        onChange={(e) =>
-                          setDrafts({
-                            ...drafts,
-                            [type]: { ...draft, [k]: e.target.checked },
-                          })
-                        }
-                      />
-                    ) : (
-                      <input
-                        id={`config-${type}-${k}`}
-                        disabled={pending}
-                        type={typeof value === "number" ? "number" : "text"}
-                        min={
-                          SRB.fields[k]?.min ??
-                          (k === "threadPercentage" ? 10 : undefined)
-                        }
-                        max={
-                          SRB.fields[k]?.max ??
-                          (k === "threadPercentage" ? 100 : undefined)
-                        }
-                        value={
-                          Array.isArray(value)
-                            ? value.join(", ")
-                            : (value ?? "")
-                        }
-                        aria-invalid={!!fields[k]}
-                        aria-describedby={fields[k] ? `error-${k}` : undefined}
-                        onChange={(e) =>
-                          setDrafts({
-                            ...drafts,
-                            [type]: {
-                              ...draft,
-                              [k]:
-                                typeof value === "number"
-                                  ? Number(e.target.value)
-                                  : k === "backupPools"
-                                    ? e.target.value.trim()
-                                      ? e.target.value
-                                          .split(",")
-                                          .map((v) => v.trim())
-                                      : []
-                                    : e.target.value,
-                            },
-                          })
-                        }
-                      />
-                    )}
-                    {fields[k] && (
-                      <span className="op-warning" id={`error-${k}`}>
-                        {fields[k]}
-                      </span>
-                    )}
-                  </label>
+                          {type === "xmrig" && (
+                            <option value="xmrig">
+                              XMRig · advanced CPU controls
+                            </option>
+                          )}
+                          <option value="srbminer">
+                            SRBMiner-MULTI · CPU/GPU algorithms
+                          </option>
+                        </select>
+                      ) : k === "algorithm" ? (
+                        <select
+                          id={`config-${type}-${k}`}
+                          disabled={pending}
+                          value={value}
+                          onChange={(e) =>
+                            setDrafts({
+                              ...drafts,
+                              [type]: { ...draft, [k]: e.target.value },
+                            })
+                          }
+                        >
+                          {availableAlgorithms(type, draft.engine).map((a) => (
+                            <option key={a}>{a}</option>
+                          ))}
+                        </select>
+                      ) : typeof value === "boolean" ? (
+                        <input
+                          id={`config-${type}-${k}`}
+                          disabled={pending}
+                          type="checkbox"
+                          checked={value}
+                          onChange={(e) =>
+                            setDrafts({
+                              ...drafts,
+                              [type]: { ...draft, [k]: e.target.checked },
+                            })
+                          }
+                        />
+                      ) : (
+                        <input
+                          id={`config-${type}-${k}`}
+                          disabled={pending}
+                          type={typeof value === "number" ? "number" : "text"}
+                          min={
+                            SRB.fields[k]?.min ??
+                            (k === "threadPercentage" ? 10 : undefined)
+                          }
+                          max={
+                            SRB.fields[k]?.max ??
+                            (k === "threadPercentage" ? 100 : undefined)
+                          }
+                          value={
+                            Array.isArray(value)
+                              ? value.join(", ")
+                              : (value ?? "")
+                          }
+                          aria-invalid={!!fields[k]}
+                          aria-describedby={
+                            fields[k] ? `error-${k}` : undefined
+                          }
+                          onChange={(e) =>
+                            setDrafts({
+                              ...drafts,
+                              [type]: {
+                                ...draft,
+                                [k]:
+                                  typeof value === "number"
+                                    ? Number(e.target.value)
+                                    : k === "backupPools"
+                                      ? e.target.value.trim()
+                                        ? e.target.value
+                                            .split(",")
+                                            .map((v) => v.trim())
+                                        : []
+                                      : e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      )}
+                      {fields[k] && (
+                        <span className="op-warning" id={`error-${k}`}>
+                          {fields[k]}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                <p className="op-muted">
+                  Local worker name, password, GPU selection, and executable
+                  path can override these values. Running processes retain their
+                  launch configuration until restarted. CPU controls and backup
+                  pools require MineMaster 1.2 or later; Nanominer CPU selection
+                  requires 1.3 and SRBMiner requires 1.4. Thread percentage is a
+                  budget for automatic tuning, not a CPU usage measurement.
+                </p>
+                <div className="op-actions">
+                  <button
+                    className="op-primary"
+                    disabled={pending || !currentDirty}
+                  >
+                    Save desired settings
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending || !currentDirty}
+                    onClick={() => {
+                      setDrafts({ ...drafts, [type]: baseline[type] });
+                      setFields({});
+                    }}
+                  >
+                    Discard this draft
+                  </button>
+                </div>
+              </form>
+            )}
+            <details className="op-revisions">
+              <summary>Revision history & rollback</summary>
+              <ErrorNotice error={revisions.error} retry={revisions.reload} />
+              <ul className="op-feed">
+                {revisions.data?.data.map((r) => (
+                  <li key={r.version}>
+                    <strong>{r.version}</strong>
+                    <small>
+                      {at(r.createdAt)} · {r.actor}
+                    </small>
+                    <span>
+                      {r.algorithm} · {r.pool}
+                    </span>
+                    <button
+                      disabled={
+                        pending ||
+                        currentDirty ||
+                        r.version === baseline[type]?.version
+                      }
+                      onClick={() => rollback(r.version)}
+                    >
+                      Restore these values
+                    </button>
+                  </li>
                 ))}
+              </ul>
+            </details>
+          </section>
+          <section className="op-surface" ref={deliverySection}>
+            <h2>Deliver to rigs</h2>
+            <p>
+              <strong>
+                {deliveryProfile
+                  ? `Saved profile: ${deliveryProfile.name}`
+                  : "Source: saved desired settings"}
+              </strong>
+            </p>
+            {deliveryProfile && (
               <p className="op-muted">
-                Local worker name, password, GPU selection, and executable path
-                can override these values. Running processes retain their launch
-                configuration until restarted. CPU controls and backup pools
-                require MineMaster 1.2 or later; Nanominer CPU selection
-                requires 1.3 and SRBMiner requires 1.4. Thread percentage is a
-                budget for automatic tuning, not a CPU usage measurement.
-              </p>
-              <div className="op-actions">
+                {deliveryProfile.config.algorithm} ·{" "}
+                {deliveryProfile.config.pool}
+                <br />
+                Only selected rigs receive this profile. Global defaults and
+                your draft stay unchanged.{" "}
                 <button
-                  className="op-primary"
-                  disabled={pending || !currentDirty}
-                >
-                  Save desired settings
-                </button>
-                <button
-                  type="button"
-                  disabled={pending || !currentDirty}
+                  disabled={pending}
                   onClick={() => {
-                    setDrafts({ ...drafts, [type]: baseline[type] });
-                    setFields({});
+                    setDeliveryProfile(null);
+                    setResults(null);
+                    rolloutKey.current = requestId();
                   }}
                 >
-                  Discard this draft
+                  Use desired settings instead
                 </button>
-              </div>
-            </form>
-          )}
-          <details className="op-revisions">
-            <summary>Revision history & rollback</summary>
-            <ErrorNotice error={revisions.error} retry={revisions.reload} />
-            <ul className="op-feed">
-              {revisions.data?.data.map((r) => (
-                <li key={r.version}>
-                  <strong>{r.version}</strong>
-                  <small>
-                    {at(r.createdAt)} · {r.actor}
-                  </small>
-                  <span>
-                    {r.algorithm} · {r.pool}
-                  </span>
-                  <button
-                    disabled={
-                      pending ||
-                      currentDirty ||
-                      r.version === baseline[type]?.version
-                    }
-                    onClick={() => rollback(r.version)}
-                  >
-                    Restore these values
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        </section>
-        <section className="op-surface" ref={deliverySection}>
-          <h2>Deliver to rigs</h2>
-          <p>
-            <strong>
-              {deliveryProfile
-                ? `Saved profile: ${deliveryProfile.name}`
-                : "Source: saved desired settings"}
-            </strong>
-          </p>
-          {deliveryProfile && (
-            <p className="op-muted">
-              {deliveryProfile.config.algorithm} · {deliveryProfile.config.pool}
-              <br />
-              Only selected rigs receive this profile. Global defaults and your
-              draft stay unchanged.{" "}
-              <button
-                disabled={pending}
-                onClick={() => {
-                  setDeliveryProfile(null);
-                  setResults(null);
-                  rolloutKey.current = requestId();
-                }}
-              >
-                Use desired settings instead
-              </button>
-            </p>
-          )}
-          <p>
-            Choose explicit targets. Restart affects only running{" "}
-            {type === "xmrig" ? "CPU" : "GPU"} processes; stopped processes stay
-            stopped.
-          </p>
-          <label>
-            Find targets
-            <input
-              value={q}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Rig name or group tag"
-            />
-          </label>
-          <ErrorNotice error={rigs.error} retry={rigs.reload} />
-          <form onSubmit={apply}>
-            <div className="op-targets">
-              {[...targetRows, ...(rigs.data?.data || [])].map((r) => (
-                <label className="op-check" key={r.id}>
-                  <input
-                    type="checkbox"
-                    checked={!!targets[r.id]}
-                    disabled={
-                      !r.freshness.connected || r.protocolVersion < 2 || pending
-                    }
-                    onChange={(e) => {
-                      setTargets((prev) => {
-                        const next = { ...prev };
-                        e.target.checked
-                          ? (next[r.id] = r.name)
-                          : delete next[r.id];
-                        return next;
-                      });
-                      setResults(null);
-                      rolloutKey.current = requestId();
-                    }}
-                  />
-                  <span>
-                    {r.name}
-                    <small>
-                      {compactIssue(r) || r.reason?.slice(0, 120)}
-                      {r.protocolVersion < 2 ? " · Agent upgrade required" : ""}
-                    </small>
-                  </span>
-                  <Badge status={r.status} />
-                </label>
-              ))}
-            </div>
-            {rigs.data?.nextCursor && (
-              <button
-                type="button"
-                onClick={() => {
-                  setTargetRows([...targetRows, ...rigs.data.data]);
-                  setCursor(rigs.data.nextCursor);
-                }}
-              >
-                More targets
-              </button>
-            )}
-            <label className="op-check">
-              <input
-                type="checkbox"
-                checked={restart}
-                onChange={(e) => {
-                  setRestart(e.target.checked);
-                  rolloutKey.current = requestId();
-                  setResults(null);
-                }}
-              />
-              Restart running processes after delivery
-            </label>
-            <p>
-              {Object.keys(targets).length} selected:{" "}
-              {Object.values(targets).join(", ") || "Choose rigs above"}
-            </p>
-            <button
-              className="op-primary"
-              disabled={
-                pending ||
-                (!deliveryProfile && currentDirty) ||
-                !Object.keys(targets).length ||
-                !!results
-              }
-            >
-              {pending
-                ? "Working…"
-                : restart
-                  ? "Deliver and restart selected"
-                  : deliveryProfile
-                    ? "Deliver saved profile"
-                    : "Deliver desired settings"}
-            </button>
-            {currentDirty && !deliveryProfile && (
-              <p className="op-warning">
-                Save or discard this draft before delivery.
               </p>
             )}
-          </form>
-          {results && (
-            <ul className="op-feed">
-              {results.map((r) => (
-                <li key={r.minerId}>
-                  <strong>{targets[r.minerId] || r.minerId}</strong>
-                  {r.error || <Badge status={r.command.status} />}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+            <p>
+              Choose explicit targets. Restart affects only running{" "}
+              {type === "xmrig" ? "CPU" : "GPU"} processes; stopped processes
+              stay stopped.
+            </p>
+            <label>
+              Find targets
+              <input
+                value={q}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Rig name or group tag"
+              />
+            </label>
+            <ErrorNotice error={rigs.error} retry={rigs.reload} />
+            <form onSubmit={apply}>
+              <div className="op-targets">
+                {[...targetRows, ...(rigs.data?.data || [])].map((r) => (
+                  <label className="op-check" key={r.id}>
+                    <input
+                      type="checkbox"
+                      checked={!!targets[r.id]}
+                      disabled={
+                        !r.freshness.connected ||
+                        r.protocolVersion < 2 ||
+                        pending
+                      }
+                      onChange={(e) => {
+                        setTargets((prev) => {
+                          const next = { ...prev };
+                          e.target.checked
+                            ? (next[r.id] = r.name)
+                            : delete next[r.id];
+                          return next;
+                        });
+                        setResults(null);
+                        rolloutKey.current = requestId();
+                      }}
+                    />
+                    <span>
+                      {r.name}
+                      <small>
+                        {compactIssue(r) || r.reason?.slice(0, 120)}
+                        {r.protocolVersion < 2
+                          ? " · Agent upgrade required"
+                          : ""}
+                      </small>
+                    </span>
+                    <Badge status={r.status} />
+                  </label>
+                ))}
+              </div>
+              {rigs.data?.nextCursor && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetRows([...targetRows, ...rigs.data.data]);
+                    setCursor(rigs.data.nextCursor);
+                  }}
+                >
+                  More targets
+                </button>
+              )}
+              <label className="op-check">
+                <input
+                  type="checkbox"
+                  checked={restart}
+                  onChange={(e) => {
+                    setRestart(e.target.checked);
+                    rolloutKey.current = requestId();
+                    setResults(null);
+                  }}
+                />
+                Restart running processes after delivery
+              </label>
+              <p>
+                {Object.keys(targets).length} selected:{" "}
+                {Object.values(targets).join(", ") || "Choose rigs above"}
+              </p>
+              <button
+                className="op-primary"
+                disabled={
+                  pending ||
+                  (!deliveryProfile && currentDirty) ||
+                  !Object.keys(targets).length ||
+                  !!results
+                }
+              >
+                {pending
+                  ? "Working…"
+                  : restart
+                    ? "Deliver and restart selected"
+                    : deliveryProfile
+                      ? "Deliver saved profile"
+                      : "Deliver desired settings"}
+              </button>
+              {currentDirty && !deliveryProfile && (
+                <p className="op-warning">
+                  Save or discard this draft before delivery.
+                </p>
+              )}
+            </form>
+            {results && (
+              <ul className="op-feed">
+                {results.map((r) => (
+                  <li key={r.minerId}>
+                    <strong>{targets[r.minerId] || r.minerId}</strong>
+                    {r.error || <Badge status={r.command.status} />}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </details>
+      <Profitability />
       <div className="op-surface">
         <CommandHistory refresh={results} />
       </div>

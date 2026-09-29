@@ -345,6 +345,14 @@ test("time integration splits boundaries, caps freshness, ignores duplicates and
     60000,
   );
   assert.equal(pieces.length, 2);
+  const srbPieces = intervalParts(
+    { ...p, engine: "srbminer", hashrateObservedAt: base },
+    base + 180000,
+  );
+  assert.equal(
+    srbPieces.reduce((n, x) => n + x.end - x.start, 0),
+    120000,
+  );
   assert.equal(
     intervalParts({ ...p, hashrateObservedAt: base }, base).length,
     0,
@@ -958,4 +966,65 @@ test("admin rate formatting supports Pearl-scale rates without treating invalid 
   assert.equal(rate(0), "0.0 H/s");
   for (const value of [null, undefined, NaN, -1, "5"])
     assert.equal(rate(value), "Unavailable");
+});
+
+test("SRBMiner 90-second rate cadence has a bounded 120-second window; agent freshness is unchanged", () => {
+  const {
+    viewRig,
+    normalizeProcesses,
+    rateFreshMs,
+  } = require("../src/services/telemetry");
+  const now = Date.now();
+  const process = {
+    id: "gpu",
+    engine: "srbminer",
+    type: "nanominer",
+    deviceType: "GPU",
+    running: true,
+    algorithm: "quantus",
+    hashrate: 200e6,
+    hashrateObservedAt: new Date(now - 90000).toISOString(),
+  };
+  const normalized = normalizeProcesses(
+    { protocolVersion: 2, processes: [process] },
+    now,
+  );
+  assert.equal(normalized[0].quality, "valid");
+  assert.equal(rateFreshMs(process), 120000);
+  const rig = {
+    connectionId: "current",
+    connectionLastSeen: new Date(now).toISOString(),
+    telemetryReceivedAt: new Date(now).toISOString(),
+    processes: normalized,
+  };
+  assert.equal(viewRig(rig, now).processes[0].quality, "valid");
+  assert.equal(
+    viewRig(
+      { ...rig, telemetryReceivedAt: new Date(now - 61000).toISOString() },
+      now,
+    ).processes[0].quality,
+    "stale",
+  );
+  assert.equal(
+    viewRig(
+      {
+        ...rig,
+        processes: [
+          {
+            ...normalized[0],
+            hashrateObservedAt: new Date(now - 121000).toISOString(),
+          },
+        ],
+      },
+      now,
+    ).processes[0].quality,
+    "stale",
+  );
+  assert.equal(
+    normalizeProcesses(
+      { protocolVersion: 2, processes: [{ ...process, engine: "nanominer" }] },
+      now,
+    )[0].quality,
+    "stale",
+  );
 });

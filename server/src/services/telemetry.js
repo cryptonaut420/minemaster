@@ -1,4 +1,8 @@
 const FRESH_MS = 60000;
+// SRBMiner 3.6.7 emits aggregate file statistics roughly every 90 seconds.
+// Keep original sample times; agent and sensor freshness remain 60 seconds.
+const rateFreshMs = (process) =>
+  process?.engine === "srbminer" ? 120000 : FRESH_MS;
 const CONNECTION_MS = 90000;
 const number = (v, min = 0, max = Number.MAX_VALUE) =>
   typeof v === "number" && Number.isFinite(v) && v >= min && v <= max
@@ -144,7 +148,7 @@ function normalizeProcesses(payload, now = Date.now()) {
         ? "unavailable"
         : protocol2 && !validTime
           ? "unavailable"
-          : now - (observed ?? now) > FRESH_MS
+          : now - (observed ?? now) > rateFreshMs(p)
             ? "stale"
             : rate === 0
               ? "zero"
@@ -321,7 +325,7 @@ function reconcileProcess(
         sameRun &&
         previous.quality === "zero" &&
         date(previous.hashrateObservedAt) !== null &&
-        now - date(previous.hashrateObservedAt) <= FRESH_MS
+        now - date(previous.hashrateObservedAt) <= rateFreshMs(previous)
         ? previous.zeroSince || process.hashrateObservedAt
         : process.hashrateObservedAt
       : null;
@@ -340,7 +344,7 @@ function viewRig(rig, now = Date.now()) {
       ? "stale"
       : date(p.hashrateObservedAt) === null || number(p.hashrate) === null
         ? "unavailable"
-        : now - date(p.hashrateObservedAt) > FRESH_MS
+        : now - date(p.hashrateObservedAt) > rateFreshMs(p)
           ? "stale"
           : p.quality,
     uptime:
@@ -539,9 +543,15 @@ function summary(rigs, now = Date.now()) {
     })),
     hardware,
     freshnessThresholdSeconds: FRESH_MS / 1000,
+    hashrateFreshnessSecondsByEngine: {
+      xmrig: 60,
+      nanominer: 60,
+      srbminer: 120,
+    },
   };
 }
 module.exports = {
+  rateFreshMs,
   FRESH_MS,
   CONNECTION_MS,
   number,

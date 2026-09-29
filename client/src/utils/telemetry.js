@@ -1,3 +1,5 @@
+export const rateFreshMs = (miner) =>
+  (miner.engine || miner.activeConfig?.engine) === "srbminer" ? 120000 : 60000;
 // Process aggregates only: a per-GPU line must never replace the process total.
 export function parseAggregate(line) {
   const text = String(line || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""); // eslint-disable-line no-control-regex
@@ -6,17 +8,22 @@ export function parseAggregate(line) {
   if (/\blast\s+\d+\s+(?:min(?:ute)?s?|hours?|h)\b/i.test(text)) return null;
   const match =
     text.match(
-      /\bspeed\s+\S+\s+((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s+(?:[\d.,]+|n\/a)\s+(?:[\d.,]+|n\/a)\s*([kmgt]?h\/s)\b/i,
+      /\bspeed\s+\S+\s+((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s+(?:[\d.,]+|n\/a)\s+(?:[\d.,]+|n\/a)\s*([kmgpt]?h\/s)\b/i,
     ) ||
     text.match(
-      /\bTotal(?:\s+speed|\s+hashrate)?\s*:\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([kmgt]?h\/s)\b/i,
+      /\bTotal(?:\s+speed|\s+hashrate)?\s*:\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*([kmgpt]?h\/s)\b/i,
     );
   if (!match) return null;
   const rate =
     Number(match[1].replace(/,/g, "")) *
-    { "h/s": 1, "kh/s": 1e3, "mh/s": 1e6, "gh/s": 1e9, "th/s": 1e12 }[
-      match[2].toLowerCase()
-    ];
+    {
+      "h/s": 1,
+      "kh/s": 1e3,
+      "mh/s": 1e6,
+      "gh/s": 1e9,
+      "th/s": 1e12,
+      "ph/s": 1e15,
+    }[match[2].toLowerCase()];
   return Number.isFinite(rate) && rate >= 0 ? rate : null;
 }
 export function createLineBuffer() {
@@ -46,6 +53,18 @@ export function parseShares(line, observedAt = new Date().toISOString()) {
   const match = String(line).match(
     /\b(?:accepted|rejected)\s*\((\d+)\/(\d+)\)/i,
   );
+  const srb = String(line)
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .match(
+      /\bTotal:\s*[\d.,]+\s*[kmgpt]?H\/s\s*\[[^\]]*\bA:(\d+)\s+R:(\d+)\b/i,
+    ); // eslint-disable-line no-control-regex
+  if (srb)
+    return {
+      accepted: Number(srb[1]),
+      rejected: Number(srb[2]),
+      observedAt,
+      source: "srbminer-counter",
+    };
   return match
     ? {
         accepted: Number(match[1]),
@@ -150,7 +169,7 @@ export function processSnapshot(miner, now = Date.now()) {
       ? "unavailable"
       : !Number.isFinite(observedTime) ||
           observedTime > now + 5000 ||
-          now - observedTime > 60000
+          now - observedTime > rateFreshMs(miner)
         ? "stale"
         : miner.hashrate === 0
           ? "zero"
@@ -185,13 +204,18 @@ export function parseProcessDetails(
   const version =
     text.match(/\bXMRig\/(\d+\.\d+\.\d+(?:[-\w.]*)?)/i) ||
     text.match(/\bnanominer\s+(?:v(?:ersion)?\s*)?(\d+\.\d+\.\d+)/i) ||
-    text.match(/\bSRBMiner-MULTI\s+(?:v)?(\d+\.\d+\.\d+)/i);
+    text.match(/\bSRBMiner-MULTI\s+(?:v)?(\d+\.\d+\.\d+)/i) ||
+    text.match(/\bMiner version:\s*(\d+\.\d+\.\d+)/i);
   if (version) result.minerVersion = version[1];
-  const pool = text.match(/\b(?:new job from|use pool)\s+([^\s]+)/i);
+  const pool = text.match(
+    /\b(?:new job from|use pool|Connected to)\s+([^\s]+)/i,
+  );
   if (pool)
     result.pool = {
       address: pool[1],
-      status: /\bnew job from\b/i.test(text) ? "connected" : "connecting",
+      status: /\b(?:new job from|Connected to)\b/i.test(text)
+        ? "connected"
+        : "connecting",
       observedAt,
       source: "process-log",
     };

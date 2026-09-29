@@ -168,6 +168,7 @@ async function register(c, data) {
     version: miner.version,
     bootId: miner.bootId,
   });
+  await require("../services/profileActivation").deliverPending(miner.id, c.id);
   broadcastMiner(miner);
 }
 async function owned(c) {

@@ -144,6 +144,10 @@ for (const platform of ["linux", "win32"])
       assert.ok(!spec.args.includes("--background"));
       assert.ok(!spec.args.includes("--api-enable"));
       assert.equal(spec.engine, "srbminer");
+      assert.equal(spec.logFile, path.join(spec.cwd, "miner.log"));
+      assert.equal(arg(spec, "--log-file"), spec.logFile);
+      assert.equal(arg(spec, "--log-file-mode"), "0");
+      assert.equal(await fs.readFile(spec.logFile, "utf8"), "");
       assert.equal(
         JSON.parse(await fs.readFile(path.join(spec.cwd, "config.json")))
           .engine,

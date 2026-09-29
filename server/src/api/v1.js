@@ -646,6 +646,39 @@ router.get(
   ),
 );
 router.get(
+  "/client-release",
+  route(async (req, res) =>
+    res.json(await require("../services/clientRelease").overview()),
+  ),
+);
+router.get(
+  "/profitability",
+  route(async (req, res) =>
+    res.json({ data: await require("../services/profitability").status() }),
+  ),
+);
+router.post(
+  "/profitability/check",
+  route(async (req, res) => {
+    const service = require("../services/profitability");
+    const state = await service.status();
+    if (!state.enabled)
+      throw fail(
+        "Configure PROFITABILITY_DISCORD_WEBHOOK on the server first",
+        422,
+      );
+    if (state.running)
+      throw fail("A profitability review is already running", 409);
+    service
+      .run({ force: true })
+      .catch(() => console.error("Manual profitability review failed"));
+    res.status(202).json({
+      message:
+        "Review requested. Read /profitability for its result and Discord delivery status.",
+    });
+  }),
+);
+router.get(
   "/config-profiles",
   route(async (req, res) =>
     res.json(await ConfigProfile.list(req.query.type, req.query.cursor)),
@@ -658,6 +691,21 @@ router.post(
       .status(201)
       .json({ data: await ConfigProfile.create(req.body, actor(req)) }),
   ),
+);
+router.post(
+  "/config-profiles/:id/activate",
+  route(async (req, res) => {
+    res
+      .status(202)
+      .json(
+        await require("../services/profileActivation").activate(
+          req.params.id,
+          req.get("If-Match")?.replace(/"/g, ""),
+          req.body.expectedConfigVersion,
+          actor(req),
+        ),
+      );
+  }),
 );
 router.post(
   "/config-profiles/:id/apply",

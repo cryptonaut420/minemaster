@@ -1,4 +1,4 @@
-import { parseAggregate } from "./telemetry";
+import { parseAggregate, rateFreshMs } from "./telemetry";
 /**
  * Shared formatting utilities for consistent display across the app
  */
@@ -124,7 +124,7 @@ export function formatMinerRate(miner, now = Date.now()) {
   if (
     !Number.isFinite(observed) ||
     observed > now + 5000 ||
-    now - observed > 60000
+    now - observed > rateFreshMs(miner)
   )
     return "Stale sample";
   return formatHashrate(miner.hashrate);

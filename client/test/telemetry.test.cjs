@@ -282,3 +282,65 @@ test("automatic restart retains output from its own run and discards the previou
   assert.equal(silent.hashrate, null);
   assert.equal(silent.minerVersion, null);
 });
+
+test("SRBMiner file output preserves aggregate rates and counters without GPU duplication", async () => {
+  const { parseAggregate, parseShares, parseProcessDetails } =
+    await esm("telemetry.js");
+  const time = "2026-09-29T04:09:29.000Z";
+  const total =
+    "[2026-09-28 21:09:29] Total: 217.82 MH/s [P:199.3W EFF:1.093 A:2 R:1 HW:0]";
+  assert.equal(parseAggregate(total), 217820000);
+  assert.deepEqual(parseShares(total, time), {
+    accepted: 2,
+    rejected: 1,
+    observedAt: time,
+    source: "srbminer-counter",
+  });
+  assert.equal(
+    parseShares("GPU0 RTX 3060 Ti: 217.82 MH/s [A:2 R:1 HW:0]", time),
+    null,
+  );
+  assert.equal(
+    parseAggregate("Average hashrate: 1m 217.82 MH/s | 1h 0.00 H/s"),
+    null,
+  );
+  assert.equal(parseAggregate("Total: 1.25 PH/s"), 1.25e15);
+  assert.equal(
+    parseProcessDetails("[2026-09-28 21:08:23] Miner version: 3.6.7", time)
+      .minerVersion,
+    "3.6.7",
+  );
+  assert.deepEqual(
+    parseProcessDetails("Connected to qtc-us.kryptex.network:7049 [0]", time)
+      .pool,
+    {
+      address: "qtc-us.kryptex.network:7049",
+      status: "connected",
+      observedAt: time,
+      source: "process-log",
+    },
+  );
+});
+
+test("SRBMiner display uses its 90-second observation cadence without refreshing timestamps", async () => {
+  const { formatMinerRate } = await esm("formatters.js");
+  const { processSnapshot } = await esm("telemetry.js");
+  const now = Date.now();
+  const miner = {
+    engine: "srbminer",
+    running: true,
+    hashrate: 200e6,
+    hashrateObservedAt: new Date(now - 90000).toISOString(),
+  };
+  assert.equal(formatMinerRate(miner, now), "200.00 MH/s");
+  assert.equal(processSnapshot(miner, now).quality, "valid");
+  assert.equal(
+    processSnapshot(miner, now).hashrateObservedAt,
+    miner.hashrateObservedAt,
+  );
+  assert.equal(formatMinerRate(miner, now + 31000), "Stale sample");
+  assert.equal(
+    formatMinerRate({ ...miner, engine: "nanominer" }, now),
+    "Stale sample",
+  );
+});

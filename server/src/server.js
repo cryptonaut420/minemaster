@@ -123,6 +123,8 @@ async function startServer() {
       );
     await require("./services/commands").expire(true);
 
+    require("./services/profitability").start();
+
     // Start HTTP server (bind 0.0.0.0 for Docker container access)
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 MineMaster Server running on port ${PORT}`);
@@ -157,6 +159,7 @@ function gracefulShutdown(signal) {
 
   // Clean up WebSocket server internals (stale connection reaper, etc.)
   websocketServer.shutdown();
+  require("./services/profitability").stop();
 
   // Close all WebSocket connections
   if (wss) {

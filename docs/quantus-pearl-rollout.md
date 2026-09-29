@@ -31,7 +31,9 @@ The RTX 3060 Ti path is documented. Do not treat AMD/NVIDIA catalog labels as un
 
 At the initial inventory read, connected machines were principally 1.4.5, with KAM_Z1/KAM_Z6 still 1.4.3. Client update availability is not evidence that it installed. A backend deploy alone does not upgrade these machines.
 
-## Profitability monitoring: design, not an enabled feature
+## Profitability monitoring: initial design and current scope
+
+The daily server-owned recommendation check is implemented in the [profitability monitor](profitability-monitor.md). Automatic switching remains unimplemented. The following records the initial broader design.
 
 Owner electricity assumption: **C$0.13/kWh**. Continuous 100 W costs C$0.312/day. Measure wall power where possible: GPU telemetry alone excludes CPU/system/PSU consumption. Today's user-supplied US$2.24/day QTC and US$1.55/day PRL quotes are calculator snapshots, not measured fleet income or guaranteed net profit.
 
@@ -63,3 +65,11 @@ The owner authorized a real production-connected test on the local Linux RTX 306
 `tools/minemaster-wallets` is a read-only convenience command installed locally as `~/.local/bin/minemaster-wallets`. It queries the official Quantus mainnet endpoint and the local Oyster wallet RPC, displays receiving addresses and pool links, and distinguishes query failure from zero. Confirmed both initial balances are zero. Quantus CLI 2.3.0 warns about a newer runtime (153 versus tested 149); balance reads worked, but spending compatibility has not been verified. Pearl's wallet runs as the user service `minemaster-pearl-wallet`. Pool unpaid earnings are separate from received wallet funds.
 
 Direct-delivery validation: 107 backend regressions pass, including access, missing/stale profile versions, per-rig GPU assignment/CPU isolation, immutable snapshots, idempotent retries, Stop cancellation and reconnect retention. Admin build and populated browser profile delivery/toast checks pass.
+
+The authorized local Quantus test confirmed Kryptex worker `ironclad`, accepted shares with no rejects in the sampled interval, and roughly 218–228 MH/s at stock settings (about 199 W GPU-only, 76–79°C). Initial redirected stdout produced no telemetry. SRBMiner now uses a process-specific file log through the existing owned reader; its 90-second summary cadence receives a bounded 120-second rate-freshness window. Added actual-output parsing for aggregate A/R counters and file version/pool messages; per-GPU counters and historical averages do not replace process aggregates. CPU remained stopped. This is a short Linux RTX 3060 Ti test, not a Windows or fleet benchmark.
+
+The subsequent local Pearl test reported approximately 54–55 TH/s and an accepted share at stock settings (about 199 W GPU-only, 80°C). Both tests kept CPU mining stopped. Pearl's pool dashboard grouped the sample under its generic worker name; per-rig MineMaster telemetry still identifies the physical rig. Unique Pearl pool worker attribution remains a follow-up, not a verified feature.
+
+The profile library now shows pool/wallet/engine details in cards and activates a profile for the fleet without a draft round-trip. GPU/CPU defaults remain separate; offline delivery snapshots and stopped-process intent are regression-tested. Production fleet coin switching was not part of UI verification. Daily profitability runs inside MineMaster, documented in [profitability-monitor.md](profitability-monitor.md).
+
+Release preparation: 117 backend regressions, 85 client regressions and the admin production build pass. Browser fixture checks cover populated profile cards, activation, toasts, explicit per-rig delivery failures, backend outage feedback and a measured 390px viewport. Tests use disposable data; production deployment/release/upgrade results follow separately.

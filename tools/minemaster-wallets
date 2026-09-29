@@ -32,7 +32,7 @@ def main():
     print('\n\n'.join(results))
     print('\nReceiving addresses / pool earnings (unpaid pool earnings are separate from wallet balances):')
     for coin, address in addresses.items():
-        print(f'\n{coin}: {address}\nhttps://pool.kryptex.com/{coin.lower()}/miner/{address}')
+        print(f'\n{coin}: {address}\nhttps://pool.kryptex.com/{coin.lower()}/miner/stats/{address}')
     print(f'\nWallet access and backup instructions: {ROOT / "README.md"}')
     print('Pearl wallet service: systemctl --user status minemaster-pearl-wallet')
 

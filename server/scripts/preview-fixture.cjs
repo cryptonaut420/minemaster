@@ -59,6 +59,13 @@ const { ObjectId } = require("mongodb");
       index: false,
     }),
   );
+  app.get("/__fixture/narrow", (req, res) =>
+    res
+      .type("html")
+      .send(
+        '<!doctype html><title>Narrow admin fixture</title><iframe title="390px admin" src="/configs" style="width:390px;height:900px;border:0"></iframe>',
+      ),
+  );
   app.get("*", (req, res) =>
     res.type("html").send(
       require("fs")
@@ -86,7 +93,51 @@ const { ObjectId } = require("mongodb");
     { pool: "fixture.pool:4444", user: "synthetic-wallet", coin: "RVN" },
     "fixture",
   );
+  for (const [name, engine, algorithm, coin] of [
+    ["Ravencoin · Original", "nanominer", "kawpow", "RVN"],
+    ["Quantus · North America", "srbminer", "quantus", "QUAN"],
+    ["Pearl · North America", "srbminer", "pearlhash", "PRL"],
+  ]) {
+    await require("../src/models/ConfigProfile").create(
+      {
+        name,
+        type: "nanominer",
+        config: {
+          engine,
+          algorithm,
+          coin,
+          pool: "fixture.pool:4444",
+          user: "synthetic-wallet",
+        },
+      },
+      "fixture",
+    );
+  }
   await new Promise((resolve) => server.listen(43188, "127.0.0.1", resolve));
+  await db.collection("scheduledJobs").insertOne({
+    _id: "daily-profitability",
+    lastRun: new Date().toISOString(),
+    lastDelivery: { status: "sent" },
+    lastResult: {
+      groupsChecked: 1,
+      activeGroups: 2,
+      opportunities: [
+        {
+          kind: "GPU",
+          name: "Synthetic RTX 3060 Ti",
+          devices: 2,
+          current: { name: "Fixture RVN", netBeforeFeesCad: -0.2 },
+          best: {
+            name: "Fixture Quantus",
+            netBeforeFeesCad: 1.8,
+            url: "https://hashrate.no/gpus/3060ti",
+          },
+          profiles: ["Synthetic Quantus profile"],
+        },
+      ],
+      gaps: ["Synthetic missing CPU benchmark"],
+    },
+  });
   const agents = [];
   for (let i = 0; i < 12; i++) {
     const gpus =

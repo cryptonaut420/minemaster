@@ -15,6 +15,7 @@ import {
 } from "./Operations";
 import "./Dashboard.css";
 import useQuickControls from "../hooks/useQuickControls";
+import ClientUpdates from "./ClientUpdates";
 import FleetOverview, { algorithmName } from "./FleetOverview";
 import { useNotifications } from "./Notifications";
 import {
@@ -1100,6 +1101,7 @@ export default function Dashboard() {
               filter("attention", filters.attention === "true" ? "" : "true")
             }
           />
+          <ClientUpdates />
           <div className="op-toolbar op-filters">
             <label className="op-search">
               Find rigs
