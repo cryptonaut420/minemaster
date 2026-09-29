@@ -10,6 +10,7 @@ export default function ConfigProfiles({
   disabled,
   onLoad,
   onBusyChange,
+  onChooseDelivery,
 }) {
   const notify = useNotifications();
   const [reload, setReload] = useState(0);
@@ -139,6 +140,12 @@ export default function ConfigProfiles({
           onClick={() => (dirty ? setConfirmation("load") : act("load"))}
         >
           Load into draft
+        </button>
+        <button
+          disabled={locked || !profile}
+          onClick={() => onChooseDelivery(profile)}
+        >
+          Use for selected rigs
         </button>
         <label>
           Profile name

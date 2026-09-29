@@ -1933,6 +1933,108 @@ test("saved coin profiles isolate drafts, preserve snapshots and enforce access 
   assert.equal((await api(url)).status, 404);
 });
 
+test("direct profile delivery isolates the selected GPU assignment and captures a versioned snapshot", async () => {
+  const ws = await socket();
+  const reg = registration("profile-target");
+  reg.capabilities.gpuEngines = ["nanominer", "srbminer"];
+  send(ws, "register", reg);
+  await waitFor(() => ws.messages.some((m) => m.type === "bound"));
+  const rig = await db.collection("miners").findOne({ systemId: reg.systemId });
+  const defaults = (await api("/v1/configs")).data.data;
+  const cpu = rig.desiredConfigs.xmrig;
+  const profile = (
+    await api("/v1/config-profiles", "POST", {
+      name: "Direct Quantus",
+      type: "nanominer",
+      config: {
+        engine: "srbminer",
+        algorithm: "quantus",
+        coin: "QTC",
+        pool: "pool.example:1234",
+        user: "fixture-wallet",
+      },
+    })
+  ).data.data;
+  const url = `/v1/config-profiles/${profile.id}/apply`;
+  const body = { minerIds: [rig.id], restart: true };
+  const headers = {
+    "If-Match": profile.version,
+    "Idempotency-Key": "direct-profile",
+  };
+  assert.equal((await api(url, "POST", body)).status, 428);
+  assert.equal(
+    (await api(url, "POST", body, { "If-Match": "old" })).status,
+    409,
+  );
+  const readKey = (
+    await api("/v1/api-keys", "POST", {
+      name: "Direct profile read",
+      permission: "read",
+    })
+  ).data;
+  assert.equal(
+    (
+      await api(url, "POST", body, {
+        ...headers,
+        Authorization: "",
+        "X-API-Key": readKey.secret,
+      })
+    ).status,
+    403,
+  );
+  const response = await api(url, "POST", body, headers);
+  assert.equal(response.status, 202);
+  const command = response.data.results[0].command;
+  assert.equal(command.status, "sent");
+  assert.equal(command.deviceType, "GPU");
+  assert.equal(command.restartRunningOnly, true);
+  assert.equal(command.configs.nanominer.version, profile.version);
+  assert.equal(command.configs.nanominer.algorithm, "quantus");
+  assert.equal(command.configs.xmrig, undefined);
+  assert.equal(command.profileName, profile.name);
+  assert.equal(
+    (await api(url, "POST", body, headers)).data.results[0].command.id,
+    command.id,
+  );
+  const assigned = await db.collection("miners").findOne({ id: rig.id });
+  assert.deepEqual(assigned.desiredConfigs.xmrig, cpu);
+  assert.deepEqual((await api("/v1/configs")).data.data, defaults);
+  await api(
+    `/v1/config-profiles/${profile.id}`,
+    "PUT",
+    {
+      name: profile.name,
+      type: profile.type,
+      config: { ...profile.config, pool: "new-pool.example:1234" },
+    },
+    { "If-Match": profile.version },
+  );
+  assert.equal((await api(url, "POST", body, headers)).status, 409);
+  assert.equal(
+    (await db.collection("commands").findOne({ id: command.id })).configs
+      .nanominer.pool,
+    "pool.example:1234",
+  );
+  await api("/v1/commands", "POST", {
+    minerId: rig.id,
+    action: "stop",
+    deviceType: "GPU",
+  });
+  assert.equal(
+    (await db.collection("commands").findOne({ id: command.id })).status,
+    "canceled",
+  );
+  // A reconnect retains the per-rig profile even after the library is edited.
+  const second = await socket();
+  send(second, "register", reg);
+  const bound = await waitFor(() =>
+    second.messages.find((m) => m.type === "bound"),
+  );
+  assert.equal(bound.data.configs.nanominer.version, profile.version);
+  ws.terminate();
+  second.terminate();
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

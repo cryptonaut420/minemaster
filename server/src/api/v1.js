@@ -659,6 +659,31 @@ router.post(
       .json({ data: await ConfigProfile.create(req.body, actor(req)) }),
   ),
 );
+router.post(
+  "/config-profiles/:id/apply",
+  route(async (req, res) => {
+    const profile = await ConfigProfile.get(req.params.id);
+    const expected = req.get("If-Match")?.replace(/"/g, "");
+    if (!expected) throw fail("If-Match profile version is required", 428);
+    if (expected !== profile.version)
+      throw fail("Profile changed. Reload before delivering it.", 409);
+    res.status(202).json(
+      await commands.bulk(
+        req.body.minerIds,
+        {
+          action: req.body.restart === true ? "restart" : "config-update",
+          deviceType: profile.type === "xmrig" ? "CPU" : "GPU",
+          configType: profile.type,
+          profileId: profile.id,
+          profileVersion: profile.version,
+          restartRunningOnly: true,
+        },
+        actor(req),
+        req.get("Idempotency-Key"),
+      ),
+    );
+  }),
+);
 router.get(
   "/config-profiles/:id",
   route(async (req, res) =>

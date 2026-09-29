@@ -2,6 +2,7 @@ const { randomUUID, createHash } = require("crypto");
 const { getDb } = require("../db/mongodb");
 const Miner = require("../models/Miner");
 const Config = require("../models/Config");
+const ConfigProfile = require("../models/ConfigProfile");
 const { viewRig } = require("./telemetry");
 const FINAL = ["succeeded", "failed", "timed_out", "canceled"];
 const ACTIVE = ["queued", "sent", "received", "running"];
@@ -79,7 +80,24 @@ function normalize(input = {}) {
     deviceType !== (input.configType === "xmrig" ? "CPU" : "GPU")
   )
     throw problem("Configuration type must match process scope");
+  if (input.profileId != null || input.profileVersion != null) {
+    if (
+      !input.configType ||
+      typeof input.profileId !== "string" ||
+      !input.profileId ||
+      input.profileId.length > 100 ||
+      typeof input.profileVersion !== "string" ||
+      !input.profileVersion ||
+      input.profileVersion.length > 100
+    )
+      throw problem(
+        "A saved profile ID, version and matching configuration type are required",
+      );
+  }
   return {
+    ...(input.profileId
+      ? { profileId: input.profileId, profileVersion: input.profileVersion }
+      : {}),
     action,
     deviceType,
     timeoutSeconds,
@@ -189,7 +207,17 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
   }
   if (idempotencyKey) command.idempotencyKey = storedKey;
   if (spec.action === "config-update" || spec.configType) {
-    command.configs = await Config.getAll();
+    if (spec.profileId) {
+      const profile = await ConfigProfile.get(spec.profileId);
+      if (profile.version !== spec.profileVersion)
+        throw problem("Profile changed. Reload before delivering it.", 409);
+      if (profile.type !== spec.configType)
+        throw problem("Profile type must match process scope");
+      command.profileName = profile.name;
+      command.configs = {
+        [profile.type]: { ...profile.config, version: profile.version },
+      };
+    } else command.configs = await Config.getAll();
     for (const type of spec.deviceType === "ALL"
       ? ["xmrig", "nanominer"]
       : [spec.deviceType === "CPU" ? "xmrig" : "nanominer"]) {

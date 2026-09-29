@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Read-only local wallet balances. Never opens passwords or recovery material."""
+import concurrent.futures
+import json
+import os
+from pathlib import Path
+import subprocess
+import urllib.request
+
+ROOT = Path.home() / '.local/share/minemaster-wallets'
+
+def balance(coin, address):
+    if coin == 'QTC':
+        args = [str(ROOT / 'software/v2.3.0/quantus'), 'balance', '--node-url',
+                'wss://rpc1-mainnet.quantus.com', '--address', address]
+    else:
+        args = [str(ROOT / 'software/v1.4.8/prlctl'),
+                '--configfile=' + str(ROOT / 'pearl/prlctl.conf'), 'getbalance']
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=35,
+                                env={**os.environ, 'QUANTUS_NO_UPDATE_CHECK': '1'})
+        if result.returncode:
+            return f'{coin}: balance unavailable (wallet/RPC error; not zero).'
+        return result.stdout.strip() if coin == 'QTC' else f'Pearl wallet: {result.stdout.strip()} PRL'
+    except (OSError, subprocess.TimeoutExpired):
+        return f'{coin}: balance unavailable (wallet stopped, unavailable RPC, or timeout; not zero).'
+
+def main():
+    addresses = json.loads((ROOT / 'receiving-addresses.json').read_text())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda item: balance(*item), addresses.items()))
+    print('\n\n'.join(results))
+    print('\nReceiving addresses / pool earnings (unpaid pool earnings are separate from wallet balances):')
+    for coin, address in addresses.items():
+        print(f'\n{coin}: {address}\nhttps://pool.kryptex.com/{coin.lower()}/miner/{address}')
+    print(f'\nWallet access and backup instructions: {ROOT / "README.md"}')
+    print('Pearl wallet service: systemctl --user status minemaster-pearl-wallet')
+
+if __name__ == '__main__':
+    main()

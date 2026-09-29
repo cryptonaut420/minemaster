@@ -96,11 +96,18 @@ export default function Configs() {
     [q, setQuery] = useState(""),
     [restart, setRestart] = useState(false),
     [results, setResults] = useState(null),
+    [deliveryProfile, setDeliveryProfile] = useState(null),
     [cursor, setCursor] = useState(null),
     [targetRows, setTargetRows] = useState([]);
   const revisions = useResource(`configs/${type}/revisions`),
     rigs = useResource("rigs", { q, limit: 100, cursor });
   const rolloutKey = useRef(requestId());
+  const deliverySection = useRef(null);
+  useEffect(() => {
+    setDeliveryProfile(null);
+    rolloutKey.current = requestId();
+    setResults(null);
+  }, [type]);
   useEffect(() => {
     if (resource.data) {
       setBaseline(resource.data.data);
@@ -167,9 +174,16 @@ export default function Configs() {
     setError("");
     try {
       const { data } = await api.post(
-        `/v1/configs/${type}/apply`,
+        deliveryProfile
+          ? `/v1/config-profiles/${deliveryProfile.id}/apply`
+          : `/v1/configs/${type}/apply`,
         { minerIds: Object.keys(targets), restart },
-        { headers: { "Idempotency-Key": rolloutKey.current } },
+        {
+          headers: {
+            "Idempotency-Key": rolloutKey.current,
+            ...(deliveryProfile ? { "If-Match": deliveryProfile.version } : {}),
+          },
+        },
       );
       setResults(data.results);
       const rejected = data.results.filter(
@@ -267,6 +281,20 @@ export default function Configs() {
         dirty={currentDirty}
         disabled={pending}
         onBusyChange={setPending}
+        onChooseDelivery={(profile) => {
+          setDeliveryProfile(profile);
+          setResults(null);
+          rolloutKey.current = requestId();
+          deliverySection.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+          notify.showToast(
+            `Choose rigs below to receive ${profile.name}.`,
+            "info",
+            5000,
+          );
+        }}
         onLoad={(config) => {
           setDrafts((prev) => ({
             ...prev,
@@ -530,8 +558,33 @@ export default function Configs() {
             </ul>
           </details>
         </section>
-        <section className="op-surface">
+        <section className="op-surface" ref={deliverySection}>
           <h2>Deliver to rigs</h2>
+          <p>
+            <strong>
+              {deliveryProfile
+                ? `Saved profile: ${deliveryProfile.name}`
+                : "Source: saved desired settings"}
+            </strong>
+          </p>
+          {deliveryProfile && (
+            <p className="op-muted">
+              {deliveryProfile.config.algorithm} · {deliveryProfile.config.pool}
+              <br />
+              Only selected rigs receive this profile. Global defaults and your
+              draft stay unchanged.{" "}
+              <button
+                disabled={pending}
+                onClick={() => {
+                  setDeliveryProfile(null);
+                  setResults(null);
+                  rolloutKey.current = requestId();
+                }}
+              >
+                Use desired settings instead
+              </button>
+            </p>
+          )}
           <p>
             Choose explicit targets. Restart affects only running{" "}
             {type === "xmrig" ? "CPU" : "GPU"} processes; stopped processes stay
@@ -610,7 +663,7 @@ export default function Configs() {
               className="op-primary"
               disabled={
                 pending ||
-                currentDirty ||
+                (!deliveryProfile && currentDirty) ||
                 !Object.keys(targets).length ||
                 !!results
               }
@@ -619,9 +672,11 @@ export default function Configs() {
                 ? "Working…"
                 : restart
                   ? "Deliver and restart selected"
-                  : "Deliver desired settings"}
+                  : deliveryProfile
+                    ? "Deliver saved profile"
+                    : "Deliver desired settings"}
             </button>
-            {currentDirty && (
+            {currentDirty && !deliveryProfile && (
               <p className="op-warning">
                 Save or discard this draft before delivery.
               </p>

@@ -55,3 +55,11 @@ Admin/API commit `3268aa3` was pushed to master and deployed on tsqr through the
 Created three live GPU profiles through the authenticated REST API: **Ravencoin · Original configuration**, **Quantus · Kryptex North America**, and **Pearl · Kryptex North America**. Both new profiles contain the owner's newly created local-wallet receiving address and a global backup pool. Verified global desired configurations stayed byte-for-byte unchanged during profile creation. No rig mining/update commands were issued and no new client release was published. Fleet cutover, hardware measurements, pool-side accepted shares and profitability automation remain the next stage.
 
 Local wallet handoff instructions are in the owner's private `~/.local/share/minemaster-wallets/README.md`, alongside `receiving-addresses.json`. Private recovery material is not part of this repository or deployment.
+
+## Local hardware validation and direct switching follow-up
+
+The owner authorized a real production-connected test on the local Linux RTX 3060 Ti. The client is built as an unpacked application for this test; no new fleet client release is implied. Direct saved-profile delivery is now available without changing global defaults: select a profile, **Use for selected rigs**, choose targets, then deliver. Stopped processes stay stopped unless explicitly started separately.
+
+`tools/minemaster-wallets` is a read-only convenience command installed locally as `~/.local/bin/minemaster-wallets`. It queries the official Quantus mainnet endpoint and the local Oyster wallet RPC, displays receiving addresses and pool links, and distinguishes query failure from zero. Confirmed both initial balances are zero. Quantus CLI 2.3.0 warns about a newer runtime (153 versus tested 149); balance reads worked, but spending compatibility has not been verified. Pearl's wallet runs as the user service `minemaster-pearl-wallet`. Pool unpaid earnings are separate from received wallet funds.
+
+Direct-delivery validation: 107 backend regressions pass, including access, missing/stale profile versions, per-rig GPU assignment/CPU isolation, immutable snapshots, idempotent retries, Stop cancellation and reconnect retention. Admin build and populated browser profile delivery/toast checks pass.
