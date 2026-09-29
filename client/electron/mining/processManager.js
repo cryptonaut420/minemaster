@@ -45,6 +45,7 @@ function createProcessManager({
   unschedule = clearTimeout,
   now = Date.now,
   tailLog = followLog,
+  externalProcesses = { find: async () => [], stop: async () => {} },
 } = {}) {
   const entries = new Map(),
     queues = new Map(),
@@ -134,6 +135,17 @@ function createProcessManager({
                 code: "PROCESS_EXIT_PENDING",
                 stage: "shutdown",
               });
+            const external = await externalProcesses.find(id);
+            if (external.length)
+              throw Object.assign(
+                Error(
+                  `A previous managed SRBMiner instance is still running (PID ${external.map((p) => p.pid).join(", ")}). Use Stop to reclaim it before starting another miner.`,
+                ),
+                {
+                  code: "UNTRACKED_MINER",
+                  stage: "process ownership",
+                },
+              );
             const activeConfig = JSON.parse(JSON.stringify(config));
             spec = await runtime.launchSpec(type, id, activeConfig);
             if (closing || generation !== (generations.get(id) || 0))
@@ -380,21 +392,86 @@ function createProcessManager({
     }
     cancelRetry(id);
     generations.set(id, (generations.get(id) || 0) + 1);
-    return enqueue(id, () => stopEntry(id));
+    return enqueue(id, async () => {
+      try {
+        if (unsettledExit(entries.get(id)))
+          await externalProcesses.stop(id, entries.get(id)?.process.pid);
+        const result = await stopEntry(id);
+        if (!result.success) return result;
+        await externalProcesses.stop(id);
+        return result;
+      } catch (error) {
+        const diagnostic = {
+          status: "unavailable",
+          engine: "srbminer",
+          code: error.code || "EXTERNAL_STOP_FAILED",
+          message: error.message,
+        };
+        diagnostics.set(id, diagnostic);
+        return { success: false, ...snapshot(id), error: error.message };
+      }
+    });
   }
   async function stopAll() {
     closing = true;
     const ids = [
-      ...new Set([...entries.keys(), ...queues.keys(), ...retryTimers.keys()]),
+      ...new Set([
+        ...entries.keys(),
+        ...queues.keys(),
+        ...retryTimers.keys(),
+        "xmrig-1",
+        "nanominer-1",
+      ]),
     ];
-    const runningIds = ids.filter((id) => running(entries.get(id)));
-    const results = await Promise.all(ids.map((minerId) => stop({ minerId })));
+    const intentGenerations = new Map(
+      ids.map((id) => [id, generations.get(id) || 0]),
+    );
+    const initialIntent = new Set(
+      ids.filter((id) => running(entries.get(id)) || retryTimers.has(id)),
+    );
+    let externalIds;
+    try {
+      externalIds = new Set(
+        (
+          await Promise.all(
+            ids.map(async (id) =>
+              (await externalProcesses.find(id, entries.get(id)?.process.pid))
+                .length
+                ? id
+                : null,
+            ),
+          )
+        ).filter(Boolean),
+      );
+    } catch (error) {
+      closing = false;
+      throw error;
+    }
+    // A scheduled recovery is still explicit mining intent. Preserve it across
+    // installation, but never turn an ordinary stopped/failed launch into a start.
+    const resumeIds = ids.filter(
+      (id) =>
+        (generations.get(id) || 0) === intentGenerations.get(id) &&
+        (initialIntent.has(id) || externalIds.has(id)),
+    );
+    const stopGenerations = new Map();
+    const results = await Promise.all(
+      ids.map((minerId) => {
+        const result = stop({ minerId });
+        stopGenerations.set(minerId, generations.get(minerId));
+        return result;
+      }),
+    );
     const failed = results.filter((r) => !r.success);
     if (failed.length) {
       closing = false;
       throw Error(failed.map((r) => r.error).join("; "));
     }
-    return runningIds;
+    // A user Stop issued while another process is shutting down supersedes the
+    // captured resume intent, even if that first process has already stopped.
+    return resumeIds.filter(
+      (id) => generations.get(id) === stopGenerations.get(id),
+    );
   }
   async function diagnose(id, type, customPath, options) {
     const diagnostic = await runtime.inspect(type, customPath, options);
@@ -427,6 +504,18 @@ function createProcessManager({
               throw Error(
                 "A custom executable is selected. Clear its path in local settings before repairing the managed engine.",
               );
+            for (const slot of ["xmrig-1", "nanominer-1"])
+              if (
+                (
+                  await externalProcesses.find(
+                    slot,
+                    entries.get(slot)?.process.pid,
+                  )
+                ).length
+              )
+                throw Error(
+                  "Stop the previous managed SRBMiner instance before repairing miner files",
+                );
             await runtime.prepare(type, { repair: true });
             const diagnostic = await diagnose(id, type);
             const success = diagnostic.status === "ready";

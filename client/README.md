@@ -204,3 +204,8 @@ If an upstream miner exits while its output handles remain open, MineMaster repo
 
 
 Explicit Windows checks also show their exact path list and include up to two recent failed managed archive/runtime paths from the last 30 minutes in this app session. This helps diagnose an archive disappearing during Repair even after its temporary directory is cleaned up. The query stays read-only, bounded and restricted to this engine's managed files. Renaming/encrypting archives to hide their contents is not part of the packaging strategy; upstream runtime filenames, hashes and notices remain intact.
+
+
+## Windows surviving SRBMiner processes (1.4.10)
+
+Before starting a miner, MineMaster checks Windows process inventory for a managed SRBMiner instance using that CPU/GPU slot's exact log path. An existing instance blocks launch before log/config files are replaced. Stop can reclaim it after verifying PID, creation time, executable and command line; it never kills by executable name alone. Update shutdown confirms exit and carries active surviving mining or already scheduled crash recovery into version-bound resume intent. A newer explicit Stop cancels that intent. Unreadable process inventory fails visibly rather than assuming the rig is clear. Custom paths and processes outside this user-data profile are not reclaimed. This handles identifiable managed SRBMiner survivors; it is not general Windows process containment.

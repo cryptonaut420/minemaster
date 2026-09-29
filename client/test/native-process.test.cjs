@@ -485,3 +485,148 @@ test("Stop supersedes crash recovery while the final file read is pending", asyn
   assert.equal(scheduled, 0);
   assert.equal(f.manager.snapshot("cpu").restartPendingAt, null);
 });
+
+test("update shutdown preserves scheduled recovery but not ordinary stopped processes", async () => {
+  const tasks = new Map();
+  const f = fixture({
+    schedule: (fn) => {
+      tasks.set(1, fn);
+      return 1;
+    },
+    unschedule: (id) => tasks.delete(id),
+  });
+  await f.manager.start({ ...request, config: { restartOnCrash: true } });
+  f.children[0].exitCode = 1;
+  f.children[0].emit("close", 1);
+  assert.equal(tasks.size, 1);
+  assert.deepEqual(await f.manager.stopAll(), ["cpu"]);
+  assert.equal(tasks.size, 0);
+  assert.deepEqual(await f.manager.stopAll(), []);
+  assert.equal(f.children.length, 1);
+});
+
+test("a newer Stop cancels update resume while another process is shutting down", async () => {
+  let release, entered;
+  const stopping = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const blocked = new Promise((resolve) => {
+    release = resolve;
+  });
+  const f = fixture({
+    signal: async (child) => {
+      entered();
+      await blocked;
+      child.exitCode = 0;
+      child.emit("exit", 0);
+      child.emit("close", 0);
+    },
+  });
+  await f.manager.start(request);
+  const update = f.manager.stopAll();
+  await stopping;
+  const newerStop = f.manager.stop({ minerId: "cpu" });
+  release();
+  assert.deepEqual(await update, []);
+  assert.equal((await newerStop).success, true);
+});
+
+test("SRBMiner file output after parent exit stays diagnostic and blocks update handoff", async () => {
+  let output;
+  const f = fixture({
+    tailLog: (_path, receive) => {
+      output = receive;
+      return { close() {}, finish: async () => {} };
+    },
+  });
+  f.runtime.launchSpec = async () => ({
+    executable: "/fixture/srbminer",
+    args: [],
+    cwd: "/fixture",
+    logFile: "/fixture/miner.log",
+    diagnostic: { status: "ready" },
+  });
+  await f.manager.start({ ...request, config: { engine: "srbminer" } });
+  f.children[0].exitCode = 0;
+  f.children[0].emit("exit", 0);
+  output("Restarting miner...\nTotal: 197 MH/s\n", "2026-09-29T17:00:00.000Z");
+  assert.equal(
+    f.manager.snapshot("cpu").diagnostic.code,
+    "PROCESS_EXIT_PENDING",
+  );
+  await assert.rejects(f.manager.stopAll(), /output handles remain open/);
+  assert.equal(f.children.length, 1);
+  const event = f.messages.find(([name]) => name === "miner-output")[1];
+  assert.match(event.data, /197 MH/);
+  assert.equal(event.observedAt, "2026-09-29T17:00:00.000Z");
+  f.children[0].emit("close", 0);
+});
+
+test("a surviving managed miner blocks launch before log truncation and is reclaimed by Stop", async () => {
+  let survivors = [{ pid: 999 }],
+    prepared = 0;
+  const f = fixture({
+    externalProcesses: {
+      find: async () => survivors,
+      stop: async () => {
+        survivors = [];
+      },
+    },
+  });
+  const spec = f.runtime.launchSpec;
+  f.runtime.launchSpec = async (...args) => {
+    prepared++;
+    return spec(...args);
+  };
+  assert.equal((await f.manager.start(request)).success, false);
+  assert.equal(prepared, 0);
+  assert.equal(f.manager.snapshot("cpu").diagnostic.code, "UNTRACKED_MINER");
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, true);
+  assert.equal((await f.manager.start(request)).success, true);
+  assert.equal(prepared, 1);
+});
+
+test("an update includes verified surviving managed mining in resume intent", async () => {
+  let survives = true;
+  const f = fixture({
+    externalProcesses: {
+      find: async (id) =>
+        id === "nanominer-1" && survives ? [{ pid: 999 }] : [],
+      stop: async (id) => {
+        if (id === "nanominer-1") survives = false;
+      },
+    },
+  });
+  assert.deepEqual(await f.manager.stopAll(), ["nanominer-1"]);
+  assert.equal(survives, false);
+});
+
+test("Stop during asynchronous survivor inventory cancels captured update intent", async () => {
+  let release, entered;
+  const checking = new Promise((r) => {
+    entered = r;
+  });
+  const pending = new Promise((r) => {
+    release = r;
+  });
+  let inventory = false;
+  const f = fixture({
+    externalProcesses: {
+      find: async (id) => {
+        if (inventory && id === "cpu") {
+          entered();
+          await pending;
+        }
+        return [];
+      },
+      stop: async () => {},
+    },
+  });
+  await f.manager.start(request);
+  inventory = true;
+  const update = f.manager.stopAll();
+  await checking;
+  await f.manager.stop({ minerId: "cpu" });
+  release();
+  assert.deepEqual(await update, []);
+});

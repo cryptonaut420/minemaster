@@ -348,7 +348,14 @@ else {
           )
         : path.join(process.resourcesPath, "miners"),
     });
-    processManager = createProcessManager({ runtime, emit: sendToRenderer });
+    processManager = createProcessManager({
+      runtime,
+      emit: sendToRenderer,
+      externalProcesses:
+        require("./mining/orphanProcesses").createOrphanProcesses({
+          userData: app.getPath("userData"),
+        }),
+    });
     createWindow();
     // First installation copies verified bundled files only; it never launches a miner or downloads in a loop.
     for (const [id, type] of [
