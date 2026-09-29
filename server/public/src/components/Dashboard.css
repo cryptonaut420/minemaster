@@ -527,6 +527,12 @@
   gap: 24px;
   margin-bottom: 24px;
 }
+.op-profile-library {
+  margin-bottom: 20px;
+}
+.op-profile-library select {
+  max-width: 100%;
+}
 .op-config-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

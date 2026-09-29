@@ -5,6 +5,7 @@ const apiKeys = require("../services/apiKeys");
 const { getDb, readiness } = require("../db/mongodb");
 const Miner = require("../models/Miner");
 const Config = require("../models/Config");
+const ConfigProfile = require("../models/ConfigProfile");
 const HashRate = require("../models/HashRate");
 const { summary, viewRig, date } = require("../services/telemetry");
 const commands = require("../services/commands");
@@ -643,6 +644,49 @@ router.get(
       },
     }),
   ),
+);
+router.get(
+  "/config-profiles",
+  route(async (req, res) =>
+    res.json(await ConfigProfile.list(req.query.type, req.query.cursor)),
+  ),
+);
+router.post(
+  "/config-profiles",
+  route(async (req, res) =>
+    res
+      .status(201)
+      .json({ data: await ConfigProfile.create(req.body, actor(req)) }),
+  ),
+);
+router.get(
+  "/config-profiles/:id",
+  route(async (req, res) =>
+    res.json({ data: await ConfigProfile.get(req.params.id) }),
+  ),
+);
+router.put(
+  "/config-profiles/:id",
+  route(async (req, res) =>
+    res.json({
+      data: await ConfigProfile.update(
+        req.params.id,
+        req.body,
+        actor(req),
+        req.get("If-Match")?.replace(/"/g, ""),
+      ),
+    }),
+  ),
+);
+router.delete(
+  "/config-profiles/:id",
+  route(async (req, res) => {
+    await ConfigProfile.remove(
+      req.params.id,
+      req.get("If-Match")?.replace(/"/g, ""),
+    );
+    res.json({ deleted: true });
+  }),
 );
 router.get(
   "/configs",

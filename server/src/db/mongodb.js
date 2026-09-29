@@ -115,6 +115,10 @@ async function ensureIndexes(database) {
   await database
     .collection("configRevisions")
     .createIndex({ type: 1, version: -1 }, { unique: true });
+  await database
+    .collection("configProfiles")
+    .createIndex({ id: 1 }, { unique: true });
+  await database.collection("configProfiles").createIndex({ type: 1, id: 1 });
 }
 async function connect() {
   if (db) return db;

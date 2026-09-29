@@ -87,6 +87,17 @@ Ordinary start/restart uses the rig's assigned/local desired settings. Saving a 
 
 ### Configurations and rollout
 
+Named profiles are reusable CPU/GPU snapshots, separate from desired global settings and per-rig assignments. In **Configurations → Saved coin profiles**, save the current draft, load a saved profile into a draft, or replace/delete it. Loading warns before replacing unsaved edits; save desired settings and deliver to explicit targets separately. Profiles include receiving address, pool/backup pools, engine, algorithm and managed tuning, never wallet recovery material. Complete snapshots reset omitted settings to type defaults, so loading another coin does not inherit the prior coin's backup pool or tuning.
+
+- `GET /config-profiles?type=xmrig|nanominer&cursor=...`: authenticated list, 100 per page ordered by ID, with `nextCursor` (null when complete).
+- `POST /config-profiles`: manage access; body `{name,type,config}`. Name is 1–80 characters; config must have a valid engine/algorithm/pool/user. Returns 201 and `{data}` with ID, independent profile version, timestamps and actor.
+- `GET /config-profiles/:id`: read one complete snapshot.
+- `PUT /config-profiles/:id`: replace name/config using the same body; CPU/GPU type cannot change. `If-Match` must contain the profile version (428 when missing, 409 if changed).
+- `DELETE /config-profiles/:id`: same required `If-Match`; returns `{deleted:true}`. Removes the library entry only, retaining existing desired settings, assignments and revisions.
+
+API switching: read the profile and current `GET /configs` version; PUT the profile's complete `config` to `/configs/:type` with that **global config version** in `If-Match`; then use `/configs/:type/apply` with explicit rig IDs. Profile CRUD itself never dispatches commands. Read-only/revoked keys, optimistic concurrency, invalid inputs, independent state and database outages have regression coverage.
+
+
 - `GET /configs`: desired global configurations keyed by `xmrig` and `nanominer`.
 - `PUT /configs/:type`: save a partial update; `If-Match` or body `version` protects against stale edits. Supports validated pool/user/algorithm fields, CPU thread percentage (10–100), and the existing miner-specific settings. Empty draft pool/user is allowed at save time; delivery with restart requires launchable settings.
 - `GET /configs/:type/revisions`: up to 100 revisions, including the initial state.

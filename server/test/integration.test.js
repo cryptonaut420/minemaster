@@ -1823,9 +1823,120 @@ test("repeated current-run miner errors produce actionable incidents with shared
   assert.equal(await active(), null);
 });
 
+test("saved coin profiles isolate drafts, preserve snapshots and enforce access and concurrency", async () => {
+  const before = (await api("/v1/configs")).data.data;
+  const commandsBefore = await db.collection("commands").countDocuments();
+  const profile = {
+    name: "Quantus fixture",
+    type: "nanominer",
+    config: {
+      engine: "srbminer",
+      algorithm: "quantus",
+      coin: "QTC",
+      pool: "qtc-us.kryptex.network:7049",
+      user: "synthetic-wallet",
+    },
+  };
+  const denied = { Authorization: "" };
+  assert.equal(
+    (await api("/v1/config-profiles", "GET", undefined, denied)).status,
+    401,
+  );
+  const key = (
+    await api("/v1/api-keys", "POST", {
+      name: "Profile read",
+      permission: "read",
+    })
+  ).data;
+  const read = { Authorization: "", "X-API-Key": key.secret };
+  assert.equal(
+    (await api("/v1/config-profiles", "POST", profile, read)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await api("/v1/config-profiles", "POST", {
+        ...profile,
+        config: { ...profile.config, user: "" },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await api("/v1/config-profiles", "POST", { ...profile, type: "xmrig" }))
+      .status,
+    400,
+  );
+  const created = await api("/v1/config-profiles", "POST", profile);
+  assert.equal(created.status, 201);
+  const saved = created.data.data,
+    url = `/v1/config-profiles/${saved.id}`;
+  assert.deepEqual(saved.config.backupPools, []);
+  assert.equal(saved.config.tls, false);
+  assert.equal(saved.config.password, "x");
+  assert.equal(saved.config.version, undefined);
+  assert.equal(
+    (await api(url, "GET", undefined, read)).data.data.name,
+    profile.name,
+  );
+  assert.ok(
+    (await api("/v1/config-profiles?type=nanominer")).data.data.some(
+      (r) => r.id === saved.id,
+    ),
+  );
+  assert.equal(
+    (await api("/v1/config-profiles?type=xmrig")).data.data.some(
+      (r) => r.id === saved.id,
+    ),
+    false,
+  );
+  assert.equal((await api("/v1/config-profiles?type=invalid")).status, 400);
+  for (const method of ["PUT", "DELETE"])
+    assert.equal((await api(url, method, profile, read)).status, 403);
+  assert.equal((await api(url, "PUT", profile)).status, 428);
+  const changed = {
+    ...profile,
+    name: "Pearl fixture",
+    config: {
+      ...profile.config,
+      algorithm: "pearlhash",
+      coin: "PRL",
+      pool: "prl-us.kryptex.network:7048",
+    },
+  };
+  const updated = await api(url, "PUT", changed, { "If-Match": saved.version });
+  assert.equal(updated.status, 200);
+  assert.notEqual(updated.data.data.version, saved.version);
+  assert.equal(
+    (await api(url, "PUT", profile, { "If-Match": saved.version })).status,
+    409,
+  );
+  assert.equal(
+    (await api(url, "DELETE", undefined, { "If-Match": saved.version })).status,
+    409,
+  );
+  assert.deepEqual((await api("/v1/configs")).data.data, before);
+  assert.equal(
+    await db.collection("commands").countDocuments(),
+    commandsBefore,
+  );
+  await api(`/v1/api-keys/${key.data.id}`, "DELETE");
+  assert.equal((await api(url, "GET", undefined, read)).status, 401);
+  assert.equal(
+    (
+      await api(url, "DELETE", undefined, {
+        "If-Match": updated.data.data.version,
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await api(url)).status, 404);
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);
+  assert.equal((await api("/v1/config-profiles")).status, 503);
   assert.equal((await api("/health")).status, 503);
   assert.equal((await api("/live")).status, 200);
   assert.equal((await fetch(origin + "/")).status, 404); // Development shell routing remains independent of MongoDB.

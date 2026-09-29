@@ -3407,6 +3407,304 @@
           }
         }
       }
+    },
+    "/config-profiles": {
+      "get": {
+        "summary": "Read saved coin profiles",
+        "description": "Profile operations never change desired settings, rig assignments or running processes. Load config into PUT /configs/{type}, then deliver using the existing explicit rollout API. Wallet values are receiving addresses only; never store private keys.",
+        "operationId": "get__config-profiles",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["xmrig", "nanominer"]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "nextCursor from preceding page; 100 profiles per page ordered by id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ConfigProfile"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Manage permission required"
+          },
+          "404": {
+            "description": "Profile not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          },
+          "428": {
+            "description": "If-Match required"
+          }
+        }
+      },
+      "post": {
+        "summary": "Save a complete coin profile",
+        "description": "Profile operations never change desired settings, rig assignments or running processes. Load config into PUT /configs/{type}, then deliver using the existing explicit rollout API. Wallet values are receiving addresses only; never store private keys.",
+        "operationId": "post__config-profiles",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ConfigProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Manage permission required"
+          },
+          "404": {
+            "description": "Profile not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          },
+          "428": {
+            "description": "If-Match required"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigProfileInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config-profiles/{id}": {
+      "get": {
+        "summary": "Read saved coin profiles",
+        "description": "Profile operations never change desired settings, rig assignments or running processes. Load config into PUT /configs/{type}, then deliver using the existing explicit rollout API. Wallet values are receiving addresses only; never store private keys.",
+        "operationId": "get__config-profiles_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ConfigProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Manage permission required"
+          },
+          "404": {
+            "description": "Profile not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          },
+          "428": {
+            "description": "If-Match required"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace a saved coin profile",
+        "description": "Profile operations never change desired settings, rig assignments or running processes. Load config into PUT /configs/{type}, then deliver using the existing explicit rollout API. Wallet values are receiving addresses only; never store private keys.",
+        "operationId": "put__config-profiles_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "Expected saved profile version, not the global desired config version.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ConfigProfile"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Manage permission required"
+          },
+          "404": {
+            "description": "Profile not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          },
+          "428": {
+            "description": "If-Match required"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigProfileInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a saved coin profile",
+        "description": "Profile operations never change desired settings, rig assignments or running processes. Load config into PUT /configs/{type}, then deliver using the existing explicit rollout API. Wallet values are receiving addresses only; never store private keys.",
+        "operationId": "delete__config-profiles_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "Expected saved profile version, not the global desired config version.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Manage permission required"
+          },
+          "404": {
+            "description": "Profile not found"
+          },
+          "409": {
+            "description": "Version conflict"
+          },
+          "428": {
+            "description": "If-Match required"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4210,6 +4508,68 @@
             "minimum": 1,
             "maximum": 100,
             "default": 3
+          }
+        }
+      },
+      "ConfigProfileInput": {
+        "type": "object",
+        "required": ["name", "type", "config"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "type": {
+            "type": "string",
+            "enum": ["xmrig", "nanominer"]
+          },
+          "config": {
+            "$ref": "#/components/schemas/Config"
+          }
+        }
+      },
+      "ConfigProfile": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "name",
+          "type",
+          "config",
+          "createdAt",
+          "updatedAt",
+          "actor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "type": {
+            "type": "string",
+            "enum": ["xmrig", "nanominer"]
+          },
+          "config": {
+            "$ref": "#/components/schemas/Config"
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
           }
         }
       }

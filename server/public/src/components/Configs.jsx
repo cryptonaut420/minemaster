@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import { useNotifications } from "./Notifications";
 import SRB from "../../../src/services/srbminer.json";
+import ConfigProfiles from "./ConfigProfiles";
+import { compactIssue } from "../utils/rigControls";
 import {
   Badge,
   CommandHistory,
@@ -239,6 +241,7 @@ export default function Configs() {
         {["xmrig", "nanominer"].map((t) => (
           <button
             key={t}
+            disabled={pending}
             role="tab"
             aria-selected={type === t}
             onClick={() => {
@@ -257,6 +260,25 @@ export default function Configs() {
           </button>
         ))}
       </div>
+      <ConfigProfiles
+        key={type}
+        type={type}
+        draft={draft}
+        dirty={currentDirty}
+        disabled={pending}
+        onBusyChange={setPending}
+        onLoad={(config) => {
+          setDrafts((prev) => ({
+            ...prev,
+            [type]: { ...config, version: baseline[type]?.version || "legacy" },
+          }));
+          setError("");
+          setFields({});
+          setMessage("");
+          setResults(null);
+          rolloutKey.current = requestId();
+        }}
+      />
       <div className="op-config-layout">
         <section className="op-surface">
           <h2>Desired settings</h2>
@@ -332,6 +354,7 @@ export default function Configs() {
                     {k === "engine" ? (
                       <select
                         id={`config-${type}-${k}`}
+                        disabled={pending}
                         value={value}
                         onChange={(e) =>
                           setDrafts({
@@ -378,6 +401,7 @@ export default function Configs() {
                     ) : k === "algorithm" ? (
                       <select
                         id={`config-${type}-${k}`}
+                        disabled={pending}
                         value={value}
                         onChange={(e) =>
                           setDrafts({
@@ -393,6 +417,7 @@ export default function Configs() {
                     ) : typeof value === "boolean" ? (
                       <input
                         id={`config-${type}-${k}`}
+                        disabled={pending}
                         type="checkbox"
                         checked={value}
                         onChange={(e) =>
@@ -405,6 +430,7 @@ export default function Configs() {
                     ) : (
                       <input
                         id={`config-${type}-${k}`}
+                        disabled={pending}
                         type={typeof value === "number" ? "number" : "text"}
                         min={
                           SRB.fields[k]?.min ??
@@ -545,7 +571,7 @@ export default function Configs() {
                   <span>
                     {r.name}
                     <small>
-                      {r.reason}
+                      {compactIssue(r) || r.reason?.slice(0, 120)}
                       {r.protocolVersion < 2 ? " · Agent upgrade required" : ""}
                     </small>
                   </span>
