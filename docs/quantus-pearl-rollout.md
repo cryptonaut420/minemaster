@@ -14,7 +14,7 @@ Use a compatible Stratum pool first. [Kryptex Quantus](https://pool.kryptex.com/
 
 [Kryptex Pearl](https://pool.kryptex.com/prl) publishes the SRBMiner `pearlhash` command. North America: `prl-us.kryptex.network:7048`, global backup `prl.kryptex.network:7048`, normal PPS+ pool fee 2%, minimum payout 1 PRL. Both pools also publish TLS ports 8049/8048 respectively. Initial saved profiles use the TCP configuration explicitly shown in the SRBMiner instructions. Pool fees/endpoints were cross-checked against the public pool info API on this date.
 
-Kryptex's Pearl page warns that old miners submit invalid shares following its algorithm change. SRBMiner's 3.5.3 release notes identify support for the block-99000 fork; bundled 3.6.7 is newer. This is source compatibility evidence, not proof of accepted shares on our hardware. SRBMiner also warns about a further proposed Pearl change that could reduce consumer GPU competitiveness; no activation date was verified here.
+Kryptex's Pearl page warns that old miners submit invalid shares following its algorithm change. [SRBMiner 3.5.3](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.5.3) includes a mandatory Pearl hard-fork update; bundled 3.6.7 is newer. This is source compatibility evidence, not proof of accepted shares on our hardware. SRBMiner also warns about a further proposed Pearl change that could reduce consumer GPU competitiveness; no activation date was verified here.
 
 SRBMiner's newer 3.6.9 has Pearl efficiency improvements and Quantus improvements. 3.7.0 was released on the research date and changes displayed hashrate statistics. Do not bump the pin solely on a benchmark claim: check output parsing and installer manifests before publishing an updated client. Existing integration lacks Quantus QUIC certificate-pin configuration, so QUIC/solo-node connections are not interchangeable with the Stratum profiles above.
 
@@ -46,3 +46,12 @@ Solo mining is possible, but requires measured algorithm hashrate and network di
 ## Validation
 
 106 backend regressions and 83 client regressions pass. Admin production build passes. Disposable browser checks cover save/load, unsaved-edit confirmation, CPU/GPU separation, toasts and visible server failure, including a measured 390 px viewport without horizontal overflow. No hardware mining or pool share acceptance was verified in this implementation pass. Deployment/profile-seeding status is recorded separately after completion.
+
+
+## Deployment and preparation result
+
+Admin/API commit `3268aa3` was pushed to master and deployed on tsqr through the normal Docker deployment. Public readiness reports the database and indexes ready. The rollback image is `minemaster:before-3268aa3`.
+
+Created three live GPU profiles through the authenticated REST API: **Ravencoin · Original configuration**, **Quantus · Kryptex North America**, and **Pearl · Kryptex North America**. Both new profiles contain the owner's newly created local-wallet receiving address and a global backup pool. Verified global desired configurations stayed byte-for-byte unchanged during profile creation. No rig mining/update commands were issued and no new client release was published. Fleet cutover, hardware measurements, pool-side accepted shares and profitability automation remain the next stage.
+
+Local wallet handoff instructions are in the owner's private `~/.local/share/minemaster-wallets/README.md`, alongside `receiving-addresses.json`. Private recovery material is not part of this repository or deployment.
