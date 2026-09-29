@@ -400,6 +400,17 @@ function viewRig(rig, now = Date.now()) {
     connected && now - (date(r.telemetryReceivedAt) ?? 0) <= FRESH_MS;
   r.processes = (r.processes || []).map((p) => ({
     ...p,
+    // Older clients checked the legacy slot's default executable at startup.
+    // Keep that report for diagnosis without blaming the selected engine.
+    ...(p.error &&
+    !p.running &&
+    p.engine &&
+    p.diagnostic?.engine &&
+    p.engine !== p.diagnostic.engine &&
+    p.diagnostic.stage === "file verification" &&
+    p.error === p.diagnostic.message
+      ? { error: null, reportedError: p.error }
+      : {}),
     quality: !fresh
       ? "stale"
       : p.paused ||

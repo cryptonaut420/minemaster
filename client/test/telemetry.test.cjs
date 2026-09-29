@@ -425,3 +425,48 @@ test("Nanominer startup policy is informational but real file/pool errors remain
   ])
     assert.equal(minerLogLevel(line), "error");
 });
+
+test("legacy file checks cannot blame the currently selected engine, while ownership errors survive", async () => {
+  const { selectedEngineDiagnostics, processSnapshot, reconcileNativeStatus } =
+    await esm("telemetry.js");
+  const miner = {
+    id: "xmrig-1",
+    type: "xmrig",
+    config: { engine: "nanominer" },
+    running: false,
+    error: "XMRig missing",
+    diagnostic: {
+      engine: "xmrig",
+      status: "unavailable",
+      stage: "file verification",
+      message: "XMRig missing",
+    },
+  };
+  assert.equal(selectedEngineDiagnostics(miner).error, null);
+  assert.equal(processSnapshot(miner).diagnostic, null);
+  assert.equal(
+    reconcileNativeStatus(
+      miner,
+      { running: false, diagnostic: miner.diagnostic, error: miner.error },
+      0,
+    ).error,
+    null,
+  );
+  assert.equal(
+    selectedEngineDiagnostics({ ...miner, running: true, engine: "xmrig" })
+      .error,
+    miner.error,
+  );
+  assert.equal(
+    selectedEngineDiagnostics({ ...miner, error: "Different process error" })
+      .error,
+    "Different process error",
+  );
+  assert.equal(
+    selectedEngineDiagnostics({
+      ...miner,
+      diagnostic: { ...miner.diagnostic, stage: "process ownership" },
+    }).error,
+    miner.error,
+  );
+});

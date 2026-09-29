@@ -129,6 +129,27 @@ export function stoppedProcessState() {
     pauseReason: null,
   };
 }
+// A retained file check for a previously selected engine is not an operational
+// failure of the current one. Ownership/exit errors remain relevant across engines.
+export function selectedEngineDiagnostics(miner) {
+  const diagnostic = miner.diagnostic;
+  const engine = miner.running
+    ? miner.engine || miner.activeConfig?.engine || miner.type
+    : miner.config?.engine || miner.type;
+  if (
+    !miner.running &&
+    diagnostic?.engine &&
+    diagnostic.engine !== engine &&
+    (diagnostic.status === "ready" || diagnostic.stage === "file verification")
+  ) {
+    return {
+      ...miner,
+      diagnostic: null,
+      error: miner.error === diagnostic.message ? null : miner.error,
+    };
+  }
+  return miner;
+}
 // Poll replies may arrive after a control or exit event. Never replace newer lifecycle state.
 export function reconcileNativeStatus(miner, status, requestedRevision) {
   if (
@@ -140,7 +161,7 @@ export function reconcileNativeStatus(miner, status, requestedRevision) {
   const changedRun = status.runId && status.runId !== miner.runId;
   const observationsMatch =
     status.runId && status.runId === miner.observationRunId;
-  return {
+  return selectedEngineDiagnostics({
     ...miner,
     ...status,
     startTime: status.startedAt,
@@ -157,7 +178,7 @@ export function reconcileNativeStatus(miner, status, requestedRevision) {
         }
       : {}),
     ...(!status.running ? stoppedProcessState() : {}),
-  };
+  });
 }
 export function applyProcessObservation(miner, runId, observation) {
   const changedRun = runId && runId !== (miner.observationRunId || miner.runId);
@@ -182,6 +203,7 @@ export function applyProcessObservation(miner, runId, observation) {
   };
 }
 export function processSnapshot(miner, now = Date.now()) {
+  miner = selectedEngineDiagnostics(miner);
   if (miner.running !== true) miner = { ...miner, ...stoppedProcessState() };
   const observed = miner.hashrateObservedAt || null;
   const observedTime = Date.parse(observed);

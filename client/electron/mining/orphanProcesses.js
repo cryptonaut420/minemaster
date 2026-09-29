@@ -45,7 +45,8 @@ function argumentsOf(command) {
         i++;
       } else {
         value += "\\".repeat(slashes);
-        if (i < command.length) value += command[i++];
+        if (i < command.length && (quoted || !/\s/.test(command[i])))
+          value += command[i++];
       }
     }
     args.push(value);
@@ -67,7 +68,8 @@ function matches(row, userData, id) {
   const relative = path.win32.relative(root, row.executable);
   if (!/^\d+\.\d+\.\d+\\SRBMiner-MULTI\.exe$/i.test(relative)) return false;
   const args = argumentsOf(row.command);
-  if (norm(args[0] || "") !== norm(row.executable)) return false;
+  // Windows' resolved ExecutablePath establishes the image identity. argv[0]
+  // can legitimately be just a basename on a miner-owned restart.
   const indices = args.flatMap((arg, i) => (arg === "--log-file" ? [i] : []));
   return (
     indices.length === 1 &&

@@ -1195,3 +1195,52 @@ test("clock tolerance rejects future samples relative to the report and never ch
     now + 61000,
   );
 });
+
+test("unused-engine file errors remain inspectable without masking working mining", () => {
+  const cpu = {
+    id: "cpu",
+    deviceType: "CPU",
+    engine: "nanominer",
+    enabled: true,
+    running: false,
+    error: "XMRig missing",
+    diagnostic: {
+      engine: "xmrig",
+      stage: "file verification",
+      message: "XMRig missing",
+    },
+  };
+  const raw = { ...rig, processes: [cpu, { ...p, deviceType: "GPU" }] };
+  const view = t.viewRig(raw, now);
+  assert.equal(view.status, "mining");
+  assert.equal(view.processes[0].error, null);
+  assert.equal(view.processes[0].reportedError, "XMRig missing");
+  assert.equal(view.processes[0].diagnostic.engine, "xmrig");
+  assert.equal(raw.processes[0].error, "XMRig missing");
+  assert.equal(
+    t.viewRig({ ...raw, processes: [{ ...cpu, running: true }] }, now).status,
+    "error",
+  );
+  assert.equal(
+    t.viewRig(
+      { ...raw, processes: [{ ...cpu, error: "Different failure" }] },
+      now,
+    ).status,
+    "error",
+  );
+  assert.equal(
+    t.viewRig(
+      {
+        ...raw,
+        processes: [
+          {
+            ...cpu,
+            diagnostic: { ...cpu.diagnostic, stage: "process ownership" },
+          },
+        ],
+      },
+      now,
+    ).status,
+    "error",
+  );
+});

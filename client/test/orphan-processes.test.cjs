@@ -104,3 +104,37 @@ test("unknown process identity and enumeration failure fail closed without termi
   });
   assert.deepEqual(await other.find("nanominer-1"), []);
 });
+
+test("miner-owned restart may use a basename argv while resolved image and slot path still match", () => {
+  const restarted = {
+    ...row,
+    command: row.command.replace(`"${row.executable}"`, "SRBMiner-MULTI.exe"),
+  };
+  assert.equal(matches(restarted, userData, "nanominer-1"), true);
+  assert.equal(
+    matches(
+      { ...restarted, executable: "C:\\Other\\SRBMiner-MULTI.exe" },
+      userData,
+      "nanominer-1",
+    ),
+    false,
+  );
+  assert.equal(
+    matches(
+      {
+        ...restarted,
+        command: restarted.command.replace("nanominer-1", "xmrig-1"),
+      },
+      userData,
+      "nanominer-1",
+    ),
+    false,
+  );
+});
+
+test("unquoted trailing backslashes do not swallow the next Windows argument", () => {
+  assert.deepEqual(
+    argumentsOf('miner.exe C:\\cache\\ --log-file "C:\\rig path\\miner.log"'),
+    ["miner.exe", "C:\\cache\\", "--log-file", "C:\\rig path\\miner.log"],
+  );
+});

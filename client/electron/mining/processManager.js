@@ -6,6 +6,18 @@ const { followLog } = require("./logTail");
 const { engineFor } = require("../../src/utils/miningConfig");
 const runFile = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const lifecycleDiagnostic = (diagnostic) =>
+  [
+    "PROCESS_EXIT",
+    "PROCESS_EXIT_PENDING",
+    "PROCESS_STOP_FAILED",
+    "UNTRACKED_MINER",
+    "EXTERNAL_STOP_FAILED",
+    "PROCESS_INVENTORY_UNAVAILABLE",
+    "CRASH_RETRY",
+  ].includes(diagnostic?.code) ||
+  (diagnostic?.status === "unavailable" &&
+    ["launch", "shutdown", "process ownership"].includes(diagnostic.stage));
 function isProcessRunning(pid) {
   if (!Number.isInteger(pid) || pid < 2) return false;
   try {
@@ -397,8 +409,17 @@ function createProcessManager({
         if (unsettledExit(entries.get(id)))
           await externalProcesses.stop(id, entries.get(id)?.process.pid);
         const result = await stopEntry(id);
-        if (!result.success) return result;
+        if (!result.success) {
+          diagnostics.set(id, {
+            status: "unavailable",
+            engine: entries.get(id)?.engine,
+            code: "PROCESS_STOP_FAILED",
+            message: result.error,
+          });
+          return { ...result, ...snapshot(id), success: false };
+        }
         await externalProcesses.stop(id);
+        if (lifecycleDiagnostic(diagnostics.get(id))) diagnostics.delete(id);
         return result;
       } catch (error) {
         const diagnostic = {
@@ -474,8 +495,21 @@ function createProcessManager({
     );
   }
   async function diagnose(id, type, customPath, options) {
+    valid(id, type);
+    const entry = entries.get(id),
+      generation = generations.get(id);
+    const previous = diagnostics.get(id);
     const diagnostic = await runtime.inspect(type, customPath, options);
-    diagnostics.set(id, diagnostic);
+    // A file check is not a process-health check, and an asynchronous old check
+    // must never overwrite a newer launch, Stop or failure.
+    if (
+      entry === entries.get(id) &&
+      generation === generations.get(id) &&
+      previous === diagnostics.get(id) &&
+      !lifecycleDiagnostic(previous) &&
+      (!entry || entry.engine === type)
+    )
+      diagnostics.set(id, diagnostic);
     return diagnostic;
   }
   function repair(id, type, customPath) {

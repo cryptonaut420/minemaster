@@ -313,3 +313,8 @@ GPU normalization rejects placeholder PCI bus identities and filters recognized 
 
 
 Explicit Windows diagnostics now include `diagnostic.windows.checkedPaths` (up to six strings, each capped at 1,000 characters) in native status, WebSocket/REST data and expanded admin/client troubleshooting. The native runtime remembers at most two failed paths per engine for 30 minutes in the current app session, limited to that engine's managed user-data directory. Explicit Windows checks include these archive/runtime paths alongside the usual executable/optional-driver history targets; normal telemetry never invokes Defender. `containerfile:` archive records can match an exact requested path. The list identifies the requested check scope, not proof that history was available or that Windows allows execution.
+
+
+## Unused-engine file diagnostics
+
+Shared rig views exclude a stopped process's file-verification error from operational status only when its diagnostic explicitly names a different engine than the selected one and exactly matches the reported error. The original diagnostic remains visible and the view retains `process.reportedError`; the stored report is unchanged. Running-process failures, unrelated errors and ownership/Stop failures remain operational. This corrects older clients' startup check of XMRig in a Nanominer-selected CPU slot without pretending that missing XMRig files were repaired.

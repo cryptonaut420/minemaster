@@ -209,3 +209,10 @@ Explicit Windows checks also show their exact path list and include up to two re
 ## Windows surviving SRBMiner processes (1.4.10)
 
 Before starting a miner, MineMaster checks Windows process inventory for a managed SRBMiner instance using that CPU/GPU slot's exact log path. An existing instance blocks launch before log/config files are replaced. Stop can reclaim it after verifying PID, creation time, executable and command line; it never kills by executable name alone. Update shutdown confirms exit and carries active surviving mining or already scheduled crash recovery into version-bound resume intent. A newer explicit Stop cancels that intent. Unreadable process inventory fails visibly rather than assuming the rig is clear. Custom paths and processes outside this user-data profile are not reclaimed. This handles identifiable managed SRBMiner survivors; it is not general Windows process containment.
+
+
+## 1.4.11 diagnostic and control follow-up
+
+Startup no longer prepares/checks XMRig and Nanominer based solely on legacy slot names. The actual selected engine is prepared and verified at launch or explicit maintenance. A stopped slot ignores a retained file check for another engine; process ownership failures remain visible. A file check cannot clear a process-exit/Stop failure or overwrite a later launch. Confirmed Stop clears resolved lifecycle failures; failed Stop remains visible through subsequent polling.
+
+Desktop Stop All now reaches the native owner for both slots even if the renderer reports stopped, allowing the managed-survivor checks to run. Windows survivor identity still requires the resolved executable path and exact per-slot log argument; a basename in the executable command-line argument is allowed because the OS supplies the actual image path separately. No unmanaged process is terminated by basename alone.

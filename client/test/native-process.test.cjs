@@ -630,3 +630,62 @@ test("Stop during asynchronous survivor inventory cancels captured update intent
   release();
   assert.deepEqual(await update, []);
 });
+
+test("late file diagnosis cannot overwrite a newer engine launch", async () => {
+  let finish;
+  const f = fixture();
+  f.runtime.inspect = async () =>
+    new Promise((r) => {
+      finish = r;
+    });
+  const check = f.manager.diagnose("cpu", "xmrig");
+  await f.manager.start({ ...request, config: { engine: "nanominer" } });
+  finish({
+    status: "unavailable",
+    engine: "xmrig",
+    code: "ENOENT",
+    message: "old engine missing",
+  });
+  assert.equal((await check).engine, "xmrig");
+  assert.equal(f.manager.snapshot("cpu").running, true);
+  assert.equal(f.manager.snapshot("cpu").error, null);
+});
+
+test("file diagnosis preserves an exit failure until confirmed Stop", async () => {
+  const f = fixture();
+  await f.manager.start(request);
+  f.children[0].exitCode = 1;
+  f.children[0].emit("close", 1);
+  await f.manager.diagnose("cpu", "xmrig");
+  assert.equal(f.manager.snapshot("cpu").diagnostic.code, "PROCESS_EXIT");
+  await f.manager.stop({ minerId: "cpu" });
+  assert.equal(f.manager.snapshot("cpu").error, null);
+});
+
+test("failed Stop stays visible through polls and file checks until exit is confirmed", async () => {
+  const f = fixture({ signal: async () => {} });
+  await f.manager.start(request);
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, false);
+  assert.equal(
+    f.manager.snapshot("cpu").diagnostic.code,
+    "PROCESS_STOP_FAILED",
+  );
+  await f.manager.diagnose("cpu", "xmrig");
+  assert.match(f.manager.snapshot("cpu").error, /Could not confirm stop/);
+  f.children[0].exitCode = 0;
+  f.children[0].emit("close", 0);
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, true);
+  assert.equal(f.manager.snapshot("cpu").error, null);
+});
+
+test("a successful file check does not erase an operating-system launch failure", async () => {
+  const f = fixture({
+    spawnProcess: () => {
+      throw Object.assign(Error("blocked"), { code: "EPERM" });
+    },
+  });
+  assert.equal((await f.manager.start(request)).success, false);
+  await f.manager.diagnose("cpu", "xmrig");
+  assert.equal(f.manager.snapshot("cpu").diagnostic.code, "EPERM");
+  assert.equal(f.manager.snapshot("cpu").diagnostic.stage, "launch");
+});

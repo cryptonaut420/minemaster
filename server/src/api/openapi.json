@@ -4236,6 +4236,11 @@
                 "nullable": true
               }
             }
+          },
+          "reportedError": {
+            "type": "string",
+            "nullable": true,
+            "description": "Original unused-engine file error retained when error is suppressed in the operational view. Diagnostic remains available; stored raw report is unchanged. Running-process and ownership failures are never suppressed."
           }
         }
       },

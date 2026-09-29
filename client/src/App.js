@@ -967,9 +967,9 @@ function App() {
 
   const handleStopAll = () => {
     miners.forEach((miner) => {
-      if (miner.running || miner.loading || miner.restartPendingAt) {
-        handleStopMiner(miner.id);
-      }
+      // Native Stop also checks for surviving managed processes even when the
+      // renderer believes this slot is stopped.
+      handleStopMiner(miner.id);
     });
   };
 

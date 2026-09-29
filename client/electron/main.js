@@ -357,16 +357,9 @@ else {
         }),
     });
     createWindow();
-    // First installation copies verified bundled files only; it never launches a miner or downloads in a loop.
-    for (const [id, type] of [
-      ["xmrig-1", "xmrig"],
-      ["nanominer-1", "nanominer"],
-    ]) {
-      try {
-        await processManager.prepareEngine(type);
-      } catch (_) {}
-      await processManager.diagnose(id, type);
-    }
+    // The renderer owns the selected CPU/GPU engine. Legacy slot names are not
+    // engine selections. Prepare/verify the actual engine at launch or explicit
+    // maintenance, rather than installing and reporting errors for unused engines.
   });
 }
 app.on("before-quit", (event) => {
