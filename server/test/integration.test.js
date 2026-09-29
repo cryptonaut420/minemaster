@@ -1225,12 +1225,29 @@ test("admin app install waits for a new matching-version registration and reject
   send(ws, "command-result", {
     id: cmd.data.id,
     status: "succeeded",
-    result: { phase: "installer-handoff" },
+    result: { update: { phase: "installer-handoff" } },
   });
   await waitFor(
     async () =>
       (await db.collection("commands").findOne({ id: cmd.data.id })).status ===
       "running",
+  );
+  await require("../src/services/commands").expire(true);
+  assert.equal(
+    (await db.collection("commands").findOne({ id: cmd.data.id })).status,
+    "running",
+  );
+  const expired = {
+    ...(await db.collection("commands").findOne({ id: cmd.data.id })),
+    _id: new ObjectId(),
+    id: "expired-install-handoff",
+    deadline: new Date(Date.now() - 1),
+  };
+  await db.collection("commands").insertOne(expired);
+  await require("../src/services/commands").expire(true);
+  assert.equal(
+    (await db.collection("commands").findOne({ id: expired.id })).status,
+    "timed_out",
   );
   const same = await socket();
   send(same, "register", { ...reg, bootId: "same-version-reboot" });

@@ -514,6 +514,17 @@ async function expire(restarting = false) {
     })
     .toArray();
   for (const c of rows) {
+    // A handed-off installer is confirmed by a future registration, independently
+    // of the old socket/server process. Preserve its original deadline; never replay it.
+    if (
+      restarting &&
+      c.action === "app-update-install" &&
+      c.status === "running" &&
+      c.targetVersion &&
+      new Date(c.deadline) > now &&
+      (c.result?.update?.phase || c.result?.phase) === "installer-handoff"
+    )
+      continue;
     const status = "timed_out",
       error = restarting
         ? "Server restarted; execution outcome unknown. Inspect the rig before retrying."

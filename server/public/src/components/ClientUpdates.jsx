@@ -159,6 +159,13 @@ export default function ClientUpdates() {
               >
                 {labels[r.status]}
               </Badge>
+              {r.status === "offline" &&
+                r.appUpdate?.state === "installing" && (
+                  <small>
+                    Last installation is unconfirmed. Check MineMaster or the
+                    installer on this PC.
+                  </small>
+                )}
               {["error", "manual"].includes(r.status) &&
                 r.appUpdate?.message && <small>{r.appUpdate.message}</small>}
             </span>
