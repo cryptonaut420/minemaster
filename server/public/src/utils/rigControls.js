@@ -108,10 +108,18 @@ export function compactIssue(rig) {
     return "Miner errors · View details";
   if (rig.status === "offline") return "";
   if (rig.status === "stale") return "Waiting for agent report";
+  const failedProcess = rig.processes?.find(
+    (p) =>
+      (p.running || p.enabled !== false) &&
+      (p.error === reason || p.diagnostic?.message === reason),
+  );
+  const scope = ["CPU", "GPU"].includes(failedProcess?.deviceType)
+    ? failedProcess.deviceType
+    : "Miner";
   if (/exited/i.test(reason))
-    return "Miner stopped unexpectedly · View details";
+    return `${scope} stopped unexpectedly · View details`;
   if (/missing|quarantin|access denied/i.test(reason))
-    return "Miner files need attention";
+    return `${scope} files need attention`;
   if (["Mining", "Idle", "Agent disconnected", ""].includes(reason))
     return rig.openIncidents?.length
       ? `${rig.openIncidents.length} alerts · View details`

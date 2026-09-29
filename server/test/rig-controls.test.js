@@ -157,6 +157,34 @@ test("rig rows summarize full startup logs and keep sensor identities and missin
     }),
     "Miner stopped unexpectedly · View details",
   );
+  assert.equal(
+    compactIssue({
+      reason: "Miner exited (0). startup output",
+      processes: [
+        {
+          deviceType: "CPU",
+          enabled: true,
+          running: false,
+          error: "Miner exited (0). startup output",
+        },
+        { deviceType: "GPU", running: true },
+      ],
+    }),
+    "CPU stopped unexpectedly · View details",
+  );
+  assert.equal(
+    compactIssue({
+      reason: "Miner executable is missing",
+      processes: [
+        {
+          deviceType: "CPU",
+          enabled: true,
+          error: "Miner executable is missing",
+        },
+      ],
+    }),
+    "CPU files need attention",
+  );
   assert.equal(compactIssue({ reason: "Long error ".repeat(100) }).length, 78);
   assert.equal(
     compactIssue({ status: "offline", reason: "Agent disconnected" }),

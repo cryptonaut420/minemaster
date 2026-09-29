@@ -77,7 +77,9 @@ export default function ClientUpdates() {
   }
   const labels = {
     current: "Current",
+    newer: "Newer than published release",
     offline: "Offline",
+    reconnecting: "Update sent · awaiting reconnect",
     unknown: "Version unknown",
     outdated: "Update needed",
     manual: "Manual update",
@@ -94,6 +96,9 @@ export default function ClientUpdates() {
           ? `${current.length}/${online.length} online rigs on ${release.version}`
           : "Checking latest release…"}
         {ready.length ? ` · ${ready.length} ready to install` : ""}
+        {rows.some((r) => r.status === "reconnecting")
+          ? ` · ${rows.filter((r) => r.status === "reconnecting").length} awaiting reconnect`
+          : ""}
       </summary>
       <ErrorNotice error={error || data.error} retry={data.reload} />
       <p>

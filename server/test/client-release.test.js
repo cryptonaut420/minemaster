@@ -1,6 +1,11 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { state, version, latest } = require("../src/services/clientRelease");
+const {
+  state,
+  version,
+  latest,
+  compare,
+} = require("../src/services/clientRelease");
 test("release status separates reported version, connectivity, unsupported packages and staged downloads", () => {
   const rig = {
     id: "one",
@@ -19,11 +24,21 @@ test("release status separates reported version, connectivity, unsupported packa
   assert.equal(state(rig, "1.4.7").status, "current");
   rig.freshness.connected = false;
   assert.equal(state(rig, "1.4.7").status, "offline");
+  assert.equal(
+    state(
+      { ...rig, activeUpdate: { status: "running", targetVersion: "1.4.7" } },
+      "1.4.7",
+    ).status,
+    "reconnecting",
+  );
   rig.freshness.connected = true;
   rig.version = "1.4.6";
   rig.appUpdate.supported = false;
   assert.equal(state(rig, "1.4.7").status, "manual");
   assert.equal(version("1.4.7-beta.1"), null);
+  assert.equal(state({ ...rig, version: "1.4.10" }, "1.4.7").status, "newer");
+  assert.equal(state({ ...rig, version: "1.4.10" }, "1.4.7").canCheck, false);
+  assert.equal(compare("1.4.10", "1.4.9"), 1);
 });
 test("latest release rejects incomplete assets and caches a verified complete release", async () => {
   const release = { tag_name: "v1.4.7", assets: [] };
