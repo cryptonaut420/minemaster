@@ -1,4 +1,5 @@
 const FRESH_MS = 60000;
+const CLOCK_TOLERANCE_MS = 5 * 60000;
 // SRBMiner 3.6.7 emits aggregate file statistics roughly every 90 seconds.
 // Keep original sample times; agent and sensor freshness remain 60 seconds.
 const rateFreshMs = (process) =>
@@ -13,8 +14,8 @@ const date = (v) => {
   return Number.isFinite(n) && Math.abs(n) <= 8640000000000000 ? n : null;
 };
 const iso = (v) => (date(v) === null ? null : new Date(date(v)).toISOString());
-// Receipt delay includes both clock offset and transport latency. Never use it
-// to rewrite observations or turn old samples into current mining performance.
+// Receipt delay includes clock offset and transport latency. Original sample
+// timestamps remain unchanged; freshness can use the bounded report-clock anchor.
 function clockObservation(sentAt, receivedAt = Date.now()) {
   if (
     typeof sentAt !== "number" ||
@@ -28,6 +29,21 @@ function clockObservation(sentAt, receivedAt = Date.now()) {
     receivedAt: iso(receivedAt),
     differenceSeconds: Math.round((receivedAt - sentAt) / 1000),
   };
+}
+function observationNow(clock, now = Date.now()) {
+  const reported = date(clock?.reportedAt),
+    received = date(clock?.receivedAt);
+  if (
+    reported === null ||
+    received === null ||
+    now - received < -5000 ||
+    now - received > FRESH_MS ||
+    Math.abs(received - reported) > CLOCK_TOLERANCE_MS
+  )
+    return now;
+  // Sample age at send + time since server receipt. Repeated cached samples
+  // continue aging as the sender timestamp advances; heartbeats cannot refresh them.
+  return reported + (now - received);
 }
 function normalizeDiagnostic(d) {
   if (!d || typeof d !== "object" || Array.isArray(d)) return null;
@@ -135,6 +151,10 @@ function normalizeGpus(gpus = []) {
     });
 }
 function normalizeProcesses(payload, now = Date.now()) {
+  const sampleNow = observationNow(
+    clockObservation(payload.timestamp, now),
+    now,
+  );
   let input = payload.processes || payload.miners;
   if (!Array.isArray(input)) {
     const d = payload.devices || {};
@@ -179,14 +199,14 @@ function normalizeProcesses(payload, now = Date.now()) {
     seen.add(id);
     const observed = date(p.hashrateObservedAt ?? p.observedAt);
     const protocol2 = payload.protocolVersion >= 2;
-    const validTime = observed !== null && observed <= now + 5000;
+    const validTime = observed !== null && observed <= sampleNow + 5000;
     const rate = p.paused === true ? null : number(p.hashrate);
     const quality =
       rate === null
         ? "unavailable"
         : protocol2 && !validTime
           ? "unavailable"
-          : now - (observed ?? now) > rateFreshMs(p)
+          : sampleNow - (observed ?? sampleNow) > rateFreshMs(p)
             ? "stale"
             : rate === 0
               ? "zero"
@@ -334,6 +354,7 @@ function reconcileProcess(
   previous,
   lastTelemetryAt,
   now = Date.now(),
+  sampleNow = now,
 ) {
   const continuous =
     date(lastTelemetryAt) !== null && now - date(lastTelemetryAt) <= FRESH_MS;
@@ -363,7 +384,7 @@ function reconcileProcess(
         sameRun &&
         previous.quality === "zero" &&
         date(previous.hashrateObservedAt) !== null &&
-        now - date(previous.hashrateObservedAt) <= rateFreshMs(previous)
+        sampleNow - date(previous.hashrateObservedAt) <= rateFreshMs(previous)
         ? previous.zeroSince || process.hashrateObservedAt
         : process.hashrateObservedAt
       : null;
@@ -371,6 +392,7 @@ function reconcileProcess(
 }
 function viewRig(rig, now = Date.now()) {
   const r = { ...rig };
+  const sampleNow = observationNow(r.agentClock, now);
   const connected =
     !!r.connectionId &&
     now - (date(r.connectionLastSeen || r.lastSeen) ?? 0) <= CONNECTION_MS;
@@ -380,22 +402,29 @@ function viewRig(rig, now = Date.now()) {
     ...p,
     quality: !fresh
       ? "stale"
-      : date(p.hashrateObservedAt) === null || number(p.hashrate) === null
+      : p.paused ||
+          date(p.hashrateObservedAt) === null ||
+          number(p.hashrate) === null ||
+          date(p.hashrateObservedAt) > sampleNow + 5000
         ? "unavailable"
-        : now - date(p.hashrateObservedAt) > rateFreshMs(p)
+        : sampleNow - date(p.hashrateObservedAt) > rateFreshMs(p)
           ? "stale"
-          : p.quality,
+          : p.hashrate === 0
+            ? "zero"
+            : "valid",
     uptime:
       fresh && p.running && date(p.startedAt) !== null
-        ? Math.max(0, Math.floor((now - date(p.startedAt)) / 1000))
+        ? Math.max(0, Math.floor((sampleNow - date(p.startedAt)) / 1000))
         : null,
   }));
-  if (r.stats) r.stats = ageSensors(r.stats, now);
+  if (r.stats) r.stats = ageSensors(r.stats, sampleNow);
   if (r.stats)
     r.stats = {
       ...r.stats,
       quality:
-        !fresh || now - (date(r.stats.observedAt) ?? 0) > FRESH_MS
+        !fresh ||
+        sampleNow - (date(r.stats.observedAt) ?? 0) > FRESH_MS ||
+        date(r.stats.observedAt) > sampleNow + 5000
           ? "stale"
           : r.stats.quality,
     };
@@ -429,7 +458,8 @@ function viewRig(rig, now = Date.now()) {
   r.clockWarning =
     fresh &&
     Number.isFinite(r.agentClock?.differenceSeconds) &&
-    Math.abs(r.agentClock.differenceSeconds) > 30 &&
+    Math.abs(date(r.agentClock.receivedAt) - date(r.agentClock.reportedAt)) >
+      CLOCK_TOLERANCE_MS &&
     now - (date(r.agentClock.receivedAt) ?? 0) <= FRESH_MS
       ? `Agent timestamp is ${Math.abs(r.agentClock.differenceSeconds)}s ${r.agentClock.differenceSeconds > 0 ? "behind" : "ahead of"} server receipt. Check system time and network delay; sample timestamps are unchanged.`
       : null;
@@ -588,6 +618,7 @@ function summary(rigs, now = Date.now()) {
     })),
     hardware,
     freshnessThresholdSeconds: FRESH_MS / 1000,
+    clockToleranceSeconds: CLOCK_TOLERANCE_MS / 1000,
     hashrateFreshnessSecondsByEngine: {
       xmrig: 60,
       nanominer: 60,
@@ -603,6 +634,8 @@ module.exports = {
   date,
   iso,
   clockObservation,
+  observationNow,
+  CLOCK_TOLERANCE_MS,
   normalizeGpus,
   gpuIdentity,
   normalizeProcesses,

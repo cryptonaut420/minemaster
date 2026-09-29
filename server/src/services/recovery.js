@@ -1,10 +1,11 @@
 const { getDb } = require("../db/mongodb");
-const { viewRig, date } = require("./telemetry");
+const { viewRig, date, observationNow } = require("./telemetry");
 const commands = require("./commands");
 const { event } = require("./monitoring");
 function candidates(raw, now = Date.now()) {
   const r = viewRig(raw, now),
     policy = r.recovery || {};
+  const sampleNow = observationNow(r.agentClock, now);
   if (
     !policy.enabled ||
     r.archivedAt ||
@@ -34,7 +35,7 @@ function candidates(raw, now = Date.now()) {
       p.enabled &&
       p.quality === "zero" &&
       date(p.zeroSince) !== null &&
-      now - date(p.zeroSince) >= (policy.zeroSeconds || 300) * 1000 &&
+      sampleNow - date(p.zeroSince) >= (policy.zeroSeconds || 300) * 1000 &&
       desired(p) !== "stopped",
   );
 }

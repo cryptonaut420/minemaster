@@ -9,6 +9,8 @@ const {
   reconcileProcess,
   viewRig,
   date,
+  clockObservation,
+  observationNow,
 } = require("../services/telemetry");
 const commands = require("../services/commands");
 const monitoring = require("../services/monitoring");
@@ -181,14 +183,23 @@ async function status(c, data) {
   if (!miner) return;
   const now = new Date().toISOString();
   const payload = { ...data, protocolVersion: miner.protocolVersion };
-  const processes = normalizeProcesses(payload);
+  const receivedAt = Date.parse(now);
+  const agentClock = clockObservation(data.timestamp, receivedAt);
+  const sampleNow = observationNow(agentClock, receivedAt);
+  const processes = normalizeProcesses(payload, receivedAt);
   for (const process of processes) {
     process.loadedConfigVersion = process.desiredConfigVersion;
     process.desiredConfigVersion =
       miner.desiredConfigs?.[process.type]?.version ||
       process.desiredConfigVersion;
     const previous = miner.processes?.find((p) => p.id === process.id);
-    reconcileProcess(process, previous, miner.telemetryReceivedAt);
+    reconcileProcess(
+      process,
+      previous,
+      miner.telemetryReceivedAt,
+      receivedAt,
+      sampleNow,
+    );
     const closedInterval =
       previous?.running && !process.running
         ? {
@@ -223,7 +234,7 @@ async function status(c, data) {
         gpuObservedAt: data.systemInfo.gpuObservedAt || null,
       }
     : miner.hardware;
-  const stats = monitoring.sensors(payload);
+  const stats = monitoring.sensors(payload, receivedAt);
   const devices = {
     cpu: processes.find((p) => p.deviceType === "CPU") || { running: false },
     gpus: hardware.gpus.map((g) => ({
@@ -242,10 +253,7 @@ async function status(c, data) {
     miner.id,
     {
       processes,
-      agentClock: require("../services/telemetry").clockObservation(
-        data.timestamp,
-        Date.parse(now),
-      ),
+      agentClock,
       appUpdate: require("../services/appUpdates").normalize(data.appUpdate),
       hardware,
       devices,
@@ -329,7 +337,7 @@ async function handle(c, message) {
     case "command-result":
       return commands.report(miner.id, data);
     case "logs":
-      return monitoring.ingestLogs(miner.id, data.entries);
+      return monitoring.ingestLogs(miner.id, data.entries, miner.agentClock);
     case "event":
       return monitoring.event(miner.id, data.kind, data.details || {});
     case "request-configs": {

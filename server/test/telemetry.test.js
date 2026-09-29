@@ -15,12 +15,12 @@ const esm = async (name) =>
   );
 const now = Date.now(),
   timestamp = new Date(now).toISOString();
-test("agent clock discrepancy is exposed without rewriting stale samples", () => {
+test("agent clock discrepancies beyond five minutes retain warnings and stale samples", () => {
   assert.equal(t.clockObservation("invalid", now), null);
   assert.equal(t.clockObservation(Infinity, now), null);
-  const agentClock = t.clockObservation(now - 180000, now);
-  assert.equal(agentClock.differenceSeconds, 180);
-  const sample = new Date(now - 180000).toISOString();
+  const agentClock = t.clockObservation(now - 301000, now);
+  assert.equal(agentClock.differenceSeconds, 301);
+  const sample = new Date(now - 301000).toISOString();
   const r = t.viewRig(
     {
       connectionId: "test",
@@ -40,7 +40,7 @@ test("agent clock discrepancy is exposed without rewriting stale samples", () =>
     },
     now,
   );
-  assert.match(r.clockWarning, /180s behind/);
+  assert.match(r.clockWarning, /301s behind/);
   assert.equal(r.processes[0].quality, "stale");
   assert.equal(r.processes[0].hashrateObservedAt, sample);
   assert.equal(t.viewRig(r, now + 100000).clockWarning, null);
@@ -565,6 +565,7 @@ test("automatic recovery is opt-in, sustained, bounded by maintenance and operat
       {
         ...p,
         enabled: true,
+        hashrate: 0,
         quality: "zero",
         zeroSince: new Date(now - 301000).toISOString(),
       },
@@ -1089,5 +1090,108 @@ test("SRBMiner 90-second rate cadence has a bounded 120-second window; agent fre
       now,
     )[0].quality,
     "stale",
+  );
+});
+
+test("five-minute clock tolerance preserves sample ages, totals, sensors and monitoring", () => {
+  for (const offset of [-300000, -168000, 168000, 300000]) {
+    const report = now + offset;
+    const observed = new Date(report - 10000).toISOString();
+    const payload = {
+      protocolVersion: 2,
+      timestamp: report,
+      processes: [
+        {
+          id: "gpu",
+          deviceType: "GPU",
+          engine: "srbminer",
+          running: true,
+          algorithm: "quantus",
+          hashrate: 200e6,
+          hashrateObservedAt: observed,
+          startedAt: new Date(report - 600000).toISOString(),
+          shares: { accepted: 99, rejected: 1, observedAt: observed },
+        },
+      ],
+      stats: {
+        observedAt: observed,
+        cpu: { usage: 20 },
+        gpus: [
+          { deviceId: "gpu", temperature: 50, usage: 99, powerWatts: 170 },
+        ],
+      },
+    };
+    const raw = {
+      connectionId: "test",
+      connectionLastSeen: timestamp,
+      telemetryReceivedAt: timestamp,
+      agentClock: t.clockObservation(report, now),
+      processes: t.normalizeProcesses(payload, now),
+      stats: monitoring.sensors(payload, now),
+    };
+    const rig = t.viewRig(raw, now);
+    assert.equal(rig.processes[0].quality, "valid");
+    assert.equal(rig.processes[0].hashrateObservedAt, observed);
+    assert.equal(rig.processes[0].uptime, 600);
+    assert.equal(rig.stats.gpus[0].temperature, 50);
+    assert.equal(rig.clockWarning, null);
+    assert.equal(t.summary([raw], now).algorithms[0].hashrate, 200e6);
+    assert.equal(t.summary([raw], now).clockToleranceSeconds, 300);
+    assert.equal(
+      monitoring
+        .evaluate(raw, monitoring.DEFAULT_RULES, now)
+        .some((i) => i.rule === "stale"),
+      false,
+    );
+    // New envelope timestamps cannot refresh unchanged cached sample timestamps.
+    payload.timestamp += 121000;
+    raw.agentClock = t.clockObservation(payload.timestamp, now + 121000);
+    raw.processes = t.normalizeProcesses(payload, now + 121000);
+    raw.stats = monitoring.sensors(payload, now + 121000);
+    raw.connectionLastSeen = raw.telemetryReceivedAt = new Date(
+      now + 121000,
+    ).toISOString();
+    const old = t.viewRig(raw, now + 121000);
+    assert.equal(old.processes[0].quality, "stale");
+    assert.equal(old.stats.gpus[0].temperature, null);
+    assert.equal(t.summary([raw], now + 121000).algorithms[0].hashrate, null);
+    assert.equal(
+      monitoring
+        .evaluate(raw, monitoring.DEFAULT_RULES, now + 121000)
+        .some((i) => i.rule === "stale"),
+      true,
+    );
+    assert.equal(t.viewRig(raw, now + 221000).freshness.connected, false);
+  }
+});
+
+test("clock tolerance rejects future samples relative to the report and never changes zero or missing", () => {
+  const report = now + 300000;
+  const base = { protocolVersion: 2, timestamp: report };
+  const normalize = (p) =>
+    t.normalizeProcesses(
+      { ...base, processes: [{ id: "gpu", engine: "srbminer", ...p }] },
+      now,
+    )[0];
+  assert.equal(
+    normalize({ hashrate: 0, hashrateObservedAt: report }).quality,
+    "zero",
+  );
+  assert.equal(
+    normalize({ hashrate: null, hashrateObservedAt: report }).quality,
+    "unavailable",
+  );
+  assert.equal(
+    normalize({ hashrate: 2, hashrateObservedAt: report + 6000 }).quality,
+    "unavailable",
+  );
+  assert.equal(normalize({ hashrate: 2 }).quality, "unavailable");
+  assert.equal(
+    t.observationNow(t.clockObservation(now - 300001, now), now),
+    now,
+  );
+  assert.equal(
+    t.observationNow(t.clockObservation(report, now), now + 61000),
+    now + 61000,
   );
 });

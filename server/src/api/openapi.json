@@ -314,7 +314,8 @@
               }
             }
           }
-        }
+        },
+        "description": " Freshness uses a bounded report-clock comparison (clockToleranceSeconds: 300) while connection/telemetry receipt deadlines remain unchanged."
       }
     },
     "/rigs": {
@@ -4164,7 +4165,10 @@
                   "checkedPaths": {
                     "type": "array",
                     "maxItems": 6,
-                    "items": { "type": "string", "maxLength": 1000 },
+                    "items": {
+                      "type": "string",
+                      "maxLength": 1000
+                    },
                     "description": "Exact paths included in the explicit Windows history check; may include recently failed managed archive paths. No matching history is not proof of permission to run."
                   },
                   "message": {
@@ -4353,7 +4357,7 @@
           "agentClock": {
             "type": "object",
             "nullable": true,
-            "description": "Agent wall clock compared to server receipt; includes transport delay and never corrects sample timestamps.",
+            "description": "Agent wall clock versus server receipt, including transport delay. For fresh reports with an absolute difference up to 300 seconds, sample age is measured relative to reportedAt plus elapsed server time. Original observation/history timestamps are unchanged.",
             "properties": {
               "reportedAt": {
                 "type": "string",
@@ -4371,7 +4375,7 @@
           "clockWarning": {
             "type": "string",
             "nullable": true,
-            "description": "Current discrepancy greater than 30 seconds; absent when telemetry or clock observation is stale."
+            "description": "Clock/transport difference exceeds 300 seconds; absent when telemetry or clock observation is stale. Offsets within five minutes are tolerated without extending sample lifetime."
           }
         }
       },
@@ -4415,7 +4419,7 @@
             "minimum": 5,
             "maximum": 1800,
             "default": 60,
-            "description": "5–300 seconds normally. App installation allows 5–1800 seconds and defaults to 600; miner repair defaults to 300."
+            "description": "5\u2013300 seconds normally. App installation allows 5\u20131800 seconds and defaults to 600; miner repair defaults to 300."
           },
           "restartRunningOnly": {
             "type": "boolean",

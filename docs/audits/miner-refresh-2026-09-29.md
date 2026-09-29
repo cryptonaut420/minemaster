@@ -110,3 +110,10 @@ PG_Z7 remains slower (roughly 88–93 MH/s versus about 238 MH/s overnight). A c
 
 
 Final live check at approximately 17:34 UTC: seven connected Quantus processes are running (KAM_Z6, PG_R1, PG_R2, PG_Z1, PG_Z4, PG_Z5, PG_Z7). PG_Z4 reports about 201 MH/s and two newly accepted shares received at 17:34:06 and 17:34:26 UTC, confirming productive mining after cleanup. PG_Z7 reports about 87 MH/s after its final restart; accepted work was seen during the earlier diagnostic start, but no new accepted share was captured yet after the final restart. Its residual GPU load remains unresolved.
+
+
+## Five-minute agent-clock tolerance
+
+The owner requested a ±5 minute clock tolerance after PG_Z4's roughly 204 MH/s was excluded from the fleet total by its 168-second clock offset. Fresh telemetry now anchors sample age to agent report time plus elapsed server time when the measured clock/transport difference is within 300 seconds. Shared API/admin totals, sensor freshness and monitoring use this comparison; connection and telemetry deadlines remain based on server receipt. Cached observations still age, zero/missing remain distinct, and offsets outside the range still warn. Raw observation/history timestamps remain unchanged, so historical chart placement can differ by the tolerated offset. No clock settings, profiles, mining commands or client release are changed by this backend fix.
+
+Regressions cover ahead/behind/boundary offsets, expired/invalid anchors, cached observations, offline agents, zero/missing/future samples, totals/monitoring agreement and real WebSocket-to-database/API preservation on disposable data. Deployment results follow after verification.

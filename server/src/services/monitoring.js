@@ -6,6 +6,8 @@ const {
   normalizeGpus,
   ageSensors,
   rateFreshMs,
+  clockObservation,
+  observationNow,
 } = require("./telemetry");
 const DEFAULT_RULES = {
   offline: true,
@@ -55,10 +57,16 @@ function validateRules(input, current = DEFAULT_RULES) {
   return { ...current, ...input };
 }
 function sensors(payload, now = Date.now()) {
+  const sampleNow = observationNow(
+    clockObservation(payload.timestamp, now),
+    now,
+  );
   const s = payload.stats || {},
     observed = date(s.observedAt);
   const fresh =
-    observed !== null && now - observed <= 60000 && observed <= now + 5000;
+    observed !== null &&
+    sampleNow - observed <= 60000 &&
+    observed <= sampleNow + 5000;
   const source = payload.protocolVersion >= 2 ? fresh : true;
   const cpu = s.cpu || {},
     memory = s.memory || {};
@@ -96,12 +104,13 @@ function sensors(payload, now = Date.now()) {
         memoryTotal: source ? number(g.memoryTotal) : null,
       })),
     },
-    now,
+    sampleNow,
   );
 }
 function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
   const r = viewRig(raw, now),
     issues = [];
+  const sampleNow = observationNow(r.agentClock, now);
   if (r.archivedAt || r.forgottenAt) return issues;
   const add = (rule, message, severity = "warning") => {
     if (rules[rule]) issues.push({ rule, message, severity });
@@ -117,7 +126,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
         !p.paused &&
         ["stale", "unavailable"].includes(p.quality) &&
         date(p.startedAt) !== null &&
-        now - date(p.startedAt) > rules.zeroGraceSeconds * 1000
+        sampleNow - date(p.startedAt) > rules.zeroGraceSeconds * 1000
       )
         add(
           "stale",
@@ -128,7 +137,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
         !p.paused &&
         p.quality === "zero" &&
         date(p.startedAt) !== null &&
-        now - date(p.startedAt) > rules.zeroGraceSeconds * 1000
+        sampleNow - date(p.startedAt) > rules.zeroGraceSeconds * 1000
       )
         add("zero", `${label} reports zero hashrate`);
       const total =
@@ -138,8 +147,8 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
         !p.paused &&
         total >= 20 &&
         date(p.shares?.observedAt) !== null &&
-        now - date(p.shares.observedAt) >= -5000 &&
-        now - date(p.shares.observedAt) <= rateFreshMs(p) &&
+        sampleNow - date(p.shares.observedAt) >= -5000 &&
+        sampleNow - date(p.shares.observedAt) <= rateFreshMs(p) &&
         (date(p.startedAt) === null ||
           date(p.shares.observedAt) >= date(p.startedAt)) &&
         (p.shares.rejected / total) * 100 > rules.rejectPercent
@@ -163,7 +172,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
       add("missing_gpu", "A GPU from the acknowledged inventory is missing");
     if (
       date(r.stats?.observedAt) !== null &&
-      now - date(r.stats.observedAt) < 60000
+      sampleNow - date(r.stats.observedAt) < 60000
     ) {
       if (
         r.stats.cpu?.temperature >= rules.temperatureC ||
@@ -189,6 +198,7 @@ async function checkOne(raw, settings, now) {
   const db = getDb(),
     issues = evaluate(raw, settings, now);
   const rig = viewRig(raw, now);
+  const sampleNow = observationNow(rig.agentClock, now);
   const processes = rig.processes.filter(
     (p) => p.running && !p.paused && date(p.startedAt) !== null,
   );
@@ -212,8 +222,10 @@ async function checkOne(raw, settings, now) {
           $or: processes.map((p) => ({
             processId: p.id,
             observedAt: {
-              $gte: new Date(Math.max(since, date(p.startedAt))),
-              $lte: new Date(now + 5000),
+              $gte: new Date(
+                Math.max(sampleNow - 5 * 60000, date(p.startedAt)),
+              ),
+              $lte: new Date(sampleNow + 5000),
             },
           })),
         },
@@ -327,19 +339,20 @@ async function event(minerId, kind, details = {}, timestamp = new Date()) {
       timestamp,
     });
 }
-async function ingestLogs(minerId, entries) {
+async function ingestLogs(minerId, entries, agentClock = null) {
   if (!Array.isArray(entries) || entries.length > 100)
     throw Object.assign(Error("Log batch must contain at most 100 entries"), {
       status: 400,
     });
   const now = Date.now();
+  const sampleNow = observationNow(agentClock, now);
   const rows = entries
     .filter((x) => x && typeof x.message === "string")
     .map((x) => ({
       minerId,
       timestamp: new Date(),
       observedAt:
-        date(x.observedAt) !== null && date(x.observedAt) <= now + 5000
+        date(x.observedAt) !== null && date(x.observedAt) <= sampleNow + 5000
           ? new Date(date(x.observedAt))
           : null,
       processId: String(x.processId || "agent").slice(0, 100),

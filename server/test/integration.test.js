@@ -1102,7 +1102,7 @@ test("miner repair is capability-gated, acknowledged, and available through the 
     detail.data.data.processes[0].diagnostic.unexpectedSecret,
     undefined,
   );
-  assert.match(detail.data.data.clockWarning, /behind/);
+  assert.equal(detail.data.data.clockWarning, null);
   assert.ok(detail.data.data.agentClock.differenceSeconds >= 180);
 });
 
@@ -2302,6 +2302,57 @@ test("server profitability schedule persists daily deduplication and isolates pr
     if (previous === undefined)
       delete process.env.PROFITABILITY_DISCORD_WEBHOOK;
     else process.env.PROFITABILITY_DISCORD_WEBHOOK = previous;
+  }
+});
+
+test("WebSocket clocks ahead and behind retain fresh API rates, sensors and original history", async () => {
+  for (const offset of [-240000, 240000]) {
+    const identity = `clock-tolerance-${offset}`;
+    const ws = await socket();
+    send(ws, "register", registration(identity));
+    const rig = await waitFor(() =>
+      db.collection("miners").findOne({ systemId: identity }),
+    );
+    const report = Date.now() + offset;
+    const sample = new Date(report - 10000).toISOString();
+    send(ws, "status-update", {
+      timestamp: report,
+      processes: [
+        {
+          id: "nanominer-1",
+          deviceType: "GPU",
+          type: "nanominer",
+          engine: "srbminer",
+          running: true,
+          algorithm: "quantus",
+          hashrate: 200e6,
+          hashrateObservedAt: sample,
+          startedAt: new Date(report - 600000).toISOString(),
+        },
+      ],
+      stats: {
+        observedAt: sample,
+        cpu: { usage: 20 },
+        gpus: [
+          { deviceId: "pci:0000:01:00.0", temperature: 52, powerWatts: 170 },
+        ],
+      },
+    });
+    await waitFor(
+      async () =>
+        (await db.collection("miners").findOne({ id: rig.id })).processes?.[0]
+          ?.hashrate === 200e6,
+    );
+    const detail = (await api(`/v1/rigs/${rig.id}`)).data.data;
+    assert.equal(detail.processes[0].quality, "valid");
+    assert.equal(detail.processes[0].hashrateObservedAt, sample);
+    assert.equal(detail.stats.gpus[0].temperature, 52);
+    assert.equal(detail.clockWarning, null);
+    const stored = await db
+      .collection("hashrates")
+      .findOne({ minerId: rig.id });
+    assert.equal(stored.observedAt.toISOString(), sample);
+    ws.close();
   }
 });
 
