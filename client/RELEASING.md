@@ -14,7 +14,7 @@ npm --prefix ../server/public run build
 
 Tests use fake native processes and disposable data. They never execute mining binaries. See [the audit](../docs/audits/client-2026-09-13/second-pass.md) for package checks and the remaining Windows/hardware trial.
 
-The version is currently 1.4.8. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
+The version is currently 1.4.9. For a later release, use `npm run bump:patch`, `bump:minor` or `bump:major`, then synchronize `package-lock.json` with `npm install --package-lock-only --ignore-scripts --legacy-peer-deps`. Review and commit source/version changes before the release build. Build metadata identifies the source commit used by the build.
 
 Build locally without publishing:
 
@@ -29,7 +29,7 @@ Windows cross builds require the existing Wine/container environment. macOS need
 
 ## Miner distribution
 
-`electron/mining/releases.json` pins XMRig 6.26.0 Nanominer 3.10.0 and SRBMiner-MULTI 3.6.7 with official URLs, archive SHA-256 and runtime-file SHA-256. The `beforePack` hook verifies/downloads the actual target's files, including cross builds. Nanominer and SRBMiner are available on Windows/Linux x64; XMRig also covers macOS x64/arm64. Only the requested platform/architecture is packaged.
+`electron/mining/releases.json` pins XMRig 6.26.0, Nanominer 3.10.0 and SRBMiner-MULTI 3.7.0 with official URLs, archive SHA-256 and runtime-file SHA-256. The `beforePack` hook verifies/downloads the actual target's files, including cross builds. Nanominer and SRBMiner are available on Windows/Linux x64; XMRig also covers macOS x64/arm64. Only the requested platform/architecture is packaged. The hook stages a clean `.miner-bundles/<target>` tree from manifest-listed files; historical download caches and extra files are excluded.
 
 Setup/repair lists the archive, then extracts only manifest-listed runtime files and supplied licenses. Optional drivers are not extracted into temporary directories or installed. Runtime replacement stages and verifies new files before swapping directories. The shared Nanominer or SRBMiner executable cannot be repaired while either CPU or GPU uses it. Versioned binaries remain outside Git and writable configurations stay in user data; see [the client guide](README.md).
 
@@ -41,7 +41,7 @@ The configured GitHub release source is `cryptonaut420/minemaster`. Publishing n
 
 For a complete Windows/Linux release, use `npm run release` from a clean, committed `master` checkout. Bump and commit the version/lockfile first and add `docs/releases/<version>.md`. The wrapper requires Docker access and an authenticated GitHub CLI (or `GH_TOKEN` in its environment); it no longer reads `client/.env` or bumps versions during publication.
 
-Docker-generated output is returned to the invoking publisher before checksum generation. The wrapper runs both test suites and web builds, packages Windows NSIS/portable and Linux AppImage together with `--publish never` into a fresh version directory, and checks both update feeds against the actual SHA-512 hashes and sizes. It pushes master and an exact source tag, creates a draft with all seven assets, verifies the uploaded SHA-256 digests and sizes, then publishes it as latest. A build, upload or verification failure leaves no partial public release. Existing output/tag conflicts require inspection before retrying; do not overwrite a published release.
+Docker-generated output is returned to the invoking publisher before checksum generation. The wrapper first runs `npm run miners:check`, which requires access to the official GitHub latest-stable releases and fails for newer/unverifiable versions or changed archive identities. Review, verify and deliberately update pins before publishing; it does not automatically adopt upstream binaries. The wrapper runs both test suites and web builds, packages Windows NSIS/portable and Linux AppImage together with `--publish never` into a fresh version directory, and checks both update feeds against the actual SHA-512 hashes and sizes. `scripts/verify-packaged-miners.cjs` also checks both unpacked resource trees against the exact runtime allowlist, file hashes and release receipts. It pushes master and an exact source tag, creates a draft with all seven assets, verifies the uploaded SHA-256 digests and sizes, then publishes it as latest. A build, upload or verification failure leaves no partial public release. Existing output/tag conflicts require inspection before retrying; do not overwrite a published release.
 
 For a manually staged release, `node scripts/verify-release.cjs <directory> <version>` validates the complete asset set and writes `SHA256SUMS`; `node scripts/publish-release.cjs <directory> <version> <notes-file>` requires an existing pushed tag and performs draft/upload verification/publication. Also inspect packaged application source/version and miner hashes before publication. Cross-built packages do not establish Windows runtime or installer behavior.
 

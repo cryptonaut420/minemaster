@@ -167,12 +167,12 @@ for (const platform of ["linux", "win32"])
 test("SRBMiner release manifests preserve notices and never extract its optional Windows driver", () => {
   for (const platform of ["linux", "win32"]) {
     const release = releaseFor("srbminer", platform, "x64");
-    assert.equal(release.version, "3.6.7");
+    assert.equal(release.version, "3.7.0");
     assert.deepEqual(Object.keys(release.files), [
       release.binary,
       "ReadMe.txt",
     ]);
-    const prefix = "SRBMiner-Multi-3-6-7/";
+    const prefix = "SRBMiner-Multi-3-7-0/";
     const members = selectArchiveMembers(
       [
         release.binary,

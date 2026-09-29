@@ -1,6 +1,6 @@
 {
-  "version": "3.6.7",
-  "source": "https://github.com/doktor83/SRBMiner-Multi/blob/3.6.7/README.md",
+  "version": "3.7.0",
+  "source": "https://github.com/doktor83/SRBMiner-Multi/blob/3.7.0/README.md",
   "algorithms": [
     {
       "algorithm": "argon2d_16000",
@@ -302,7 +302,8 @@
       "fee": 2.0,
       "devices": [
         "AMD",
-        "NVIDIA"
+        "NVIDIA",
+        "Intel"
       ]
     },
     {

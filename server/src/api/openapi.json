@@ -3380,7 +3380,7 @@
     "/mining/engines": {
       "get": {
         "summary": "Pinned optional engine algorithm and setting catalog",
-        "description": "Read access required. SRBMiner 3.6.7 vendor/scope compatibility, developer fees, setting defaults and bounds; no profitability estimates or hardware validation claim.",
+        "description": "Read access required. SRBMiner 3.7.0 vendor/scope compatibility, developer fees, setting defaults and bounds; no profitability estimates or hardware validation claim.",
         "responses": {
           "200": {
             "description": "Engine catalog",

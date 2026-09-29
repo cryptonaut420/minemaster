@@ -1492,7 +1492,7 @@ test("SRBMiner configuration, capability gates, telemetry and failed command rec
     assert.equal(saved.status, 200, JSON.stringify(saved.data));
     const catalog = await api("/v1/mining/engines");
     assert.equal(catalog.status, 200);
-    assert.equal(catalog.data.data.srbminer.version, "3.6.7");
+    assert.equal(catalog.data.data.srbminer.version, "3.7.0");
     assert.equal(
       catalog.data.data.srbminer.algorithms.find(
         (a) => a.algorithm === "pearlhash",

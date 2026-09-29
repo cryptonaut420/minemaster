@@ -296,3 +296,10 @@ Status updates may include the existing client `timestamp` (Unix milliseconds). 
 Process diagnostics accept bounded `stage` and `syscall` strings in addition to code/message/path/engine. Stages distinguish file preparation from executable launch. Admin diagnostics label the engine that was actually checked; an older engine's file version is never used as the selected engine's version. Repair success requires final file verification on the client.
 
 Nanominer shares use aggregate total minus rejected as accepted, preserve native observation time and report source `nanominer-counter`. Rejection monitoring requires fresh counters from a currently running, unpaused launch and labels its CPU/GPU scope and actual engine. Percentages describe cumulative shares during that run, not a recent rate window. See [1.4.8 audit](audits/end-to-end-2026-09-28.md).
+
+
+### 1.4.9 miner catalog and diagnostics
+
+The SRBMiner catalog is pinned to 3.7.0 and both engine forms derive their version label from that catalog. Upstream Quantus vendor support includes Intel Arc; this is a capability of 3.7.0, not proof of support on older clients or individual models/drivers. A managed client upgrade is required to use its bundled new binary; custom paths remain operator-managed. No API route or command scope changed.
+
+Client 1.4.9 preserves `stage`/`syscall` from unavailable-file inspection through launch preparation, and marks working-directory/config/log write failures as `process configuration`. These remain file/OS failures, not inferred antivirus detections. Nanominer `Connected/Reconnected to pool:` messages now report the endpoint instead of the literal `pool:` label; connection-closed/lost messages mark the pool disconnected while keeping the native observation timestamp.

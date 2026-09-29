@@ -28,9 +28,10 @@ npm run build:mac                             # macOS x64 and arm64
 
 Packaging runs `scripts/prepare-miners.js` for the actual target platform and architecture, including cross builds. Missing downloads, failed checksums, unsupported targets and extraction failures stop the build. Windows extraction requires the native `tar.exe` present on supported Windows 10/11 systems. Unix hosts use `tar` and `unzip`. Windows packaging on Linux still needs the existing Wine/container build environment. macOS packaging needs a macOS builder.
 
-Current pinned releases, verified September 13, 2026:
+Current pinned releases, checked against official latest stable releases September 29, 2026:
 
 - [XMRig 6.26.0](https://github.com/xmrig/xmrig/releases/tag/v6.26.0): Linux static x64, Windows x64, macOS x64 and arm64. The static Linux build avoids depending on Ubuntu Noble's particular glibc version.
+- [SRBMiner-MULTI 3.7.0](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.7.0): Windows/Linux x64. Quantus vendor support now includes Intel Arc; actual model/driver compatibility needs a hardware trial.
 - [Nanominer 3.10.0](https://github.com/nanopool/nanominer/releases/tag/v3.10.0): Linux x64 and Windows x64. Nanominer does not ship a macOS build in this release.
 
 Versions, official URLs, archive SHA-256 and extracted runtime-file SHA-256 values live in `electron/mining/releases.json`. XMRig executable hashes were derived from the checksum-verified upstream archives; Nanominer publishes executable hashes too. Upstream license files included in the archives are retained. [XMRig's source and license](https://github.com/xmrig/xmrig/tree/v6.26.0) accompany its release.
@@ -133,7 +134,7 @@ Timed-out server connections ignore late events from the retired socket, includi
 
 ## Version 1.4 — SRBMiner CPU and GPU
 
-SRBMiner-MULTI 3.6.7 is selectable independently for CPU and GPU on Windows/Linux x64. Existing engine choices remain unchanged. In either miner's **engine, pools and recovery** section, choose SRBMiner, select an algorithm, and enter the appropriate pool and wallet. For Pearl select GPU `pearlhash`; RandomX CPU uses `rx/0`. The coin field is a display label, not automatic pool or algorithm discovery.
+SRBMiner-MULTI 3.7.0 is selectable independently for CPU and GPU on Windows/Linux x64. Existing engine choices remain unchanged. In either miner's **engine, pools and recovery** section, choose SRBMiner, select an algorithm, and enter the appropriate pool and wallet. For Pearl select GPU `pearlhash`; RandomX CPU uses `rx/0`. The coin field is a display label, not automatic pool or algorithm discovery.
 
 The admin provides the same managed settings: algorithm, wallet, worker, password, primary pool and up to three backups, TLS, keepalive, reconnect/failover delays, job timeout and Ethash stratum mode. CPU adds thread budget/explicit thread count, huge pages and SRBMiner thread priority. GPU adds intensity (0 means automatic). Algorithm choices show upstream fees and hardware vendors. A listed vendor does not guarantee every GPU model or driver supports that algorithm. Upgrade clients before delivering SRBMiner configurations; older clients reject operational commands requiring this engine.
 
@@ -182,3 +183,12 @@ The accompanying admin/API adds a configurable warning for repeated recent error
 Miner troubleshooting distinguishes download, file verification, extraction/copy/replacement and launch failures. The diagnostic report retains the affected path and OS operation; these errors alone do not prove antivirus detection. Repair reports failure if its final inspection cannot verify the restored files. Nanominer accepted/rejected share counters now reach the client and admin with their original timestamps.
 
 App downloads are canceled after five minutes without new transferred bytes or two hours overall. They can retry on the next check after cancellation settles; a stuck upstream cancellation remains visible and needs an app restart. Late completions cannot trigger installation, and UI notification failures cannot interrupt updater cleanup. Automatic checks/downloads remain hourly, with explicit installation. See [the 1.4.8 audit](../docs/audits/end-to-end-2026-09-28.md) for verification and Windows hardware limits.
+
+
+## Version 1.4.9 follow-up
+
+SRBMiner updates to 3.7.0 with its verified upstream Windows/Linux files and notices. Managed installations use the new versioned directory after the client update; a running old client keeps its existing miner until the application is installed and restarted. A custom executable remains operator-managed. Seeing the release downloaded does not mean the pool should already show 3.7.0.
+
+Packaging stages only current manifest-listed runtime files in `.miner-bundles/`, excluding obsolete cached versions and optional drivers. `npm run miners:check` checks official stable releases and archive identities without changing pins. The complete release workflow requires that check and verifies packaged runtime file lists/hashes before publication.
+
+Nanominer pool connection/reconnection logs retain the actual pool address, and closed/lost connections report disconnected. Inspection and configuration filesystem failures retain their stage and OS operation through launch preparation. See [the audit](../docs/audits/miner-refresh-2026-09-29.md) for verification and runtime limits.

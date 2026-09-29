@@ -222,15 +222,28 @@ function createRuntime({
       throw Object.assign(Error(diagnostic.message), {
         code: diagnostic.code,
         path: diagnostic.path,
+        stage: diagnostic.stage,
+        syscall: diagnostic.syscall,
       });
     const workDir = path.join(userData, "processes", id);
-    await fs.promises.mkdir(workDir, { recursive: true });
+    const prepareFile = async (operation) => {
+      try {
+        return await operation();
+      } catch (error) {
+        error.stage = "process configuration";
+        throw error;
+      }
+    };
+    await prepareFile(() => fs.promises.mkdir(workDir, { recursive: true }));
     const logFile = ["nanominer", "srbminer"].includes(engine)
       ? path.join(workDir, "miner.log")
       : null;
     // The process manager calls preparation only with this process stopped.
     // Start each run with an empty file so old rates cannot become fresh again.
-    if (logFile) await fs.promises.writeFile(logFile, "", { mode: 0o600 });
+    if (logFile)
+      await prepareFile(() =>
+        fs.promises.writeFile(logFile, "", { mode: 0o600 }),
+      );
     const configPath = path.join(
       workDir,
       engine === "nanominer" ? "config.ini" : "config.json",
@@ -244,8 +257,12 @@ function createRuntime({
               cpu: type === "xmrig",
               logicalCores,
             });
-    await fs.promises.writeFile(`${configPath}.tmp`, content, { mode: 0o600 });
-    await fs.promises.rename(`${configPath}.tmp`, configPath);
+    await prepareFile(() =>
+      fs.promises.writeFile(`${configPath}.tmp`, content, { mode: 0o600 }),
+    );
+    await prepareFile(() =>
+      fs.promises.rename(`${configPath}.tmp`, configPath),
+    );
     const args =
       engine === "srbminer"
         ? [

@@ -244,19 +244,21 @@ export function parseProcessDetails(
     text.match(/\bMiner version:\s*(\d+\.\d+\.\d+)/i);
   if (version) result.minerVersion = version[1];
   const pool = text.match(
-    /\b(?:new job from|use pool|Connected to)\s+([^\s]+)/i,
+    /\b(?:new job from|use pool|(?:re)?connected to(?: pool)?:?)\s+([^\s]+)/i,
   );
   if (pool)
     result.pool = {
       address: pool[1],
-      status: /\b(?:new job from|Connected to)\b/i.test(text)
+      status: /\b(?:new job from|(?:re)?connected to)\b/i.test(text)
         ? "connected"
         : "connecting",
       observedAt,
       source: "process-log",
     };
   else if (
-    /\b(?:connect error|connection refused|no active pools)\b/i.test(text)
+    /\b(?:connect error|connection refused|no active pools|connection (?:was )?(?:closed|lost))\b/i.test(
+      text,
+    )
   )
     result.pool = {
       status: "disconnected",

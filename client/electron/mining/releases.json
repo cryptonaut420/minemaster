@@ -96,28 +96,28 @@
   },
   "srbminer": {
     "linux-x64": {
-      "version": "3.6.7",
+      "version": "3.7.0",
       "platform": "linux",
       "arch": "x64",
-      "archive": "SRBMiner-Multi-3-6-7-Linux.tar.gz",
-      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.6.7/SRBMiner-Multi-3-6-7-Linux.tar.gz",
-      "sha256": "5589329ad985d26dbd0d5fda63d90b6564d3c12f8a8123b415b9c35e3637e3ae",
+      "archive": "SRBMiner-Multi-3-7-0-Linux.tar.gz",
+      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.7.0/SRBMiner-Multi-3-7-0-Linux.tar.gz",
+      "sha256": "92986002a213f23fff69aebe5f9a582f15d1fe51cecef4a30b3cd82fca6fc716",
       "binary": "SRBMiner-MULTI",
       "files": {
-        "SRBMiner-MULTI": "d0a7b3db166fdea08e31d49ee5ab31f0e8e44c84eaca4d1ac0ec5ac13a7de377",
+        "SRBMiner-MULTI": "24af54e4db54fa7135e682a2214ca5350e6f06620e592dcc93dea70ed16fddbb",
         "ReadMe.txt": "c778fd08be04e7a7734566c151e7ee9c40d910675c21c5a046776341abfabce2"
       }
     },
     "win32-x64": {
-      "version": "3.6.7",
+      "version": "3.7.0",
       "platform": "win32",
       "arch": "x64",
-      "archive": "SRBMiner-Multi-3-6-7-win64.zip",
-      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.6.7/SRBMiner-Multi-3-6-7-win64.zip",
-      "sha256": "957e21cc4dc043954d206b17a8c419e9f0ab81bdaa263aade6f5d931800aece3",
+      "archive": "SRBMiner-Multi-3-7-0-win64.zip",
+      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.7.0/SRBMiner-Multi-3-7-0-win64.zip",
+      "sha256": "604bc2ab14d81a29bdc0f2ec2205a2403b83d2c592557a83ff81a55c313e9477",
       "binary": "SRBMiner-MULTI.exe",
       "files": {
-        "SRBMiner-MULTI.exe": "a990e219dc98ff505e80a66b07e485197a2c86df19b545b501890609fe38cd00",
+        "SRBMiner-MULTI.exe": "3b912e51e5e37adf1754235a9be3425cd708b0ea5c56874d06ea123df8ed5eef",
         "ReadMe.txt": "ba20eb0c0f5fd17f998e245e075a051ee7e5df734dab8adf6b079d4893e0a47f"
       }
     }

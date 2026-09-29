@@ -65,7 +65,7 @@ export default function EngineOptions({ miner, onChange, bound }) {
       {srb && (
         <>
           <p className="field-hint">
-            SRBMiner 3.6.7. One algorithm per process; GPU models must support
+            SRBMiner {SRB.version}. One algorithm per process; GPU models must support
             the selected algorithm. MSR tuning and miner-owned restarts are
             disabled. Pool fees are separate from the algorithm's developer fee.
           </p>

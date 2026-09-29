@@ -39,6 +39,47 @@ test("Nanominer rolling averages cannot overwrite current speed or freshen an ol
   );
   assert.equal(parseAggregate("Total: 65.00 TH/s"), 65e12);
 });
+test("Nanominer pool connections and reconnects retain the actual endpoint and observation time", async () => {
+  const { parseProcessDetails, parseAggregate } = await esm("telemetry.js");
+  const observedAt = "2026-09-29T04:09:29.000Z";
+  for (const line of [
+    "Connected to pool: pool.example:3333",
+    "Reconnected to pool: pool.example:3333",
+    "Connected to pool.example:3333",
+    "Connected to pool pool.example:3333",
+  ]) {
+    const result = parseProcessDetails(line, observedAt).pool;
+    assert.equal(result.address, "pool.example:3333", line);
+    assert.equal(result.status, "connected");
+    assert.equal(result.observedAt, observedAt);
+  }
+  for (const line of [
+    "Connection lost",
+    "Connection was closed",
+    "Connection refused",
+  ]) {
+    assert.equal(
+      parseProcessDetails(line, observedAt).pool.status,
+      "disconnected",
+    );
+    assert.equal(
+      parseProcessDetails(line, observedAt).pool.observedAt,
+      observedAt,
+    );
+  }
+  assert.equal(
+    parseProcessDetails("SRBMiner-MULTI 3.7.0").minerVersion,
+    "3.7.0",
+  );
+  assert.equal(
+    parseAggregate(
+      "Average hashrate: 1m 10 MH/s | 15m 9 MH/s | 1h 8 MH/s | 6h 7 MH/s",
+    ),
+    null,
+  );
+  assert.equal(parseAggregate("Total: 0.00 H/s [P:0W A:0 R:0 HW:0]"), 0);
+});
+
 test("delayed share and pool output keeps the original native observation time", async () => {
   const { parseShares, parseProcessDetails } = await esm("telemetry.js");
   const observedAt = "2026-09-18T00:00:00.000Z";

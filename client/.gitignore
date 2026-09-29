@@ -46,3 +46,4 @@ wallet-*.json
 /miners/linux-*/
 /miners/win-*/
 /miners/mac-*/
+/.miner-bundles/

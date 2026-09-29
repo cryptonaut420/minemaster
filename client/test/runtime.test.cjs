@@ -4,6 +4,48 @@ const fs = require("fs/promises");
 const path = require("path");
 const os = require("os");
 const { createRuntime } = require("../electron/mining/runtime");
+test("launch preparation preserves inspection and configuration filesystem failure details", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-prepare-error-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const runtime = createRuntime({
+    userData: root,
+    bundledRoot: root,
+    platform: "linux",
+    arch: "x64",
+    hostname: "fixture",
+  });
+  const customPath = path.join(root, "inert-miner");
+  const config = {
+    engine: "nanominer",
+    algorithm: "rx/0",
+    pool: "pool:3333",
+    user: "fixture",
+    customPath,
+  };
+  await assert.rejects(
+    runtime.launchSpec("xmrig", "xmrig-1", config),
+    (error) => {
+      assert.equal(error.code, "ENOENT");
+      assert.equal(error.stage, "file verification");
+      assert.equal(error.syscall, "stat");
+      assert.equal(error.path, customPath);
+      return true;
+    },
+  );
+  await fs.writeFile(customPath, "inert fixture, never executed", {
+    mode: 0o755,
+  });
+  await fs.writeFile(path.join(root, "processes"), "block directory creation");
+  await assert.rejects(
+    runtime.launchSpec("xmrig", "xmrig-1", config),
+    (error) => {
+      assert.equal(error.stage, "process configuration");
+      assert.equal(error.syscall, "mkdir");
+      assert.ok(error.path.includes("processes"));
+      return true;
+    },
+  );
+});
 test("file preparation failures retain their stage and OS operation without claiming launch or antivirus detection", () => {
   const { describeError } = require("../electron/mining/runtime");
   const d = describeError(

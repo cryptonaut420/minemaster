@@ -17,7 +17,7 @@ const { createResumeStore } = require("../electron/updateResume");
 test("installed updater downloads and verifies both platform feeds, refreshes a ready release, and rejects corrupt bytes", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minemaster-updater-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  let version = "1.4.7",
+  let version = "1.4.8",
     corrupt = false;
   const bytes = () =>
     Buffer.from(`Synthetic ${version} installer; never executed`);
@@ -49,7 +49,7 @@ test("installed updater downloads and verifies both platform feeds, refreshes a 
     ["win32", NsisUpdater],
     ["linux", AppImageUpdater],
   ]) {
-    version = "1.4.7";
+    version = "1.4.8";
     corrupt = false;
     const dir = path.join(root, platform);
     await fs.mkdir(dir);
@@ -59,7 +59,7 @@ test("installed updater downloads and verifies both platform feeds, refreshes a 
       yaml.dump({ updaterCacheDirName: "fixture-cache" }),
     );
     const updater = new Updater(null, {
-      version: "1.4.6",
+      version: "1.4.7",
       name: "MineMaster Fixture",
       isPackaged: true,
       userDataPath: dir,
@@ -95,7 +95,7 @@ test("installed updater downloads and verifies both platform feeds, refreshes a 
     if (platform === "linux")
       process.env.APPIMAGE = path.join(dir, "old.AppImage");
     try {
-      for (const next of ["1.4.7", "1.4.8"]) {
+      for (const next of ["1.4.8", "1.4.9"]) {
         version = next;
         await controller.checkForUpdates();
         await download;
@@ -104,15 +104,15 @@ test("installed updater downloads and verifies both platform feeds, refreshes a 
         assert.deepEqual(await fs.readFile(updater.installerPath), bytes());
       }
       // Exercise the previously published resume format against the destination reader.
-      createResumeStore({ userData: dir, version: "1.4.7" }).save(
+      createResumeStore({ userData: dir, version: "1.4.8" }).save(
         ["nanominer-1"],
-        "1.4.8",
+        "1.4.9",
       );
       assert.deepEqual(
-        createResumeStore({ userData: dir, version: "1.4.8" }).take().minerIds,
+        createResumeStore({ userData: dir, version: "1.4.9" }).take().minerIds,
         ["nanominer-1"],
       );
-      version = "1.4.9";
+      version = "1.4.10";
       corrupt = true;
       await controller.checkForUpdates();
       await assert.rejects(download, /sha512 checksum mismatch/i);

@@ -22,6 +22,7 @@ if [ -e "$OUTPUT" ] || git rev-parse --verify "refs/tags/v${VERSION}" >/dev/null
   echo "This release version already has artifacts or a tag; inspect it before retrying."
   exit 1
 fi
+node scripts/check-miner-releases.cjs
 npm test
 npm --prefix ../server test
 npm --prefix ../server/public run build
@@ -37,6 +38,7 @@ docker run --rm \
 # The Wine builder writes as root; return the output to the invoking publisher.
 docker run --rm -v "$PWD/$OUTPUT:/release" --entrypoint chown \
   electronuserland/builder:wine -R "$(id -u):$(id -g)" /release
+node scripts/verify-packaged-miners.cjs "$OUTPUT"
 node scripts/verify-release.cjs "$OUTPUT" "$VERSION"
 test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
 git diff --exit-code -- . ':!src/version.json'

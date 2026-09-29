@@ -346,7 +346,7 @@ export default function Configs() {
                 )}
                 {draft.engine === "srbminer" && (
                   <p>
-                    SRBMiner 3.6.7 ·{" "}
+                    SRBMiner {SRB.version} ·{" "}
                     {SRB.algorithms.find((r) => r.algorithm === draft.algorithm)
                       ?.fee ?? "—"}
                     % developer fee for this algorithm. One algorithm per
