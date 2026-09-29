@@ -344,3 +344,43 @@ test("SRBMiner display uses its 90-second observation cadence without refreshing
     "Stale sample",
   );
 });
+test("Nanominer aggregate shares include rejects in total and preserve native observation time", async () => {
+  const { parseShares } = await esm("telemetry.js");
+  const time = "2026-09-28T01:00:00.000Z";
+  const line =
+    "Monero - Total speed: 1.608 kH/s, Total shares: 54 Rejected: 3, Time: 03:31";
+  assert.deepEqual(parseShares(line, time), {
+    accepted: 51,
+    rejected: 3,
+    observedAt: time,
+    source: "nanominer-counter",
+  });
+  assert.equal(
+    parseShares(line.replace("54 Rejected: 3", "0 Rejected: 0"), time).accepted,
+    0,
+  );
+  assert.equal(
+    parseShares(line.replace("54 Rejected: 3", "2 Rejected: 3"), time),
+    null,
+  );
+  assert.equal(parseShares(`last 10 min: ${line}`, time), null);
+  assert.equal(parseShares("Monero: share accepted (47 ms)!", time), null);
+  assert.equal(parseShares("GPU 0 Total shares: 9 Rejected: 0", time), null);
+});
+test("Nanominer startup policy is informational but real file/pool errors remain errors", async () => {
+  const { minerLogLevel } = await esm("telemetry.js");
+  assert.equal(
+    minerLogLevel(
+      "2026-Sep-28 21:39:31: Never calling reboot.bat (always restarting the miner in case of errors). ",
+    ),
+    "info",
+  );
+  for (const line of [
+    "Error: failed to write data.",
+    "Pool connection failed",
+    "FATAL: device lost",
+    "error: Never calling reboot.bat (always restarting the miner in case of errors).",
+    "Never calling reboot.bat (always restarting the miner in case of errors). FATAL",
+  ])
+    assert.equal(minerLogLevel(line), "error");
+});

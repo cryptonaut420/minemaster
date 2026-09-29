@@ -2,6 +2,136 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("events");
 const { createUpdateController } = require("../electron/updateController");
+test("failed status notification cannot interrupt installation cleanup or updater events", async () => {
+  const updater = new EventEmitter();
+  let released = false;
+  const c = createUpdateController({
+    updater,
+    notify: () => {
+      throw Error("renderer destroyed");
+    },
+    stopMiners: async () => {
+      throw Error("still running");
+    },
+    releaseStarts: () => {
+      released = true;
+    },
+  });
+  assert.doesNotThrow(() =>
+    updater.emit("update-downloaded", { version: "1.4.8" }),
+  );
+  assert.equal((await c.install("1.4.8")).success, false);
+  assert.equal(released, true);
+  assert.match(c.getState().message, /still running/);
+  c.cleanup();
+});
+test("a settled download without completion cannot leave future checks permanently suppressed", async () => {
+  const updater = new EventEmitter();
+  let checks = 0;
+  updater.checkForUpdates = async () => {
+    checks++;
+    updater.emit("update-available", { version: "1.4.8" });
+    return { downloadPromise: Promise.resolve([]) };
+  };
+  const c = createUpdateController({ updater });
+  await c.checkForUpdates();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(c.getState().state, "error");
+  await c.checkForUpdates();
+  assert.equal(checks, 2);
+  c.cleanup();
+});
+test("stalled downloads cancel once, ignore late completion, and retry only after upstream settles", async () => {
+  const updater = new EventEmitter();
+  let clock = 0,
+    tick,
+    rejectDownload,
+    cancelCount = 0,
+    checks = 0,
+    cleared = 0;
+  updater.checkForUpdates = () => {
+    checks++;
+    updater.emit("update-available", { version: "1.4.8" });
+    return {
+      cancellationToken: {
+        cancel() {
+          cancelCount++;
+        },
+      },
+      downloadPromise: new Promise((_, reject) => {
+        rejectDownload = reject;
+      }),
+    };
+  };
+  const c = createUpdateController({
+    updater,
+    now: () => clock,
+    downloadIdleMs: 100,
+    schedule: (fn) => {
+      tick = fn;
+      return 1;
+    },
+    unschedule: () => cleared++,
+  });
+  await c.checkForUpdates();
+  clock = 90;
+  updater.emit("download-progress", { percent: 10, transferred: 100 });
+  clock = 150;
+  tick();
+  assert.equal(cancelCount, 0);
+  // Repeated progress with unchanged bytes must not hide a stall.
+  updater.emit("download-progress", { percent: 10, transferred: 100 });
+  clock = 200;
+  tick();
+  tick();
+  assert.equal(cancelCount, 1);
+  assert.equal(c.getState().state, "error");
+  updater.emit("update-downloaded", { version: "1.4.8" });
+  assert.equal((await c.install()).success, false);
+  assert.equal((await c.checkForUpdates()).success, false);
+  assert.equal(checks, 1);
+  rejectDownload(Error("canceled"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(c.getState().message, /timed out/);
+  assert.equal(cleared, 1);
+  updater.checkForUpdates = async () => {
+    checks++;
+    updater.emit("update-not-available");
+    return {};
+  };
+  assert.equal((await c.checkForUpdates()).success, true);
+  assert.equal(checks, 2);
+  c.cleanup();
+});
+test("download watchdog bounds endless progress and cleanup cancels owned transfer", async () => {
+  const updater = new EventEmitter();
+  let clock = 0,
+    tick,
+    canceled = 0,
+    cleared = 0;
+  updater.checkForUpdates = async () => ({
+    downloadPromise: new Promise(() => {}),
+    cancellationToken: { cancel: () => canceled++ },
+  });
+  const c = createUpdateController({
+    updater,
+    now: () => clock,
+    downloadMaxMs: 100,
+    schedule: (fn) => {
+      tick = fn;
+      return 1;
+    },
+    unschedule: () => cleared++,
+  });
+  await c.checkForUpdates();
+  clock = 101;
+  updater.emit("download-progress", { percent: 99, transferred: 10000 });
+  tick();
+  assert.equal(canceled, 1);
+  c.cleanup();
+  assert.equal(cleared, 1);
+  assert.equal(updater.listenerCount("download-progress"), 0);
+});
 test("native installation refuses an obsolete requested version before stopping any miner", async () => {
   const updater = new EventEmitter();
   let stops = 0,

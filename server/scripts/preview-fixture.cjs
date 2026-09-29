@@ -63,7 +63,7 @@ const { ObjectId } = require("mongodb");
     res
       .type("html")
       .send(
-        '<!doctype html><title>Narrow admin fixture</title><iframe title="390px admin" src="/configs" style="width:390px;height:900px;border:0"></iframe>',
+        `<!doctype html><title>Narrow admin fixture</title><iframe title="390px admin" src="${req.query.page === "fleet" ? "/" : "/configs"}" style="width:390px;height:900px;border:0"></iframe>`,
       ),
   );
   app.get("*", (req, res) =>
@@ -192,6 +192,7 @@ const { ObjectId } = require("mongodb");
         JSON.stringify({
           type: "status-update",
           data: {
+            timestamp: Date.now() - (i === 6 ? 180000 : 0),
             appUpdate: {
               state: "downloaded",
               supported: true,
@@ -238,6 +239,7 @@ const { ObjectId } = require("mongodb");
             effectiveSettings: { cpuThreads: 16, devFeePercent: 2 },
             diagnostic: {
               status: "ready",
+              stage: "file verification",
               engine: "nanominer",
               version: "3.10.0",
               path: "C:/Fixture/MineMaster/miners/nanominer/3.10.0/nanominer.exe",

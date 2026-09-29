@@ -1,5 +1,18 @@
 export const rateFreshMs = (miner) =>
   (miner.engine || miner.activeConfig?.engine) === "srbminer" ? 120000 : 60000;
+export function minerLogLevel(line) {
+  const text = String(line || "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .trim(); // eslint-disable-line no-control-regex
+  // Nanominer prints this policy description at startup; it is not a failure.
+  if (
+    /^(?:\d{4}-[A-Za-z]{3}-\d{2} \d{2}:\d{2}:\d{2}:\s*)?Never calling reboot\.bat \(always restarting the miner in case of errors\)\.$/i.test(
+      text,
+    )
+  )
+    return "info";
+  return /error|failed|fatal/i.test(text) ? "error" : "info";
+}
 // Process aggregates only: a per-GPU line must never replace the process total.
 export function parseAggregate(line) {
   const text = String(line || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""); // eslint-disable-line no-control-regex
@@ -50,6 +63,29 @@ export function createProcessLineBuffer() {
   };
 }
 export function parseShares(line, observedAt = new Date().toISOString()) {
+  const text = String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""); // eslint-disable-line no-control-regex
+  if (/\blast\s+\d+\s+(?:min(?:ute)?s?|hours?|h)\b/i.test(text)) return null;
+  const nano = text.match(
+    /\bTotal speed:\s*[\d.,]+\s*[kmgpt]?H\/s,\s*Total shares:\s*(\d+)\s+Rejected:\s*(\d+)\b/i,
+  );
+  if (nano) {
+    // Nanominer's total includes rejected submissions, unlike XMRig/SRB A:R.
+    // Upstream log sequence: nanopool/nanominer issue #309.
+    const total = Number(nano[1]),
+      rejected = Number(nano[2]);
+    if (
+      !Number.isSafeInteger(total) ||
+      !Number.isSafeInteger(rejected) ||
+      rejected > total
+    )
+      return null;
+    return {
+      accepted: total - rejected,
+      rejected,
+      observedAt,
+      source: "nanominer-counter",
+    };
+  }
   const match = String(line).match(
     /\b(?:accepted|rejected)\s*\((\d+)\/(\d+)\)/i,
   );

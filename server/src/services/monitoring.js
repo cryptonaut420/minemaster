@@ -5,6 +5,7 @@ const {
   date,
   normalizeGpus,
   ageSensors,
+  rateFreshMs,
 } = require("./telemetry");
 const DEFAULT_RULES = {
   offline: true,
@@ -110,6 +111,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
     add("stale", "Agent connected but telemetry is overdue");
   if (r.freshness.telemetryFresh) {
     for (const p of r.processes) {
+      const label = `${p.deviceType || "Miner"}${p.engine ? ` (${p.engine})` : ""}`;
       if (
         p.running &&
         !p.paused &&
@@ -119,7 +121,7 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
       )
         add(
           "stale",
-          `${p.id} is running but has no fresh hashrate; check miner logs`,
+          `${label} is running but has no fresh hashrate; ${r.clockWarning ? "check agent system time and miner logs" : "check miner logs"}`,
         );
       if (
         p.running &&
@@ -128,18 +130,23 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
         date(p.startedAt) !== null &&
         now - date(p.startedAt) > rules.zeroGraceSeconds * 1000
       )
-        add("zero", `${p.id} reports zero hashrate`);
+        add("zero", `${label} reports zero hashrate`);
       const total =
         (number(p.shares?.accepted) || 0) + (number(p.shares?.rejected) || 0);
       if (
         p.running &&
         !p.paused &&
         total >= 20 &&
+        date(p.shares?.observedAt) !== null &&
+        now - date(p.shares.observedAt) >= -5000 &&
+        now - date(p.shares.observedAt) <= rateFreshMs(p) &&
+        (date(p.startedAt) === null ||
+          date(p.shares.observedAt) >= date(p.startedAt)) &&
         (p.shares.rejected / total) * 100 > rules.rejectPercent
       )
         add(
           "rejects",
-          `${p.id} rejected ${((p.shares.rejected / total) * 100).toFixed(1)}% of ${total} shares`,
+          `${label} rejected ${((p.shares.rejected / total) * 100).toFixed(1)}% of ${total} shares this run`,
         );
     }
     const expected = r.expectedDeviceIds || [];

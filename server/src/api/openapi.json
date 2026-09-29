@@ -4189,6 +4189,16 @@
                     }
                   }
                 }
+              },
+              "stage": {
+                "type": "string",
+                "nullable": true,
+                "description": "Failed operation, such as download, extraction, file verification, file replacement or launch. Not proof of antivirus detection."
+              },
+              "syscall": {
+                "type": "string",
+                "nullable": true,
+                "description": "Bounded OS operation name; no command arguments."
               }
             }
           },
@@ -4333,6 +4343,29 @@
                 }
               }
             }
+          },
+          "agentClock": {
+            "type": "object",
+            "nullable": true,
+            "description": "Agent wall clock compared to server receipt; includes transport delay and never corrects sample timestamps.",
+            "properties": {
+              "reportedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "receivedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "differenceSeconds": {
+                "type": "number"
+              }
+            }
+          },
+          "clockWarning": {
+            "type": "string",
+            "nullable": true,
+            "description": "Current discrepancy greater than 30 seconds; absent when telemetry or clock observation is stale."
           }
         }
       },
@@ -4376,7 +4409,7 @@
             "minimum": 5,
             "maximum": 1800,
             "default": 60,
-            "description": "5\u2013300 seconds normally. App installation allows 5\u20131800 seconds and defaults to 600; miner repair defaults to 300."
+            "description": "5–300 seconds normally. App installation allows 5–1800 seconds and defaults to 600; miner repair defaults to 300."
           },
           "restartRunningOnly": {
             "type": "boolean",

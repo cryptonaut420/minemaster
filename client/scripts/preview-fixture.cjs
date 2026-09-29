@@ -18,7 +18,7 @@ let update = {state:'idle',supported:true,updatedAt:new Date().toISOString()};
 let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
-const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.6.7':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
+const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.6.7':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),stage:'file verification',message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
 const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
 diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
@@ -37,7 +37,7 @@ const api = {
    else if(minerType==='xmrig' && engine==='nanominer') {
     emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'nanominer v3.10.0\\nTotal: 72'});
     emit('output',{minerId,runId:state.runId,stream:'stderr',data:'Simulated pool warning\\n'});
-    emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'50 H/s\\n'});
+    emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'50 H/s\\nMonero - Total speed: 7.250 kH/s, Total shares: 54 Rejected: 3, Time: 00:30\\n'});
    } else emit('output',{minerId,runId:state.runId,stream:'stdout',data:minerType==='xmrig'?'XMRig/6.26.0\\ncpu speed 10s/60s/15m 7250.00 n/a n/a H/s\\n':'nanominer v3.10.0\\nTotal: 61.5 Mh/s\\n'});
   },50);
   return{success:true,...state,diagnostic};

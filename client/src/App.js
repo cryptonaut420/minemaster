@@ -22,6 +22,7 @@ import {
   createProcessLineBuffer,
   parseAggregate,
   parseShares,
+  minerLogLevel,
   parseProcessDetails,
   processSnapshot,
   stoppedProcessState,
@@ -340,7 +341,7 @@ function App() {
             masterServer.queueLog(
               data.minerId,
               line,
-              /error|failed|fatal/i.test(line) ? "error" : "info",
+              minerLogLevel(line),
               data.observedAt,
             );
           }

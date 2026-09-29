@@ -108,6 +108,11 @@ export function compactIssue(rig) {
     return "Miner errors · View details";
   if (rig.status === "offline") return "";
   if (rig.status === "stale") return "Waiting for agent report";
+  if (
+    rig.clockWarning &&
+    /Hashrate unavailable|no fresh hashrate/i.test(reason)
+  )
+    return "Check rig clock · View details";
   const failedProcess = rig.processes?.find(
     (p) =>
       (p.running || p.enabled !== false) &&

@@ -225,6 +225,11 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
             <span>{r.reason}</span>
           </div>
           <p className="op-muted">Last telemetry {at(r.telemetryReceivedAt)}</p>
+          {r.clockWarning && (
+            <p className="op-warning" role="status">
+              {r.clockWarning}
+            </p>
+          )}
           {needsNanominerTelemetryUpdate(r) && (
             <p className="op-warning">
               Client 1.4.4 restores Nanominer log capture on Windows. Update
@@ -376,7 +381,9 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                     <dd>
                       {p.engine || "Engine not reported"} ·{" "}
                       {p.minerVersion ||
-                        p.diagnostic?.version ||
+                        (p.diagnostic?.engine === p.engine
+                          ? p.diagnostic?.version
+                          : null) ||
                         "Not reported"}
                     </dd>
                     {p.running && p.effectiveSettings?.cpuThreads && (
@@ -387,6 +394,7 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                     )}
                     <dt>Miner files</dt>
                     <dd>
+                      {p.diagnostic?.engine && `${p.diagnostic.engine} · `}
                       {p.diagnostic?.status || "Not checked"}{" "}
                       {p.diagnostic?.code || ""}
                     </dd>
@@ -407,8 +415,19 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                   </dl>
                   {p.diagnostic && (
                     <details>
-                      <summary>Miner diagnostics and repair status</summary>
+                      <summary>
+                        Miner diagnostics and repair status ·{" "}
+                        {p.diagnostic.engine || p.engine}
+                      </summary>
                       <p>{p.diagnostic.message}</p>
+                      {p.diagnostic.stage && (
+                        <p>
+                          Stage: {p.diagnostic.stage}
+                          {p.diagnostic.syscall
+                            ? ` · OS operation: ${p.diagnostic.syscall}`
+                            : ""}
+                        </p>
+                      )}
                       <p className="op-muted">{p.diagnostic.path}</p>
                       <p>Checked {at(p.diagnostic.observedAt)}</p>
                       {p.diagnostic.expectedSha256 && (

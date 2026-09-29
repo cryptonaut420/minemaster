@@ -12,6 +12,26 @@ const {
   selectArchiveMembers,
   extract,
 } = require("../electron/mining/install");
+test("archive write failures retain download context and clean staging", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-download-failure-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await assert.rejects(
+    installRelease("srbminer", path.join(root, "miner"), {
+      platform: "win32",
+      arch: "x64",
+      fetch: async (_, file) => {
+        throw Object.assign(Error("UNKNOWN: open"), {
+          code: "UNKNOWN",
+          syscall: "open",
+          path: file,
+        });
+      },
+    }),
+    (e) =>
+      e.stage === "download" && e.syscall === "open" && e.path.endsWith(".zip"),
+  );
+  assert.deepEqual(await fs.readdir(root), []);
+});
 test("pins separate architecture releases and excludes optional kernel drivers from runtime bundles", () => {
   assert.notEqual(
     releaseFor("xmrig", "darwin", "arm64").sha256,

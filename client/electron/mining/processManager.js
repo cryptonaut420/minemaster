@@ -393,12 +393,26 @@ function createProcessManager({
                 "A custom executable is selected. Clear its path in local settings before repairing the managed engine.",
               );
             await runtime.prepare(type, { repair: true });
-            return { success: true, diagnostic: await diagnose(id, type) };
+            const diagnostic = await diagnose(id, type);
+            const success = diagnostic.status === "ready";
+            return {
+              success,
+              ...(success
+                ? {}
+                : {
+                    error:
+                      diagnostic.message ||
+                      "Repaired miner files could not be verified",
+                  }),
+              diagnostic,
+            };
           } catch (error) {
             const diagnostic = {
               status: "unavailable",
               engine: type,
-              ...describeError(error),
+              ...describeError(
+                Object.assign(error, { stage: error.stage || "repair" }),
+              ),
             };
             diagnostics.set(id, diagnostic);
             return { success: false, error: diagnostic.message, diagnostic };

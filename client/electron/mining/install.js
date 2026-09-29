@@ -215,13 +215,17 @@ async function installRelease(
   } = {},
 ) {
   const release = releaseFor(type, platform, arch);
-  await fs.promises.mkdir(path.dirname(destination), { recursive: true });
-  const staging = await fs.promises.mkdtemp(`${destination}.staging-`);
+  let stage = "staging",
+    staging;
   try {
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+    staging = await fs.promises.mkdtemp(`${destination}.staging-`);
     let sourceDir = source;
     if (!sourceDir) {
       const archive = path.join(staging, release.archive);
+      stage = "download";
       await fetch(release.url, archive);
+      stage = "archive verification";
       if ((await hashFile(archive)) !== release.sha256)
         throw Object.assign(
           Error(
@@ -230,24 +234,32 @@ async function installRelease(
           { code: "CHECKSUM_MISMATCH" },
         );
       const extracted = path.join(staging, "extracted");
+      stage = "extraction";
       await fs.promises.mkdir(extracted);
       await unpack(archive, extracted, release);
       sourceDir = await locate(extracted, release.binary);
       if (!sourceDir)
         throw Error("Miner executable missing from verified archive");
     }
+    stage = "file verification";
     await verifyDirectory(sourceDir, release);
     const ready = path.join(staging, "ready");
+    stage = "file copy";
     await copyRuntime(sourceDir, ready, release);
+    stage = "file replacement";
     await replaceDirectory(ready, destination);
     return {
       version: release.version,
       path: path.join(destination, release.binary),
     };
+  } catch (error) {
+    error.stage = error.stage || stage;
+    throw error;
   } finally {
-    await fs.promises
-      .rm(staging, { recursive: true, force: true })
-      .catch(() => {});
+    if (staging)
+      await fs.promises
+        .rm(staging, { recursive: true, force: true })
+        .catch(() => {});
   }
 }
 module.exports = {

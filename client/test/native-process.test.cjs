@@ -50,6 +50,19 @@ const request = {
   minerType: "xmrig",
   config: { version: "v1", gpus: [0] },
 };
+test("repair fails when final inspection finds files unavailable and never starts mining", async () => {
+  const f = fixture();
+  f.runtime.inspect = async () => ({
+    status: "unavailable",
+    code: "ENOENT",
+    message: "File disappeared",
+  });
+  const result = await f.manager.repair("cpu", "xmrig");
+  assert.equal(result.success, false);
+  assert.equal(result.error, "File disappeared");
+  assert.equal(f.children.length, 0);
+  assert.equal(f.manager.snapshot("cpu").diagnostic.code, "ENOENT");
+});
 test("two Nanominer processes stop independently and repair waits until both release the engine", async () => {
   const live = new Set();
   let nextPid = 1000,

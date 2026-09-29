@@ -13,6 +13,22 @@ const date = (v) => {
   return Number.isFinite(n) && Math.abs(n) <= 8640000000000000 ? n : null;
 };
 const iso = (v) => (date(v) === null ? null : new Date(date(v)).toISOString());
+// Receipt delay includes both clock offset and transport latency. Never use it
+// to rewrite observations or turn old samples into current mining performance.
+function clockObservation(sentAt, receivedAt = Date.now()) {
+  if (
+    typeof sentAt !== "number" ||
+    !Number.isFinite(sentAt) ||
+    sentAt < 946684800000 ||
+    date(sentAt) === null
+  )
+    return null;
+  return {
+    reportedAt: iso(sentAt),
+    receivedAt: iso(receivedAt),
+    differenceSeconds: Math.round((receivedAt - sentAt) / 1000),
+  };
+}
 function normalizeDiagnostic(d) {
   if (!d || typeof d !== "object" || Array.isArray(d)) return null;
   const result = Object.fromEntries(
@@ -20,6 +36,8 @@ function normalizeDiagnostic(d) {
       "status",
       "engine",
       "code",
+      "stage",
+      "syscall",
       "message",
       "path",
       "version",
@@ -388,6 +406,13 @@ function viewRig(rig, now = Date.now()) {
         ? null
         : Math.max(0, Math.floor((now - date(r.telemetryReceivedAt)) / 1000)),
   };
+  r.clockWarning =
+    fresh &&
+    Number.isFinite(r.agentClock?.differenceSeconds) &&
+    Math.abs(r.agentClock.differenceSeconds) > 30 &&
+    now - (date(r.agentClock.receivedAt) ?? 0) <= FRESH_MS
+      ? `Agent timestamp is ${Math.abs(r.agentClock.differenceSeconds)}s ${r.agentClock.differenceSeconds > 0 ? "behind" : "ahead of"} server receipt. Check system time and network delay; sample timestamps are unchanged.`
+      : null;
   r.mining = fresh && r.processes.some((p) => p.running && !p.paused);
   r.maintenance = date(r.maintenanceUntil) > now;
   r.configDrift = r.processes
@@ -557,6 +582,7 @@ module.exports = {
   number,
   date,
   iso,
+  clockObservation,
   normalizeGpus,
   gpuIdentity,
   normalizeProcesses,

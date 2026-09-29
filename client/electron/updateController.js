@@ -5,12 +5,74 @@ function createUpdateController({
   notify = () => {},
   releaseStarts = () => {},
   now = Date.now,
+  downloadIdleMs = 5 * 60 * 1000,
+  downloadMaxMs = 2 * 60 * 60 * 1000,
+  schedule = setInterval,
+  unschedule = clearInterval,
 }) {
   let state = { state: "idle", updatedAt: new Date(now()).toISOString() },
     check = null,
     attempt = null,
     downloaded = null,
     disposed = false;
+  let transfer = null;
+  let lastProgressAt = now(),
+    transferred = 0;
+  const watchDownload = (result) => {
+    if (!result?.downloadPromise) return;
+    const current = {
+      token: result.cancellationToken,
+      startedAt: now(),
+      canceled: false,
+    };
+    transfer = current;
+    lastProgressAt = now();
+    transferred = 0;
+    current.timer = schedule(() => {
+      if (disposed || current.canceled || state.state === "downloaded") return;
+      if (
+        now() - lastProgressAt < downloadIdleMs &&
+        now() - current.startedAt < downloadMaxMs
+      )
+        return;
+      current.canceled = true;
+      fail(
+        Error(
+          "Update download timed out. Mining is unaffected. The next scheduled check can retry after cancellation completes; restart MineMaster if cancellation remains stuck.",
+        ),
+      );
+      // Keep ownership until upstream settles: never race two downloads or
+      // accept a late completion from a timed-out transfer as installable.
+      try {
+        current.token?.cancel();
+      } catch (_) {
+        /* retain timeout diagnostic */
+      }
+    }, 30000);
+    current.timer?.unref?.();
+    const finish = () => {
+      unschedule(current.timer);
+      if (transfer === current) transfer = null;
+    };
+    Promise.resolve(result.downloadPromise).then(
+      () => {
+        if (
+          !current.canceled &&
+          ["available", "downloading"].includes(state.state)
+        )
+          fail(
+            Error(
+              "Update download ended without a verified completion. The next scheduled check will retry.",
+            ),
+          );
+        finish();
+      },
+      (error) => {
+        if (!current.canceled) fail(error);
+        finish();
+      },
+    );
+  };
   const getState = () => ({ ...state, supported: supported() });
   const set = (name, extra = {}) => {
     if (disposed) return;
@@ -20,7 +82,12 @@ function createUpdateController({
       ...extra,
       updatedAt: new Date(now()).toISOString(),
     };
-    notify(getState());
+    try {
+      notify(getState());
+    } catch (_) {
+      // A closing renderer or failed diagnostic sink must not interrupt update
+      // ownership, cancellation, or the release of blocked mining controls.
+    }
   };
   const fail = (error) => {
     if (disposed) return;
@@ -66,16 +133,24 @@ function createUpdateController({
         });
     },
     "download-progress": (progress) => {
-      if (!attempt)
+      if (!attempt && !transfer?.canceled) {
+        if (
+          Number.isFinite(progress.transferred) &&
+          progress.transferred > transferred
+        ) {
+          transferred = progress.transferred;
+          lastProgressAt = now();
+        }
         set("downloading", {
           percent: Math.max(
             0,
             Math.min(100, Math.round(progress.percent || 0)),
           ),
         });
+      }
     },
     "update-downloaded": (info) => {
-      if (!attempt) {
+      if (!attempt && !transfer?.canceled) {
         downloaded = {
           version: info.version,
           percent: 100,
@@ -84,7 +159,9 @@ function createUpdateController({
         set("downloaded", downloaded);
       }
     },
-    error: fail,
+    error: (error) => {
+      if (!transfer?.canceled) fail(error);
+    },
   };
   for (const [event, listener] of Object.entries(listeners))
     updater.on(event, listener);
@@ -99,6 +176,8 @@ function createUpdateController({
       return Promise.resolve({ success: false, ...getState() });
     }
     if (check) return check;
+    if (transfer)
+      return Promise.resolve({ success: !transfer.canceled, ...getState() });
     if (["available", "downloading", "installing"].includes(state.state))
       return Promise.resolve({ success: true, ...getState() });
     // Assign the promise before calling upstream, including synchronous throws.
@@ -106,7 +185,7 @@ function createUpdateController({
       try {
         const result = await updater.checkForUpdates();
         // Upstream returns the background download separately. Always observe its rejection.
-        result?.downloadPromise?.catch(fail);
+        watchDownload(result);
         return {
           success: !["error", "unsupported"].includes(state.state),
           ...getState(),
@@ -134,6 +213,7 @@ function createUpdateController({
       !supported() ||
       attempt ||
       check ||
+      transfer ||
       state.state !== "downloaded"
     )
       return {
@@ -179,6 +259,16 @@ function createUpdateController({
     },
     cleanup: () => {
       disposed = true;
+      if (transfer) {
+        unschedule(transfer.timer);
+        const wasCanceled = transfer.canceled;
+        transfer.canceled = true;
+        try {
+          if (!wasCanceled) transfer.token?.cancel();
+        } catch (_) {
+          /* shutting down */
+        }
+      }
       for (const [event, listener] of Object.entries(listeners))
         updater.removeListener(event, listener);
     },

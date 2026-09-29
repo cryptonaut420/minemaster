@@ -158,6 +158,14 @@ export default function MinerHealth({
               "Use Check miner files to verify the executable."}
           </p>
           {diagnostic?.path && <code>{diagnostic.path}</code>}
+          {diagnostic?.stage && (
+            <p>
+              Stage: {diagnostic.stage}
+              {diagnostic.syscall
+                ? ` · OS operation: ${diagnostic.syscall}`
+                : ""}
+            </p>
+          )}
           {diagnostic?.expectedSha256 && (
             <p>
               Expected executable SHA-256

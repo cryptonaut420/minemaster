@@ -176,3 +176,9 @@ See [release instructions](RELEASING.md) for complete draft verification and [th
 Nanominer rolling ten-minute summaries remain in the console but no longer replace the current hashrate. Delayed share and pool observations retain the original native timestamp. Update installation checks the exact requested version in the native controller before stopping any miner, preventing a newer background download from changing the version being installed.
 
 The accompanying admin/API adds a configurable warning for repeated recent errors from a currently running miner. It does not restart mining automatically. See [the 1.4.6 audit](../docs/audits/end-to-end-2026-09-18/README.md) for the verified Windows fleet evidence, remaining machine-specific problems and validation limits.
+
+## Version 1.4.8 follow-up
+
+Miner troubleshooting distinguishes download, file verification, extraction/copy/replacement and launch failures. The diagnostic report retains the affected path and OS operation; these errors alone do not prove antivirus detection. Repair reports failure if its final inspection cannot verify the restored files. Nanominer accepted/rejected share counters now reach the client and admin with their original timestamps.
+
+App downloads are canceled after five minutes without new transferred bytes or two hours overall. They can retry on the next check after cancellation settles; a stuck upstream cancellation remains visible and needs an app restart. Late completions cannot trigger installation, and UI notification failures cannot interrupt updater cleanup. Automatic checks/downloads remain hourly, with explicit installation. See [the 1.4.8 audit](../docs/audits/end-to-end-2026-09-28.md) for verification and Windows hardware limits.

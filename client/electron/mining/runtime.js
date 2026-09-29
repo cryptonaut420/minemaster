@@ -21,6 +21,27 @@ const {
 const { createWindowsDiagnostics } = require("./windowsDiagnostics");
 function describeError(error, executable, platform = process.platform) {
   const code = error.code || "START_FAILED";
+  const stage = error.stage || "launch";
+  const syscall =
+    typeof error.syscall === "string"
+      ? error.syscall.split(/\s/)[0].slice(0, 80)
+      : null;
+  if (stage !== "launch")
+    return {
+      code,
+      stage,
+      syscall,
+      message: `Miner ${stage} failed (${code}${syscall ? ` / ${syscall}` : ""}). ${
+        ["ENOENT", "EACCES", "EPERM", "UNKNOWN"].includes(code)
+          ? "Check file availability, permissions, free disk space and protection history for the affected path. This does not establish an antivirus detection."
+          : String(error.message || "Unable to prepare miner files").slice(
+              0,
+              1000,
+            )
+      }`,
+      path: error.path || executable || null,
+      observedAt: new Date().toISOString(),
+    };
   const messages = {
     ENOENT:
       "Miner executable is missing. It may have been removed or quarantined. Review Windows Security Protection History, then use Repair.",
@@ -33,6 +54,8 @@ function describeError(error, executable, platform = process.platform) {
   };
   return {
     code,
+    stage,
+    syscall,
     message:
       platform === "linux" &&
       ["ENOENT", "EACCES", "EPERM", "ENOEXEC"].includes(code)
@@ -111,7 +134,11 @@ function createRuntime({
       return {
         status: "unavailable",
         engine: type,
-        ...describeError(error, error.path || executable, platform),
+        ...describeError(
+          Object.assign(error, { stage: error.stage || "file verification" }),
+          error.path || executable,
+          platform,
+        ),
         expectedVersion: release?.version || null,
         expectedSha256: release?.files[release.binary] || null,
         sourceUrl: release?.url || null,
@@ -171,6 +198,9 @@ function createRuntime({
       });
       await fs.promises.writeFile(`${dest}.installed`, release.version);
       return result;
+    } catch (error) {
+      error.stage = error.stage || "file preparation";
+      throw error;
     } finally {
       busy.delete(type);
     }

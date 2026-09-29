@@ -15,6 +15,69 @@ const esm = async (name) =>
   );
 const now = Date.now(),
   timestamp = new Date(now).toISOString();
+test("agent clock discrepancy is exposed without rewriting stale samples", () => {
+  assert.equal(t.clockObservation("invalid", now), null);
+  assert.equal(t.clockObservation(Infinity, now), null);
+  const agentClock = t.clockObservation(now - 180000, now);
+  assert.equal(agentClock.differenceSeconds, 180);
+  const sample = new Date(now - 180000).toISOString();
+  const r = t.viewRig(
+    {
+      connectionId: "test",
+      connectionLastSeen: timestamp,
+      telemetryReceivedAt: timestamp,
+      agentClock,
+      processes: [
+        {
+          id: "gpu",
+          engine: "srbminer",
+          running: true,
+          quality: "valid",
+          hashrate: 100,
+          hashrateObservedAt: sample,
+        },
+      ],
+    },
+    now,
+  );
+  assert.match(r.clockWarning, /180s behind/);
+  assert.equal(r.processes[0].quality, "stale");
+  assert.equal(r.processes[0].hashrateObservedAt, sample);
+  assert.equal(t.viewRig(r, now + 100000).clockWarning, null);
+});
+test("reject alerts require current-run fresh counters and identify scope and actual engine", () => {
+  const raw = {
+    connectionId: "test",
+    connectionLastSeen: timestamp,
+    telemetryReceivedAt: timestamp,
+    processes: [
+      {
+        id: "nanominer-1",
+        deviceType: "GPU",
+        engine: "srbminer",
+        running: true,
+        startedAt: new Date(now - 300000).toISOString(),
+        shares: { accepted: 90, rejected: 10, observedAt: timestamp },
+      },
+    ],
+  };
+  assert.match(
+    monitoring
+      .evaluate(raw, monitoring.DEFAULT_RULES, now)
+      .find((i) => i.rule === "rejects").message,
+    /GPU \(srbminer\).*this run/,
+  );
+  for (const age of [null, now - 121000, now + 6000, now - 400000]) {
+    raw.processes[0].shares.observedAt =
+      age === null ? null : new Date(age).toISOString();
+    assert.equal(
+      monitoring
+        .evaluate(raw, monitoring.DEFAULT_RULES, now)
+        .some((i) => i.rule === "rejects"),
+      false,
+    );
+  }
+});
 test("Nanominer CPU selection validates and is withheld from unsupported agents", () => {
   const configs = {
     xmrig: { ...Config.DEFAULTS.xmrig, engine: "nanominer" },
@@ -127,7 +190,7 @@ test("monitoring flags missing and stale miner output after startup grace, exclu
     assert.ok(
       issues.some(
         (issue) =>
-          issue.rule === "stale" && /cpu.*hashrate/.test(issue.message),
+          issue.rule === "stale" && /CPU.*hashrate/.test(issue.message),
       ),
     );
     for (const overrides of [

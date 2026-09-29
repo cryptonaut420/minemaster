@@ -1060,13 +1060,20 @@ test("miner repair is capability-gated, acknowledged, and available through the 
   );
   send(ws, "status-update", {
     protocolVersion: 2,
+    timestamp: Date.now() - 180000,
     processes: [
       {
         id: "xmrig-1",
         type: "xmrig",
         deviceType: "CPU",
         running: false,
-        diagnostic: { status: "ready", version: "6.26.0" },
+        diagnostic: {
+          status: "ready",
+          version: "6.26.0",
+          stage: "file verification",
+          syscall: "open",
+          unexpectedSecret: "never persist",
+        },
       },
     ],
   });
@@ -1077,6 +1084,17 @@ test("miner repair is capability-gated, acknowledged, and available through the 
   );
   const detail = await api(`/v1/rigs/${minerId}`);
   assert.equal(detail.data.data.processes[0].diagnostic.status, "ready");
+  assert.equal(
+    detail.data.data.processes[0].diagnostic.stage,
+    "file verification",
+  );
+  assert.equal(detail.data.data.processes[0].diagnostic.syscall, "open");
+  assert.equal(
+    detail.data.data.processes[0].diagnostic.unexpectedSecret,
+    undefined,
+  );
+  assert.match(detail.data.data.clockWarning, /behind/);
+  assert.ok(detail.data.data.agentClock.differenceSeconds >= 180);
 });
 
 test("CPU engine rollout gates old agents, delivers Nanominer to capable agents, and preserves legacy choices", async () => {

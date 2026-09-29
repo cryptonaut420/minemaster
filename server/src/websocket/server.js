@@ -242,6 +242,10 @@ async function status(c, data) {
     miner.id,
     {
       processes,
+      agentClock: require("../services/telemetry").clockObservation(
+        data.timestamp,
+        Date.parse(now),
+      ),
       appUpdate: require("../services/appUpdates").normalize(data.appUpdate),
       hardware,
       devices,

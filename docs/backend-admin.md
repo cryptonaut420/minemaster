@@ -288,3 +288,11 @@ The Configurations page displays profile details directly, marks the matching fl
 Release comparisons use numeric version components; clients ahead of a cached published version are never labeled outdated or offered a downgrade. A newer reported version prompts a bounded cache refresh. Offline rigs with a still-active installation command are labeled **Update sent · awaiting reconnect**, separate from confirmed current clients. Compact mining failure summaries identify CPU/GPU where the reported process supplies that scope.
 
 An acknowledged installer handoff survives a backend restart until its original command deadline, without replaying the installer. Only a fresh registration with the requested client version confirms it. Ordinary commands still become outcome-unknown on a server restart; terminal timeout/cancellation records are never rewritten. This corrects premature update timeouts observed during the September 28 rollout's admin redeployment.
+
+### 1.4.8 reporting and diagnostics
+
+Status updates may include the existing client `timestamp` (Unix milliseconds). The backend stores `agentClock: {reportedAt, receivedAt, differenceSeconds}` on that rig; difference is server receipt minus agent wall time in seconds and includes network delay. `clockWarning` is returned by shared rig views only for fresh observations differing by more than 30 seconds. No clock correction, hashrate timestamp rewrite or freshness extension occurs. Missing/invalid timestamps yield no clock observation. Rig details expose the warning and stale-rate rows suggest checking system time.
+
+Process diagnostics accept bounded `stage` and `syscall` strings in addition to code/message/path/engine. Stages distinguish file preparation from executable launch. Admin diagnostics label the engine that was actually checked; an older engine's file version is never used as the selected engine's version. Repair success requires final file verification on the client.
+
+Nanominer shares use aggregate total minus rejected as accepted, preserve native observation time and report source `nanominer-counter`. Rejection monitoring requires fresh counters from a currently running, unpaused launch and labels its CPU/GPU scope and actual engine. Percentages describe cumulative shares during that run, not a recent rate window. See [1.4.8 audit](audits/end-to-end-2026-09-28.md).

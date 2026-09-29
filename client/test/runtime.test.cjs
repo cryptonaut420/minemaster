@@ -4,6 +4,24 @@ const fs = require("fs/promises");
 const path = require("path");
 const os = require("os");
 const { createRuntime } = require("../electron/mining/runtime");
+test("file preparation failures retain their stage and OS operation without claiming launch or antivirus detection", () => {
+  const { describeError } = require("../electron/mining/runtime");
+  const d = describeError(
+    {
+      code: "UNKNOWN",
+      stage: "download",
+      syscall: "open",
+      path: "C:\\staging\\miner.zip",
+    },
+    null,
+    "win32",
+  );
+  assert.equal(d.stage, "download");
+  assert.equal(d.syscall, "open");
+  assert.match(d.message, /download failed/);
+  assert.doesNotMatch(d.message, /could not launch/);
+  assert.match(d.path, /miner.zip/);
+});
 test("CPU and GPU Nanominer use separate working directories and single-algorithm configs", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minemaster-runtime-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
