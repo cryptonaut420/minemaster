@@ -201,3 +201,6 @@ Client 1.4.9 automatically installs verified app downloads after confirming owne
 Known Windows AMD integrated-adapter names are excluded from mining inventory, including `AMD Radeon(TM) Graphics`. A placeholder bus such as `PCI` no longer becomes a fake stable `pci:pci` identity or collapses multiple GPUs; missing real identities are marked positional. This inventory fix does not choose Nanominer device indices automatically.
 
 If an upstream miner exits while its output handles remain open, MineMaster reports the unresolved process lifecycle and blocks duplicate starts, shared-file repair and updater handoff until closure. An internally restarted/descendant process needs local verification; it is not falsely reported as a successful stop. See [production findings and Windows follow-up](../docs/audits/miner-refresh-2026-09-29.md).
+
+
+Explicit Windows checks also show their exact path list and include up to two recent failed managed archive/runtime paths from the last 30 minutes in this app session. This helps diagnose an archive disappearing during Repair even after its temporary directory is cleaned up. The query stays read-only, bounded and restricted to this engine's managed files. Renaming/encrypting archives to hide their contents is not part of the packaging strategy; upstream runtime filenames, hashes and notices remain intact.

@@ -45,7 +45,7 @@ const api = {
  stopMiner:async({minerId})=>{states[minerId]={running:false};return{success:true};},
  diagnoseMiner:async({minerId,minerType,includeWindows})=>{
   const diagnostic=inspect(minerType);
-  if(includeWindows)diagnostic.windows={status:'available',signatureStatus:'NotSigned',checkedAt:new Date().toISOString(),message:'Simulated Windows history. Historical detections do not prove a current block; no match does not prove the file is allowed.',detections:minerType==='xmrig'&&!xmrigRepaired?[{threatName:'Fixture-only detection',resource:diagnostic.path,detectedAt:new Date().toISOString(),actionSuccess:true}]:[]};
+  if(includeWindows)diagnostic.windows={status:'available',signatureStatus:'NotSigned',checkedPaths:[diagnostic.path,'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+minerType+'/fixture.staging/archive.zip'],checkedAt:new Date().toISOString(),message:'Simulated Windows history. Historical detections do not prove a current block; no match does not prove the file is allowed.',detections:minerType==='xmrig'&&!xmrigRepaired?[{threatName:'Fixture-only detection',resource:diagnostic.path,detectedAt:new Date().toISOString(),actionSuccess:true}]:[]};
   return diagnostics[minerId]=diagnostic;
  },
  repairMiner:async({minerId,minerType})=>{

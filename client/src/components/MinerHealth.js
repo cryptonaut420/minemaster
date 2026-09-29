@@ -182,6 +182,16 @@ export default function MinerHealth({
                   : "Time unavailable"}
               </p>
               <p>{diagnostic.windows.message}</p>
+              {!!diagnostic.windows.checkedPaths?.length && (
+                <details>
+                  <summary>Exact paths checked</summary>
+                  {diagnostic.windows.checkedPaths.map((p) => (
+                    <p key={p}>
+                      <code>{p}</code>
+                    </p>
+                  ))}
+                </details>
+              )}
               <p>
                 Executable signature:{" "}
                 {diagnostic.windows.signatureStatus || "Unavailable"}

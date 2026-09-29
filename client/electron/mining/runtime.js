@@ -84,6 +84,8 @@ function createRuntime({
   hostname,
   logicalCores = os.availableParallelism?.() || os.cpus().length,
   windowsDiagnostics = createWindowsDiagnostics({ platform }),
+  install = installRelease,
+  now = Date.now,
 }) {
   const directory = (type) =>
     path.join(
@@ -93,6 +95,29 @@ function createRuntime({
       releaseFor(type, platform, arch).version,
     );
   const busy = new Set();
+  const recentFailurePaths = new Map();
+  function rememberFailure(type, error) {
+    if (typeof error.path !== "string") return;
+    const paths = platform === "win32" ? path.win32 : path;
+    const root = paths.resolve(userData, "miners", type);
+    const relative = paths.relative(root, paths.resolve(error.path));
+    // Only our engine's own managed directory; never broaden a Defender probe
+    // to arbitrary paths reported by an external executable or OS error.
+    if (
+      !relative ||
+      relative === ".." ||
+      relative.startsWith(`..${paths.sep}`) ||
+      paths.isAbsolute(relative)
+    )
+      return;
+    const entries = (recentFailurePaths.get(type) || []).filter(
+      (r) => r.path !== error.path && now() - r.at < 30 * 60 * 1000,
+    );
+    recentFailurePaths.set(
+      type,
+      [{ path: error.path, at: now() }, ...entries].slice(0, 2),
+    );
+  }
   async function inspectFiles(type, customPath) {
     let executable, release;
     try {
@@ -163,6 +188,12 @@ function createRuntime({
         targets.push(
           ...targets.map((p) => path.join(path.dirname(p), "WinRing0x64.sys")),
         );
+      if (!customPath)
+        targets.push(
+          ...(recentFailurePaths.get(type) || [])
+            .filter((r) => now() - r.at < 30 * 60 * 1000)
+            .map((r) => r.path),
+        );
       diagnostic.windows = await windowsDiagnostics(targets);
     }
     return diagnostic;
@@ -187,11 +218,11 @@ function createRuntime({
         await verifyDirectory(source, release);
       } catch (error) {
         if (!repair) throw error;
-        const result = await installRelease(type, dest, { platform, arch });
+        const result = await install(type, dest, { platform, arch });
         await fs.promises.writeFile(`${dest}.installed`, release.version);
         return result;
       }
-      const result = await installRelease(type, dest, {
+      const result = await install(type, dest, {
         platform,
         arch,
         source,
@@ -199,6 +230,7 @@ function createRuntime({
       await fs.promises.writeFile(`${dest}.installed`, release.version);
       return result;
     } catch (error) {
+      rememberFailure(type, error);
       error.stage = error.stage || "file preparation";
       throw error;
     } finally {

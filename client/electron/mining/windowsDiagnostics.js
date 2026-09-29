@@ -18,7 +18,7 @@ try {
   $detections = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object {
     $matching = $false
     foreach ($resource in $_.Resources) {
-      $file = ([string]$resource) -replace '^file:_', ''
+      $file = ([string]$resource) -replace '^(?:file|containerfile):_', ''
       if ($targets -contains $file) { $matching = $true }
     }
     $matching
@@ -27,7 +27,7 @@ try {
     $detection = $_
     $name = [string]$detection.ThreatID
     try { $name = [string](Get-MpThreat -ThreatID $detection.ThreatID -ErrorAction Stop | Select-Object -First 1).ThreatName } catch {}
-    $resource = @($detection.Resources | ForEach-Object { ([string]$_) -replace '^file:_', '' } | Where-Object { $targets -contains $_ } | Select-Object -First 1)[0]
+    $resource = @($detection.Resources | ForEach-Object { ([string]$_) -replace '^(?:file|containerfile):_', '' } | Where-Object { $targets -contains $_ } | Select-Object -First 1)[0]
     @{
       threatName = $name
       resource = $resource
@@ -47,6 +47,7 @@ function normalizeResult(raw, targets, now = Date.now()) {
   return {
     status: available ? "available" : "unavailable",
     checkedAt: new Date(now).toISOString(),
+    checkedPaths: targets.slice(0, 6),
     signatureStatus:
       typeof raw?.signatureStatus === "string"
         ? raw.signatureStatus.slice(0, 80)

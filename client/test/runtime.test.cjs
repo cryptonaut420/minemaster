@@ -4,6 +4,50 @@ const fs = require("fs/promises");
 const path = require("path");
 const os = require("os");
 const { createRuntime } = require("../electron/mining/runtime");
+test("explicit Windows checks include recent failed archives only inside the managed engine directory", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-failure-paths-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  let failedPath = path.join(
+      root,
+      "miners/srbminer/3.7.0.staging-fixture/miner.zip",
+    ),
+    clock = Date.now(),
+    targets,
+    calls = 0;
+  const runtime = createRuntime({
+    userData: root,
+    bundledRoot: path.join(root, "bundle"),
+    platform: "win32",
+    arch: "x64",
+    hostname: "fixture",
+    now: () => clock,
+    install: async () => {
+      throw Object.assign(Error("fixture write failure"), {
+        code: "UNKNOWN",
+        path: failedPath,
+        syscall: "open",
+      });
+    },
+    windowsDiagnostics: async (paths) => {
+      calls++;
+      targets = paths;
+      return { status: "available", checkedPaths: paths, detections: [] };
+    },
+  });
+  await assert.rejects(runtime.prepare("srbminer", { repair: true }));
+  await runtime.inspect("srbminer");
+  assert.equal(calls, 0);
+  await runtime.inspect("srbminer", null, { includeWindows: true });
+  assert.ok(targets.includes(failedPath));
+  assert.ok(targets.length <= 6);
+  failedPath = path.join(root, "private-document.zip");
+  await assert.rejects(runtime.prepare("srbminer", { repair: true }));
+  await runtime.inspect("srbminer", null, { includeWindows: true });
+  assert.ok(!targets.includes(failedPath));
+  clock += 31 * 60 * 1000;
+  await runtime.inspect("srbminer", null, { includeWindows: true });
+  assert.ok(!targets.some((p) => p.endsWith(".zip")));
+});
 test("launch preparation preserves inspection and configuration filesystem failure details", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-prepare-error-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

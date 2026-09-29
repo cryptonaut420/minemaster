@@ -39,6 +39,8 @@ test("Windows diagnostics are read-only, path scoped, cached and bounded", async
   assert.deepEqual(a, b);
   assert.equal(a.detections.length, 1);
   assert.equal(a.signatureStatus, "NotSigned");
+  assert.deepEqual(a.checkedPaths, [target]);
+  assert.match(SCRIPT, /file\|containerfile/);
   assert.equal(invocation[2].timeout, 10000);
   assert.deepEqual(JSON.parse(invocation[2].env.MINEMASTER_DIAGNOSTIC_PATHS), [
     target,

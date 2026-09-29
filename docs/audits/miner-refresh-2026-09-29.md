@@ -59,3 +59,13 @@ Sources: [Microsoft software developer FAQ](https://learn.microsoft.com/en-us/de
 
 
 Final browser checks also confirm the client shows a failed automatic install with a visible retry action, and the admin explains automatic installation versus the one-time migration needed by older clients. Fixtures use inert callbacks; no installer or miner ran.
+
+
+## Additional pre-rollout pass
+
+Publication was held at an unpublished draft when the owner requested another pass; no fleet installation command was sent. An additional diagnostic gap was fixed: explicit Windows checks now include at most two recently failed paths inside the selected engine's managed directory for 30 minutes in the current app session. This covers the temporary ZIP paths seen in production; cleanup can remove the file without removing its historical Defender record. Exact `containerfile:` archive records are recognized, and the checked path list is retained through native status, WebSocket, REST, desktop and admin views. Paths outside the engine directory are excluded; passive telemetry performs no Defender query. Tests cover scope, expiry, no implicit query, and API field preservation. Real PowerShell/Defender execution still requires a Windows machine.
+
+No archive obfuscation, hardcoded-password encryption, filename camouflage or protection changes were introduced. Transparent, verified packaging and an operator's exact-file policy/review remain the approach.
+
+
+The extra pass passed 107 client tests and 121 backend tests, with both production builds successful. The desktop fixture shows the exact executable/archive path list and preserves the caution that unavailable/no-match history does not establish permission. Automated tests cover scope/expiry and HTTP/WebSocket preservation. No real miner, installer or Windows PowerShell probe was executed.

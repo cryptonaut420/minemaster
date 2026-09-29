@@ -4161,6 +4161,12 @@
                     "type": "string",
                     "nullable": true
                   },
+                  "checkedPaths": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": { "type": "string", "maxLength": 1000 },
+                    "description": "Exact paths included in the explicit Windows history check; may include recently failed managed archive paths. No matching history is not proof of permission to run."
+                  },
                   "message": {
                     "type": "string"
                   },

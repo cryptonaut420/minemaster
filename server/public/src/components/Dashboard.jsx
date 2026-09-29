@@ -448,6 +448,16 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                             {p.diagnostic.windows.signatureStatus ||
                               "Unavailable"}
                           </p>
+                          {!!p.diagnostic.windows.checkedPaths?.length && (
+                            <details>
+                              <summary>Exact paths checked</summary>
+                              {p.diagnostic.windows.checkedPaths.map((file) => (
+                                <p key={file}>
+                                  <code>{file}</code>
+                                </p>
+                              ))}
+                            </details>
+                          )}
                           {p.diagnostic.windows.detections?.map((d, i) => (
                             <p key={i}>
                               {d.threatName} · {at(d.detectedAt)}

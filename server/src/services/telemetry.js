@@ -55,6 +55,10 @@ function normalizeDiagnostic(d) {
     result.windows = {
       status: w.status === "available" ? "available" : "unavailable",
       checkedAt: iso(w.checkedAt),
+      checkedPaths: (Array.isArray(w.checkedPaths) ? w.checkedPaths : [])
+        .filter((p) => typeof p === "string")
+        .slice(0, 6)
+        .map((p) => p.slice(0, 1000)),
       signatureStatus:
         typeof w.signatureStatus === "string"
           ? w.signatureStatus.slice(0, 80)

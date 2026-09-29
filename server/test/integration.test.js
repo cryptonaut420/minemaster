@@ -1072,6 +1072,11 @@ test("miner repair is capability-gated, acknowledged, and available through the 
           version: "6.26.0",
           stage: "file verification",
           syscall: "open",
+          windows: {
+            status: "available",
+            checkedPaths: ["C:\\MineMaster\\miners\\srbminer\\fixture.zip"],
+            detections: [],
+          },
           unexpectedSecret: "never persist",
         },
       },
@@ -1089,6 +1094,10 @@ test("miner repair is capability-gated, acknowledged, and available through the 
     "file verification",
   );
   assert.equal(detail.data.data.processes[0].diagnostic.syscall, "open");
+  assert.deepEqual(
+    detail.data.data.processes[0].diagnostic.windows.checkedPaths,
+    ["C:\\MineMaster\\miners\\srbminer\\fixture.zip"],
+  );
   assert.equal(
     detail.data.data.processes[0].diagnostic.unexpectedSecret,
     undefined,
