@@ -64,7 +64,7 @@ export default function ClientUpdates() {
       notify.info(
         install
           ? "Installations requested. Rigs reconnect after updating; “Current” confirms the reported version."
-          : "Checks requested. Downloads continue on each client; install when ready.",
+          : "Checks requested. Clients 1.4.9+ install automatically after download; older clients need Install latest once.",
         9000,
       );
     } catch (e) {
@@ -108,7 +108,9 @@ export default function ClientUpdates() {
           </a>
         )}{" "}
         · Includes every bound rig, regardless of dashboard filters. Offline
-        rigs need to reconnect before updating.
+        rigs need to reconnect before updating. Clients 1.4.9+ automatically
+        install verified downloads and resume previously running mining. Older
+        clients need one installation request to adopt this behavior.
       </p>
       <div className="op-actions">
         <button
@@ -157,7 +159,11 @@ export default function ClientUpdates() {
                       : "offline"
                 }
               >
-                {labels[r.status]}
+                {r.status === "ready" &&
+                r.appUpdate?.autoInstall &&
+                !r.appUpdate?.message
+                  ? "Installing automatically"
+                  : labels[r.status]}
               </Badge>
               {r.status === "offline" &&
                 r.appUpdate?.state === "installing" && (
@@ -166,7 +172,7 @@ export default function ClientUpdates() {
                     installer on this PC.
                   </small>
                 )}
-              {["error", "manual"].includes(r.status) &&
+              {["error", "manual", "ready"].includes(r.status) &&
                 r.appUpdate?.message && <small>{r.appUpdate.message}</small>}
             </span>
           </li>

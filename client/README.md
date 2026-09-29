@@ -89,7 +89,7 @@ Installed miner files use a stable writable location under Electron `app.getPath
 
 ## Application updates
 
-Installed Windows, macOS and Linux AppImage builds can check/download app updates. Portable Windows and development builds show that automatic app installation is unavailable. Downloading does not interrupt mining: choose **Install and restart** when ready. Installation requires confirmed process stops and saved resume state. A failed stop pauses installation. Installer errors restore manual start controls, retain a visible retryable update error, and remove saved update-resume intent so an ordinary later startup cannot unexpectedly resume mining. Miners that were running before a successful update are eligible to resume after restart if still enabled; ordinary app startup does not start mining automatically.
+Installed Windows, macOS and Linux AppImage builds can check/download app updates. Portable Windows and development builds show that automatic app installation is unavailable. Downloading does not interrupt mining. From 1.4.9, verified completion automatically installs through the controlled stop/restart path; failed attempts offer **Install and restart** for retry. Installation requires confirmed process stops and saved resume state. A failed stop pauses installation. Installer errors restore manual start controls, retain a visible retryable update error, and remove saved update-resume intent so an ordinary later startup cannot unexpectedly resume mining. Miners that were running before a successful update are eligible to resume after restart if still enabled; ordinary app startup does not start mining automatically.
 
 ## Validation and maintenance
 
@@ -187,8 +187,17 @@ App downloads are canceled after five minutes without new transferred bytes or t
 
 ## Version 1.4.9 follow-up
 
-SRBMiner updates to 3.7.0 with its verified upstream Windows/Linux files and notices. Managed installations use the new versioned directory after the client update; a running old client keeps its existing miner until the application is installed and restarted. A custom executable remains operator-managed. Seeing the release downloaded does not mean the pool should already show 3.7.0.
+SRBMiner updates to 3.7.0 with its verified upstream Windows/Linux files and notices. Managed installations use the new versioned directory after the client update; a running old client keeps its existing miner until the application is installed and restarted. A custom executable remains operator-managed. Clients older than 1.4.9 need one installation request to adopt automatic installation; after that, verified downloads install and restart automatically.
 
 Packaging stages only current manifest-listed runtime files in `.miner-bundles/`, excluding obsolete cached versions and optional drivers. `npm run miners:check` checks official stable releases and archive identities without changing pins. The complete release workflow requires that check and verifies packaged runtime file lists/hashes before publication.
 
 Nanominer pool connection/reconnection logs retain the actual pool address, and closed/lost connections report disconnected. Inspection and configuration filesystem failures retain their stage and OS operation through launch preparation. See [the audit](../docs/audits/miner-refresh-2026-09-29.md) for verification and runtime limits.
+
+
+### Automatic client installation and production follow-up
+
+Client 1.4.9 automatically installs verified app downloads after confirming owned miners stop and saving version-bound resume intent. It resumes previously running enabled processes; stopped mining stays stopped. Failed/canceled installation remains visible for explicit retry instead of repeatedly stopping the rig. A newer Stop during preparation cancels installation. Unsupported portable/unpacked builds still need manual installation.
+
+Known Windows AMD integrated-adapter names are excluded from mining inventory, including `AMD Radeon(TM) Graphics`. A placeholder bus such as `PCI` no longer becomes a fake stable `pci:pci` identity or collapses multiple GPUs; missing real identities are marked positional. This inventory fix does not choose Nanominer device indices automatically.
+
+If an upstream miner exits while its output handles remain open, MineMaster reports the unresolved process lifecycle and blocks duplicate starts, shared-file repair and updater handoff until closure. An internally restarted/descendant process needs local verification; it is not falsely reported as a successful stop. See [production findings and Windows follow-up](../docs/audits/miner-refresh-2026-09-29.md).

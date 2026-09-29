@@ -9,6 +9,7 @@ function createUpdateController({
   downloadMaxMs = 2 * 60 * 60 * 1000,
   schedule = setInterval,
   unschedule = clearInterval,
+  autoInstall = true,
 }) {
   let state = { state: "idle", updatedAt: new Date(now()).toISOString() },
     check = null,
@@ -16,6 +17,31 @@ function createUpdateController({
     downloaded = null,
     disposed = false;
   let transfer = null;
+  let autoAttemptedVersion = null;
+  // Wait for both the check and verified download to settle before claiming
+  // installation. A failed/canceled attempt requires an explicit retry, so an
+  // hourly check cannot repeatedly stop mining for the same broken installer.
+  const maybeAutoInstall = () => {
+    Promise.resolve()
+      .then(async () => {
+        if (
+          !autoInstall ||
+          disposed ||
+          !supported() ||
+          check ||
+          transfer ||
+          attempt ||
+          state.state !== "downloaded" ||
+          state.message ||
+          !downloaded?.version ||
+          autoAttemptedVersion === downloaded.version
+        )
+          return;
+        autoAttemptedVersion = downloaded.version;
+        await install(downloaded.version);
+      })
+      .catch(fail);
+  };
   let lastProgressAt = now(),
     transferred = 0;
   const watchDownload = (result) => {
@@ -53,6 +79,7 @@ function createUpdateController({
     const finish = () => {
       unschedule(current.timer);
       if (transfer === current) transfer = null;
+      if (!current.canceled) maybeAutoInstall();
     };
     Promise.resolve(result.downloadPromise).then(
       () => {
@@ -73,7 +100,11 @@ function createUpdateController({
       },
     );
   };
-  const getState = () => ({ ...state, supported: supported() });
+  const getState = () => ({
+    ...state,
+    supported: supported(),
+    autoInstall: autoInstall && supported(),
+  });
   const set = (name, extra = {}) => {
     if (disposed) return;
     state = {
@@ -154,9 +185,13 @@ function createUpdateController({
         downloaded = {
           version: info.version,
           percent: 100,
-          message: null,
+          message:
+            autoAttemptedVersion === info.version
+              ? "Automatic installation paused after an earlier attempt. Use Install to retry after reviewing the error."
+              : null,
         };
         set("downloaded", downloaded);
+        maybeAutoInstall();
       }
     },
     error: (error) => {
@@ -195,6 +230,7 @@ function createUpdateController({
         return { success: false, ...getState() };
       } finally {
         check = null;
+        maybeAutoInstall();
       }
     });
     return check;
@@ -221,6 +257,7 @@ function createUpdateController({
         error: "No supported downloaded update is ready to install",
       };
     const current = { phase: "preparing", error: null };
+    autoAttemptedVersion = state.version;
     attempt = current;
     set("installing", { message: null });
     try {

@@ -54,12 +54,12 @@ Keep signing credentials in the release environment. Authenticode signing helps 
 The app checks roughly 15 seconds after launch and hourly afterward, including when an older release is already downloaded. Manual checks also refresh the latest release; an unsuccessful refresh retains an already downloaded installer with a visible error. Installation cannot race a check. Windows NSIS installations and Linux AppImage runs support application installation; portable Windows, development runs and ordinary unpacked Linux directories report that installation is unavailable. The controller also supports packaged macOS apps subject to a valid platform update feed.
 
 1. An available update downloads while mining continues.
-2. The header offers **Install and restart**. Download completion alone does not stop miners or install anything.
-3. An explicit installation blocks new launches, confirms every owned process stopped and atomically records which enabled processes may resume after the update.
+2. From 1.4.9, verified download completion automatically begins installation after the updater check/transfer settles. The header shows installation progress; a failed attempt offers an explicit retry. Portable/unpacked builds remain unsupported.
+3. Installation blocks new launches, confirms every owned process stopped and atomically records which enabled processes may resume after the update.
 4. A stop/save/install failure pauses installation and shows the error. Manual starts become available again. Failed installation removes resume intent, so an ordinary later startup cannot unexpectedly resume mining.
 5. Following successful installation, previously running enabled processes are eligible to resume. Ordinary app startup does not start miners automatically.
 
-Before rollout, test an older installed version on an operator-owned test rig: background download, explicit install, failed-stop recovery, successful relaunch and intended process resumption. Local fake-updater tests cannot establish real installer behavior.
+Clients older than 1.4.9 still need one explicit installation of 1.4.9 before they adopt automatic installation. Publication cannot change the already-running updater. Before rollout, test an older installed version on an operator-owned test rig: background download, initial install, automatic installation of a subsequent verified update, failed-stop recovery, successful relaunch and intended process resumption. Local fake-updater tests cannot establish real installer behavior.
 
 ## Windows blocks
 
@@ -82,3 +82,10 @@ Clients older than 1.4.5 that already downloaded an older release may still offe
 ## 1.4.6 verification
 
 The inert-file download regression now refreshes 1.4.5 to 1.4.6 and validates the previously published resume-state format for that destination. Local and remote install calls pass the requested version through IPC; the native owner rejects a mismatched ready version before stopping miners. All draft, checksum, package and hardware-verification requirements above remain applicable.
+
+
+## 1.4.9 automatic installation
+
+Supported packaged clients automatically install each verified downloaded version through the native controller. Check/download ownership must settle first; errors, checksum failures, canceled downloads, unsupported builds and shutdown prevent handoff. Failed or canceled installation is attempted at most once per target per app session automatically; use the explicit retry after resolving the error. A newer Stop cancels preparation and clears resume intent. The updater's own `autoInstallOnAppQuit` remains false, so quitting cannot bypass controlled stop/save checks. Previously running enabled processes resume only in the intended target version.
+
+A process exit whose inherited output handles have not closed is treated as unsettled: starts, repair and application installation cannot assume descendants stopped. Check the local process tree if this persists. This guard does not claim complete Windows descendant containment; real hardware inspection is still needed when upstream miners restart themselves.

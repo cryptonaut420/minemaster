@@ -14,7 +14,7 @@ const connectedFixture = new URLSearchParams(location.search).get('connected') =
 const platform = new URLSearchParams(location.search).get('platform') === 'linux' ? 'linux' : 'win32';
 const arch = new URLSearchParams(location.search).get('arch') === 'arm64' ? 'arm64' : 'x64';
 const listeners = {}, states = {}, diagnostics = {};
-let update = {state:'idle',supported:true,updatedAt:new Date().toISOString()};
+let update = {state:'idle',supported:true,autoInstall:true,updatedAt:new Date().toISOString()};
 let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
@@ -54,7 +54,7 @@ const api = {
   diagnostics[minerId]=ready(minerType);return{success:true,diagnostic:diagnostics[minerId]};
  },
  openDiagnosticFolder:async()=>({success:true}),cancelUpdateInstall:async()=>({success:true}),openProtectionHistory:async()=>{},openFileReview:async()=>{},onMinerOutput:on('output'),onMinerError:on('error'),onMinerClosed:on('closed'),onUpdateStatus:on('update'),getUpdateResumeState:async()=>null,
- getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,version:'1.4.4',updatedAt:new Date().toISOString()};emit('update',update);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
+ getUpdateStatus:async()=>update,checkForUpdate:async()=>{update={state:'downloaded',supported:true,autoInstall:true,version:'9.9.9',updatedAt:new Date().toISOString()};emit('update',update);setTimeout(()=>{update={...update,state:'installing'};emit('update',update);},500);setTimeout(()=>{update={...update,state:'downloaded',message:'Simulated installer failure; use Install to retry.'};emit('update',update);},1500);return{success:true};},installUpdate:async()=>{update={...update,state:'downloaded',message:'Simulated installer failure; mining can be started again.'};emit('update',update);return{success:false,error:update.message};},
  invoke:async(channel)=>channel==='load-master-config'?{enabled:connectedFixture,host:'127.0.0.1',port:connectedFixture?43188:65534,autoReconnect:true}:channel==='get-mac-address'?'fixture-only':{success:true}
 };
 window.electronAPI=window.electron=api;

@@ -1203,6 +1203,7 @@ test("admin app install waits for a new matching-version registration and reject
       state: "downloaded",
       version: "1.3.1",
       supported: true,
+      autoInstall: true,
       updatedAt: new Date().toISOString(),
     },
   });
@@ -1210,6 +1211,14 @@ test("admin app install waits for a new matching-version registration and reject
     async () =>
       (await db.collection("miners").findOne({ id })).appUpdate?.state ===
       "downloaded",
+  );
+  assert.equal(
+    (await db.collection("miners").findOne({ id })).appUpdate.autoInstall,
+    true,
+  );
+  assert.equal(
+    (await api(`/v1/rigs/${id}`)).data.data.appUpdate.autoInstall,
+    true,
   );
   assert.equal(
     (

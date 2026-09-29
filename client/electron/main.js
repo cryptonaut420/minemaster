@@ -401,7 +401,12 @@ ipcMain.handle("get-update-resume-state", () => getResumeStore().take());
 ipcMain.handle("start-miner", (_event, request) =>
   processManager.start(request),
 );
-ipcMain.handle("stop-miner", (_event, request) => processManager.stop(request));
+ipcMain.handle("stop-miner", (_event, request) => {
+  // A newer explicit Stop also cancels a preparing update, preventing its
+  // captured resume intent from restarting this miner after installation.
+  cancelInstall();
+  return processManager.stop(request);
+});
 ipcMain.handle("get-miner-status", (_event, { minerId }) =>
   processManager.snapshot(minerId),
 );

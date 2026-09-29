@@ -70,6 +70,15 @@ function createProcessManager({
     entry.process.exitCode == null &&
     entry.process.signalCode == null &&
     alive(entry.process.pid);
+  const unsettledExit = (entry) => entry?.exited && !entry?.outputClosed;
+  const exitPendingMessage =
+    "Miner process exited but its output handles remain open. A miner-owned restart or descendant may still be running. Check the local process tree before starting, repairing or updating; MineMaster will not assume everything stopped.";
+  const waitForOutputClose = async (entry) => {
+    for (let i = 0; i < stopPolls && unsettledExit(entry); i++) await wait(200);
+    if (unsettledExit(entry)) return false;
+    if (entry?.finalizing) await entry.finalizing;
+    return true;
+  };
   const snapshot = (id) => {
     const entry = entries.get(id),
       live = running(entry);
@@ -120,6 +129,11 @@ function createProcessManager({
               throw Error("Start canceled by stop or shutdown");
             if (running(entries.get(id)))
               return { success: true, ...snapshot(id), alreadyRunning: true };
+            if (unsettledExit(entries.get(id)))
+              throw Object.assign(Error(exitPendingMessage), {
+                code: "PROCESS_EXIT_PENDING",
+                stage: "shutdown",
+              });
             const activeConfig = JSON.parse(JSON.stringify(config));
             spec = await runtime.launchSpec(type, id, activeConfig);
             if (closing || generation !== (generations.get(id) || 0))
@@ -205,6 +219,19 @@ function createProcessManager({
               });
               // An error can also describe a failed kill; retain ownership until exit is observed.
             });
+            child.on("exit", (code, signalName) => {
+              if (!owned()) return;
+              entry.exited = true;
+              if (!entry.expected)
+                diagnostics.set(id, {
+                  status: "unavailable",
+                  engine,
+                  code: "PROCESS_EXIT_PENDING",
+                  message: `Miner exited (${code ?? signalName ?? "unknown"}). ${exitPendingMessage}`,
+                  path: spec.executable,
+                  observedAt: new Date(now()).toISOString(),
+                });
+            });
             const closed = (code, signalName) => {
               if (!owned()) return;
               if (!entry.expected)
@@ -266,6 +293,7 @@ function createProcessManager({
               entries.delete(id);
             };
             child.on("close", (code, signalName) => {
+              entry.outputClosed = true;
               if (entry.logTail?.finish) {
                 entry.finalizing = entry.logTail
                   .finish()
@@ -312,6 +340,8 @@ function createProcessManager({
   async function stopEntry(id) {
     const entry = entries.get(id);
     if (!running(entry)) {
+      if (!(await waitForOutputClose(entry)))
+        return { success: false, ...snapshot(id), error: exitPendingMessage };
       await entry?.logTail?.finish?.().catch(() => {});
       entry?.logTail?.close();
       if (entries.get(id) === entry) entries.delete(id);
@@ -327,6 +357,8 @@ function createProcessManager({
       for (let attempt = 0; attempt < stopPolls && running(entry); attempt++)
         await wait(200);
       if (!running(entry)) {
+        if (!(await waitForOutputClose(entry)))
+          return { success: false, ...snapshot(id), error: exitPendingMessage };
         await entry.logTail?.finish?.().catch(() => {});
         entry.logTail?.close();
         if (entries.get(id) === entry) entries.delete(id);
@@ -380,8 +412,11 @@ function createProcessManager({
             if (
               closing ||
               running(entries.get(id)) ||
+              unsettledExit(entries.get(id)) ||
               [...entries.values()].some(
-                (entry) => entry.engine === type && running(entry),
+                (entry) =>
+                  entry.engine === type &&
+                  (running(entry) || unsettledExit(entry)),
               ) ||
               [...retryTimers.values()].some((retry) => retry.engine === type)
             )

@@ -1025,7 +1025,7 @@ function App() {
             {updateStatus.state === "downloading" && (
               <div className="update-indicator downloading">
                 <span className="update-spinner"></span>
-                Updating... {updateStatus.percent || 0}%
+                Downloading update... {updateStatus.percent || 0}%
               </div>
             )}
             {updateStatus.state === "installing" && (
@@ -1047,26 +1047,37 @@ function App() {
                 {updateStatus.message || "Update failed"}
               </div>
             )}
-            {updateStatus.state === "downloaded" && (
-              <button
-                onClick={async () => {
-                  try {
-                    const result = await window.electronAPI.installUpdate(
-                      updateStatus.version,
-                    );
-                    if (!result?.success)
+            {updateStatus.state === "downloaded" &&
+              updateStatus.autoInstall &&
+              !updateStatus.message && (
+                <div className="update-indicator restarting" role="status">
+                  Update verified. Installing and restarting automatically…
+                </div>
+              )}
+            {updateStatus.state === "downloaded" &&
+              (!updateStatus.autoInstall || updateStatus.message) && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const result = await window.electronAPI.installUpdate(
+                        updateStatus.version,
+                      );
+                      if (!result?.success)
+                        addNotification(
+                          result?.error || "Install failed",
+                          "error",
+                        );
+                    } catch (error) {
                       addNotification(
-                        result?.error || "Install failed",
+                        error.message || "Install failed",
                         "error",
                       );
-                  } catch (error) {
-                    addNotification(error.message || "Install failed", "error");
-                  }
-                }}
-              >
-                Install v{updateStatus.version} and restart
-              </button>
-            )}
+                    }
+                  }}
+                >
+                  Install v{updateStatus.version} and restart
+                </button>
+              )}
             <button
               disabled={updateStatus.state === "checking"}
               onClick={() =>

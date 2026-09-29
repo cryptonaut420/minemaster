@@ -6,6 +6,7 @@ test("failed status notification cannot interrupt installation cleanup or update
   const updater = new EventEmitter();
   let released = false;
   const c = createUpdateController({
+    autoInstall: false,
     updater,
     notify: () => {
       throw Error("renderer destroyed");
@@ -33,7 +34,7 @@ test("a settled download without completion cannot leave future checks permanent
     updater.emit("update-available", { version: "1.4.8" });
     return { downloadPromise: Promise.resolve([]) };
   };
-  const c = createUpdateController({ updater });
+  const c = createUpdateController({ autoInstall: false, updater });
   await c.checkForUpdates();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(c.getState().state, "error");
@@ -64,6 +65,7 @@ test("stalled downloads cancel once, ignore late completion, and retry only afte
     };
   };
   const c = createUpdateController({
+    autoInstall: false,
     updater,
     now: () => clock,
     downloadIdleMs: 100,
@@ -114,6 +116,7 @@ test("download watchdog bounds endless progress and cleanup cancels owned transf
     cancellationToken: { cancel: () => canceled++ },
   });
   const c = createUpdateController({
+    autoInstall: false,
     updater,
     now: () => clock,
     downloadMaxMs: 100,
@@ -138,6 +141,7 @@ test("native installation refuses an obsolete requested version before stopping 
     installs = 0;
   updater.quitAndInstall = () => installs++;
   const controller = createUpdateController({
+    autoInstall: false,
     updater,
     stopMiners: async () => stops++,
   });
@@ -157,7 +161,7 @@ test("native installation refuses an obsolete requested version before stopping 
 });
 test("a downloaded release does not pin future update checks to an obsolete version", async () => {
   const updater = new EventEmitter();
-  const c = createUpdateController({ updater });
+  const c = createUpdateController({ autoInstall: false, updater });
   updater.emit("update-downloaded", { version: "1.4.4" });
   let checks = 0;
   updater.checkForUpdates = async () => {
@@ -174,7 +178,11 @@ test("a downloaded release does not pin future update checks to an obsolete vers
 });
 test("a failed refresh preserves a downloaded installer and install cannot race a check", async () => {
   const updater = new EventEmitter();
-  const c = createUpdateController({ updater, stopMiners: async () => {} });
+  const c = createUpdateController({
+    autoInstall: false,
+    updater,
+    stopMiners: async () => {},
+  });
   updater.emit("update-downloaded", { version: "1.4.4" });
   let reject;
   updater.checkForUpdates = () => {
@@ -205,6 +213,7 @@ test("downloaded app updates wait for explicit installation and retain their met
     stopped = 0;
   updater.quitAndInstall = () => installed++;
   const controller = createUpdateController({
+    autoInstall: false,
     updater,
     stopMiners: async () => {
       stopped++;
@@ -226,6 +235,7 @@ test("failed stop prevents installing and keeps a downloaded update available fo
     released = false;
   updater.quitAndInstall = () => (installed = true);
   const c = createUpdateController({
+    autoInstall: false,
     updater,
     stopMiners: async () => {
       throw Error("PID remains alive");
@@ -246,7 +256,7 @@ test("asynchronous update failures are handled and concurrent checks share a sin
     calls++;
     return new Promise((_, r) => (reject = r));
   };
-  const c = createUpdateController({ updater });
+  const c = createUpdateController({ autoInstall: false, updater });
   const a = c.checkForUpdates(),
     b = c.checkForUpdates();
   await Promise.resolve();
@@ -260,6 +270,7 @@ test("an installer error event releases mining controls and retains the download
   let released = 0;
   updater.quitAndInstall = () => {};
   const c = createUpdateController({
+    autoInstall: false,
     updater,
     stopMiners: async () => {},
     releaseStarts: () => released++,
@@ -282,6 +293,7 @@ test("an updater error during stop preparation cannot continue into installer ha
     released = 0;
   updater.quitAndInstall = () => installed++;
   const c = createUpdateController({
+    autoInstall: false,
     updater,
     stopMiners: () => new Promise((r) => (finish = r)),
     releaseStarts: () => released++,
@@ -303,7 +315,7 @@ test("background download rejection is observed and a synchronous check failure 
     if (++tries === 1) throw Error("offline");
     return { downloadPromise: Promise.reject(Error("download lost")) };
   };
-  const c = createUpdateController({ updater });
+  const c = createUpdateController({ autoInstall: false, updater });
   assert.equal((await c.checkForUpdates()).success, false);
   await c.checkForUpdates();
   await Promise.resolve();

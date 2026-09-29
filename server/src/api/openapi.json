@@ -4738,6 +4738,10 @@
           "supported": {
             "type": "boolean"
           },
+          "autoInstall": {
+            "type": "boolean",
+            "description": "Client automatically installs verified downloads after safe process shutdown. False for older clients and unsupported packages. A failed attempt requires explicit retry."
+          },
           "version": {
             "type": "string",
             "nullable": true

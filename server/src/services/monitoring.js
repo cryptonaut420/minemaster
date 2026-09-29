@@ -149,7 +149,15 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
           `${label} rejected ${((p.shares.rejected / total) * 100).toFixed(1)}% of ${total} shares this run`,
         );
     }
-    const expected = r.expectedDeviceIds || [];
+    // Older agents promoted placeholder bus names such as "PCI" to pci:pci.
+    // Such values never identified a physical device and must not become a
+    // spurious missing-GPU incident when corrected inventory arrives.
+    const expected = (r.expectedDeviceIds || []).filter(
+      (id) =>
+        typeof id === "string" &&
+        (!id.startsWith("pci:") ||
+          /^pci:(?:[0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/i.test(id)),
+    );
     const actual = new Set((r.hardware?.gpus || []).map((g) => g.deviceId));
     if (expected.some((id) => !actual.has(id)))
       add("missing_gpu", "A GPU from the acknowledged inventory is missing");

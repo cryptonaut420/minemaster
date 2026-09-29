@@ -303,3 +303,10 @@ Nanominer shares use aggregate total minus rejected as accepted, preserve native
 The SRBMiner catalog is pinned to 3.7.0 and both engine forms derive their version label from that catalog. Upstream Quantus vendor support includes Intel Arc; this is a capability of 3.7.0, not proof of support on older clients or individual models/drivers. A managed client upgrade is required to use its bundled new binary; custom paths remain operator-managed. No API route or command scope changed.
 
 Client 1.4.9 preserves `stage`/`syscall` from unavailable-file inspection through launch preparation, and marks working-directory/config/log write failures as `process configuration`. These remain file/OS failures, not inferred antivirus detections. Nanominer `Connected/Reconnected to pool:` messages now report the endpoint instead of the literal `pool:` label; connection-closed/lost messages mark the pool disconnected while keeping the native observation timestamp.
+
+
+### Automatic installation from client 1.4.9
+
+`appUpdate.autoInstall` is a bounded boolean preserved by WebSocket telemetry and read APIs; absent/older-client values normalize to false. It identifies the client's verified-download installation policy, not proof that installation succeeded. Current version still requires a new matching-version registration. Client 1.4.9 installs automatically after its check/download settles and controlled stop/resume preparation succeeds. A failed or canceled target remains available for explicit retry, with its error visible in Client updates. Pre-1.4.9 clients need one explicit installation to adopt this behavior. No backend job forces upgrades or changes mining profiles.
+
+GPU normalization rejects placeholder PCI bus identities and filters recognized AMD integrated adapters. Positional fallback remains explicit and distinct GPUs are retained. No device-index mapping or individual GPU launch-control guarantee is inferred.

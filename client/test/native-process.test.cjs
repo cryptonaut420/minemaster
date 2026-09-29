@@ -50,6 +50,27 @@ const request = {
   minerType: "xmrig",
   config: { version: "v1", gpus: [0] },
 };
+test("a parent exit with inherited output still open is an error and blocks duplicate starts, repair and update shutdown", async () => {
+  const f = fixture();
+  await f.manager.start(request);
+  const child = f.children[0];
+  child.exitCode = 0;
+  f.setLive(false);
+  child.emit("exit", 0);
+  assert.equal(f.manager.snapshot("cpu").running, false);
+  assert.equal(
+    f.manager.snapshot("cpu").diagnostic.code,
+    "PROCESS_EXIT_PENDING",
+  );
+  assert.equal((await f.manager.start(request)).success, false);
+  assert.equal(f.children.length, 1);
+  assert.equal((await f.manager.repair("cpu", "xmrig")).success, false);
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, false);
+  await assert.rejects(f.manager.stopAll(), /output handles remain open/);
+  child.emit("close", 0);
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, true);
+  assert.deepEqual(await f.manager.stopAll(), []);
+});
 test("repair fails when final inspection finds files unavailable and never starts mining", async () => {
   const f = fixture();
   f.runtime.inspect = async () => ({

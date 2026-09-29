@@ -15,6 +15,7 @@ function normalize(value) {
   return {
     state: value.state,
     supported: value.supported === true,
+    autoInstall: value.autoInstall === true,
     version:
       typeof value.version === "string" ? value.version.slice(0, 100) : null,
     percent: Number.isFinite(value.percent)

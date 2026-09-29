@@ -78,14 +78,22 @@ function gpuIdentity(gpu, index) {
   const bus = gpu.pciBus || gpu.busAddress || gpu.bus;
   let normalized = bus
     ? String(bus)
+        .trim()
         .toLowerCase()
         .replace(/^00000000:/, "0000:")
     : null;
   if (normalized && /^[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/.test(normalized))
     normalized = `0000:${normalized}`;
+  if (!/^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/.test(normalized || ""))
+    normalized = null;
+  const explicit = gpu.deviceId;
+  const validExplicit =
+    typeof explicit === "string" &&
+    (!explicit.startsWith("pci:") ||
+      /^pci:(?:[0-9a-f]{4}:)?[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/i.test(explicit));
   return (
-    gpu.deviceId ||
-    (bus
+    (validExplicit ? explicit : null) ||
+    (normalized
       ? `pci:${normalized}`
       : gpu.uuid
         ? `uuid:${gpu.uuid}`
@@ -100,13 +108,21 @@ function normalizeGpus(gpus = []) {
       (g) =>
         g.integrated !== true && !/basic display|virtual/i.test(g.model || ""),
     )
+    .filter(
+      (g) =>
+        !(
+          /amd|ati|advanced micro devices/i.test(g.vendor || "") &&
+          /^(?:amd )?radeon graphics$|renoir|raphael|cezanne|lucienne/i.test(
+            (g.model || "").replace(/\((?:tm|r)\)/gi, "").trim(),
+          )
+        ),
+    )
     .map((g, i) => ({
       ...g,
       deviceId: gpuIdentity(g, i),
-      identityQuality:
-        g.deviceId || g.uuid || g.bus || g.pciBus || g.busAddress
-          ? "hardware"
-          : "positional",
+      identityQuality: gpuIdentity(g, i).startsWith("index:")
+        ? "positional"
+        : "hardware",
     }))
     .filter((g) => {
       if (seen.has(g.deviceId)) return false;

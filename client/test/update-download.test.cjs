@@ -89,7 +89,7 @@ test("installed updater downloads and verifies both platform feeds, refreshes a 
       download = result?.downloadPromise;
       return result;
     };
-    const controller = createUpdateController({ updater });
+    const controller = createUpdateController({ autoInstall: false, updater });
     t.after(() => controller.cleanup());
     const oldAppImage = process.env.APPIMAGE;
     if (platform === "linux")
@@ -117,6 +117,34 @@ test("installed updater downloads and verifies both platform feeds, refreshes a 
       await controller.checkForUpdates();
       await assert.rejects(download, /sha512 checksum mismatch/i);
       assert.equal(controller.getState().state, "error");
+      controller.cleanup();
+      // Real feed/download/checksum handling, but replace the installer handoff
+      // with an inert recorder. Automatic mode must never execute these bytes.
+      version = "1.4.9";
+      corrupt = false;
+      const stopped = [];
+      let handoffs = 0;
+      updater.quitAndInstall = () => handoffs++;
+      const automatic = createUpdateController({
+        updater,
+        stopMiners: async (target) => {
+          stopped.push(target);
+          createResumeStore({ userData: dir, version: "1.4.8" }).save(
+            ["nanominer-1"],
+            target,
+          );
+        },
+      });
+      t.after(() => automatic.cleanup());
+      await automatic.checkForUpdates();
+      await download;
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(stopped, ["1.4.9"]);
+      assert.equal(handoffs, 1);
+      assert.deepEqual(
+        createResumeStore({ userData: dir, version: "1.4.9" }).take().minerIds,
+        ["nanominer-1"],
+      );
     } finally {
       if (oldAppImage === undefined) delete process.env.APPIMAGE;
       else process.env.APPIMAGE = oldAppImage;
