@@ -30,3 +30,10 @@ Focused native and admin tests reproduced the two control failures before change
 Remaining hardware issues above are not repaired by a backend deployment. Real Windows process containment, protection decisions, driver behavior, installed updater handoff and long-running mining stability still require device observation. Existing update policy, profiles, fees, authentication and recovery authorization remain unchanged.
 
 Prepublication validation: 126 client tests and 137 backend tests passed; both production builds passed. Local browser fixtures confirmed the new stopped-parent state, visible cross-engine ownership errors, disabled Repair, immediate cleanup after Stop, and admin Stop via the real WebSocket command route to a simulated agent. At a measured 390-pixel viewport the admin Pause button remained inside the viewport. A synthetic command failure produced a toast and persistent failure indicator; a synthetic database outage retained the rig row with an explicit alert. Tests do not establish hardware behavior.
+
+## Deployment and publication
+
+- Source `fc47ed6` committed and pushed to `master`; release build `1.4.12+113.fc47ed6` published October 2 at 20:00 UTC. All seven Windows/Linux assets and both updater feeds passed package/hash verification before the draft was published as latest. Packaged native process code, release manifest and catalog match source on both platforms.
+- Backend/admin deployed on tsqr in container `103658ad47fcac92ec26b5adc7b9c50cdec619f5793fe6564add8a74deae458d`; previous image retained as `minemaster:before-1.4.12`.
+- After deployment, all 18 previously connected agents returned. Database/index readiness passed, and the monitoring sweep completed with zero failed rigs. Quantus remained six valid reporting processes (approximately 1.627 GH/s in that snapshot). Existing hardware/file/ownership faults were not disguised as repaired.
+- Client 1.4.12 is available to natural automatic checks. Publication is not evidence that any particular rig has installed it. No forced fleet install, repair or mining command was sent.
