@@ -201,10 +201,11 @@ async function status(c, data) {
       sampleNow,
     );
     const closedInterval =
-      previous?.running && !process.running
+      previous?.running &&
+      (!process.running || (process.paused && !previous.paused))
         ? {
             ...process,
-            hashrateObservedAt: now,
+            hashrateObservedAt: new Date(sampleNow).toISOString(),
             hashrate: null,
             quality: "unavailable",
             algorithm: previous.algorithm,
@@ -220,7 +221,7 @@ async function status(c, data) {
           ...previous,
           running: false,
           hashrate: null,
-          hashrateObservedAt: now,
+          hashrateObservedAt: new Date(sampleNow).toISOString(),
           quality: "unavailable",
         },
         previous,

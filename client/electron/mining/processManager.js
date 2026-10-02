@@ -47,6 +47,7 @@ async function signalProcess(child, force) {
 function createProcessManager({
   runtime,
   emit = () => {},
+  record = () => {},
   spawnProcess = spawn,
   alive = isProcessRunning,
   signal = signalProcess,
@@ -67,6 +68,12 @@ function createProcessManager({
   const retryTimers = new Map(),
     restartHistory = new Map();
   let closing = false;
+  const audit = (event, details) => {
+    // Diagnostics must never block mining control, including async logger failures.
+    try {
+      Promise.resolve(record(event, details)).catch(() => {});
+    } catch (_) {}
+  };
   const cancelRetry = (id) => {
     if (retryTimers.has(id)) {
       unschedule(retryTimers.get(id).timer);
@@ -226,8 +233,16 @@ function createProcessManager({
                   output(data, "file", observedAt, reset),
                 {
                   freshFile: true,
-                  onError: (error) =>
-                    output(`Log capture failed: ${error.message}\n`, "stderr"),
+                  onError: (error) => {
+                    audit("miner-log-capture-failed", {
+                      minerId: id,
+                      runId: entry.runId,
+                      engine,
+                      code: error.code || null,
+                      message: error.message,
+                    });
+                    output(`Log capture failed: ${error.message}\n`, "stderr");
+                  },
                 },
               );
             child.on("error", (error) => {
@@ -250,6 +265,16 @@ function createProcessManager({
             child.on("exit", (code, signalName) => {
               if (!owned()) return;
               entry.exited = true;
+              audit("miner-parent-exit", {
+                minerId: id,
+                runId: entry.runId,
+                engine,
+                pid: child.pid,
+                code,
+                signal: signalName,
+                expected: entry.expected,
+                outputClosed: !!entry.outputClosed,
+              });
               if (!entry.expected)
                 diagnostics.set(id, {
                   status: "unavailable",
@@ -345,6 +370,12 @@ function createProcessManager({
                 `Miner exited during startup. ${entry.tail.slice(-2000)}`,
               );
             entry.confirmed = true;
+            audit("miner-start-confirmed", {
+              minerId: id,
+              runId: entry.runId,
+              engine,
+              pid: child.pid,
+            });
             return { success: true, ...snapshot(id) };
           } catch (error) {
             const diagnostic = {
@@ -409,6 +440,13 @@ function createProcessManager({
     cancelRetry(id);
     generations.set(id, (generations.get(id) || 0) + 1);
     return enqueue(id, async () => {
+      const entry = entries.get(id);
+      const context = {
+        minerId: id,
+        runId: entry?.runId || null,
+        engine: entry?.engine || diagnostics.get(id)?.engine || null,
+        pid: entry?.process.pid || null,
+      };
       try {
         const result = await stopEntry(id);
         if (!result.success) {
@@ -418,10 +456,16 @@ function createProcessManager({
             code: "PROCESS_STOP_FAILED",
             message: result.error,
           });
+          audit("miner-stop-failed", {
+            ...context,
+            code: "PROCESS_STOP_FAILED",
+            message: result.error,
+          });
           return { ...result, ...snapshot(id), success: false };
         }
         await externalProcesses.stop(id);
         if (lifecycleDiagnostic(diagnostics.get(id))) diagnostics.delete(id);
+        audit("miner-stop-confirmed", context);
         return { ...result, ...snapshot(id) };
       } catch (error) {
         const diagnostic = {
@@ -431,6 +475,11 @@ function createProcessManager({
           message: error.message,
         };
         diagnostics.set(id, diagnostic);
+        audit("miner-stop-failed", {
+          ...context,
+          code: diagnostic.code,
+          message: diagnostic.message,
+        });
         return { success: false, ...snapshot(id), error: error.message };
       }
     });

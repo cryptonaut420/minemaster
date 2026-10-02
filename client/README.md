@@ -222,3 +222,9 @@ Desktop Stop All now reaches the native owner for both slots even if the rendere
 SRBMiner 3.7.1 includes upstream Quantus improvements for AMD and Intel GPUs. Windows/Linux archives are verified against official SHA-256 digests; only the executable and supplied notice are installed. XMRig 6.26.0 and Nanominer 3.10.0 remain current. No NVIDIA speed improvement or Windows policy compatibility is assumed.
 
 A parent exit with possible surviving children, a failed Stop or an unreadable process inventory keeps Stop available in the desktop and Pause in the admin. Missing GPU inventory and a disabled slot cannot hide this cleanup control. Play excludes these slots until resolved; Repair remains blocked. A confirmed parent exit with closed output is still an ordinary stopped process. Stop now checks for managed survivors that appear during parent shutdown in that same request, and retains failure if cleanup cannot be confirmed. Ownership failures remain visible after switching the selected engine; file checks do not clear them.
+
+## Version 1.4.13: field diagnostics
+
+The existing **Diagnostic logs** folder now includes `miner-start-confirmed`, `miner-parent-exit`, `miner-stop-confirmed`, `miner-stop-failed` and `miner-log-capture-failed` events. Correlate process ID, run ID, engine and PID where available; a parent exit alone is not confirmed descendant closure. These lifecycle records do not add launch arguments, wallets or passwords. Existing error logs may still contain paths/output; review before sharing. Logging is bounded and failure-isolated.
+
+If a miner log disappears after being read, capture reports the failure once, resets partial lines, and safely follows a recreated file. Initial absence while waiting for file creation is not reported as an error. See the [October 2 visit checklist](../docs/audits/site-visit-2026-10-02.md).

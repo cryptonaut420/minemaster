@@ -19,7 +19,13 @@ function followLog(
     closed = false,
     reading = null,
     finishing = null;
-  let lastError = null;
+  let lastError = null,
+    hasSeenFile = false;
+  const notifyError = (error) => {
+    try {
+      Promise.resolve(onError(error)).catch(() => {});
+    } catch (_) {}
+  };
   let lastPollAt = now(),
     resetNext = false;
   function poll() {
@@ -35,10 +41,11 @@ function followLog(
     try {
       handle = await fs.promises.open(file, "r");
       const stat = await handle.stat();
+      hasSeenFile = true;
       const observedAt = now();
       const current = `${stat.dev}:${stat.ino}`;
       if (identity !== current || stat.size < offset) {
-        resetNext = !!identity;
+        resetNext = resetNext || !!identity;
         offset = 0;
         decoder = new StringDecoder("utf8");
       }
@@ -50,7 +57,7 @@ function followLog(
         offset = stat.size;
         decoder = new StringDecoder("utf8");
         resetNext = true;
-        onError(
+        notifyError(
           Error(
             "Output skipped after a monitoring gap; waiting for new miner output",
           ),
@@ -63,7 +70,9 @@ function followLog(
         decoder = new StringDecoder("utf8");
         resetNext = true;
         skipPartialLine = true;
-        onError(Error("Output backlog exceeded 256 KiB; older output skipped"));
+        notifyError(
+          Error("Output backlog exceeded 256 KiB; older output skipped"),
+        );
       }
       const length = Math.min(256 * 1024, Math.max(0, stat.size - offset));
       if (length) {
@@ -74,7 +83,7 @@ function followLog(
         if (skipPartialLine)
           data = data.includes("\n") ? data.slice(data.indexOf("\n") + 1) : "";
         if (!closed && data) {
-          output(
+          await output(
             data,
             new Date(freshFile ? observedAt : stat.mtimeMs).toISOString(),
             resetNext,
@@ -84,9 +93,19 @@ function followLog(
       }
       lastError = null;
     } catch (error) {
-      if (!closed && error.code !== "ENOENT" && error.code !== lastError) {
+      if (error.code === "ENOENT" && hasSeenFile) {
+        identity = null;
+        offset = 0;
+        decoder = new StringDecoder("utf8");
+        resetNext = true;
+      }
+      if (
+        !closed &&
+        (error.code !== "ENOENT" || hasSeenFile) &&
+        error.code !== lastError
+      ) {
         lastError = error.code;
-        onError(error);
+        notifyError(error);
       }
     } finally {
       await handle?.close().catch(() => {});

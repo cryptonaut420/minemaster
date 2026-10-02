@@ -2356,6 +2356,74 @@ test("WebSocket clocks ahead and behind retain fresh API rates, sensors and orig
   }
 });
 
+test("clock-offset Stop, pause and removed processes close history in observation time", async () => {
+  for (const offset of [-180000, 180000])
+    for (const transition of ["stop", "pause", "remove"]) {
+      const identity = `history-end-${offset}-${transition}`;
+      const ws = await socket();
+      send(ws, "register", registration(identity));
+      const rig = await waitFor(() =>
+        db.collection("miners").findOne({ systemId: identity }),
+      );
+      const report = Date.now() + offset;
+      const p = {
+        id: "nanominer-1",
+        type: "nanominer",
+        deviceType: "GPU",
+        engine: "srbminer",
+        running: true,
+        algorithm: "quantus",
+        hashrate: 100,
+        hashrateObservedAt: new Date(report - 20000).toISOString(),
+      };
+      send(ws, "status-update", { timestamp: report, processes: [p] });
+      await waitFor(
+        async () =>
+          (await db.collection("miners").findOne({ id: rig.id })).processes?.[0]
+            ?.hashrate === 100,
+      );
+      const next =
+        transition === "remove"
+          ? []
+          : [
+              {
+                ...p,
+                running: transition !== "stop",
+                paused: transition === "pause",
+                hashrate: null,
+              },
+            ];
+      send(ws, "status-update", { timestamp: report, processes: next });
+      await waitFor(async () => {
+        const rows = (await db.collection("miners").findOne({ id: rig.id }))
+          .processes;
+        return transition === "remove"
+          ? rows?.length === 0
+          : transition === "stop"
+            ? rows?.[0]?.running === false
+            : rows?.[0]?.paused === true;
+      });
+      const rows = await db
+        .collection("hashrateBuckets")
+        .find({ minerId: rig.id })
+        .toArray();
+      assert.equal(
+        rows.reduce((n, r) => n + r.coveredMs, 0),
+        20000,
+        `${offset} ${transition}`,
+      );
+      assert.equal(
+        rows.reduce((n, r) => n + r.integral, 0),
+        2000000,
+      );
+      assert.equal(
+        await db.collection("hashrates").countDocuments({ minerId: rig.id }),
+        1,
+      );
+      ws.close();
+    }
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

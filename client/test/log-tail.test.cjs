@@ -116,3 +116,45 @@ test("owned Windows logs observe new bytes even with a frozen write time and dis
   assert.match(rows[1].data, /300/);
   assert.equal(rows[1].reset, true);
 });
+
+test("a previously observed log disappearing is reported once and reading can recover", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mm-missing-log-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "miner.log"),
+    errors = [],
+    rows = [];
+  const tail = followLog(file, (line) => rows.push(line), {
+    interval: 100000,
+    freshFile: true,
+    onError: (e) => errors.push(e),
+  });
+  t.after(() => tail.close());
+  await tail.poll();
+  assert.equal(errors.length, 0);
+  await fs.writeFile(file, "Total: 10 H/s\n");
+  await tail.poll();
+  await fs.unlink(file);
+  await tail.poll();
+  await tail.poll();
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].code, "ENOENT");
+  await fs.writeFile(file, "Total: 20 H/s\n");
+  await tail.poll();
+  assert.match(rows.at(-1), /20 H\/s/);
+});
+test("a diagnostic callback failure cannot reject a file poll or prevent finishing", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mm-log-callback-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "miner.log");
+  await fs.writeFile(file, "x".repeat(300000));
+  const tail = followLog(file, () => {}, {
+    interval: 100000,
+    freshFile: true,
+    onError: () => {
+      throw Error("fixture diagnostic failed");
+    },
+  });
+  t.after(() => tail.close());
+  await assert.doesNotReject(tail.poll());
+  await assert.doesNotReject(tail.finish());
+});

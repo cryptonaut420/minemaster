@@ -351,6 +351,7 @@ else {
     processManager = createProcessManager({
       runtime,
       emit: sendToRenderer,
+      record: log,
       externalProcesses:
         require("./mining/orphanProcesses").createOrphanProcesses({
           userData: app.getPath("userData"),

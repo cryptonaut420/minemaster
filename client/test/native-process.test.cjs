@@ -715,3 +715,50 @@ test("one Stop reclaims a managed survivor created during parent shutdown", asyn
   assert.equal(reclaimed, true);
   assert.equal(f.manager.snapshot("cpu").error, null);
 });
+
+test("native lifecycle diagnostics retain run identity without launch secrets and isolate logger failures", async () => {
+  const rows = [];
+  const f = fixture({
+    record: (event, details) => rows.push({ event, ...details }),
+    signal: async () => {},
+  });
+  const result = await f.manager.start({
+    ...request,
+    config: {
+      ...request.config,
+      user: "secret-wallet",
+      password: "secret-password",
+    },
+  });
+  assert.equal(result.success, true);
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, false);
+  f.setLive(false);
+  f.children[0].exitCode = 0;
+  f.children[0].emit("exit", 0);
+  f.children[0].emit("close", 0);
+  assert.equal((await f.manager.stop({ minerId: "cpu" })).success, true);
+  assert.equal(
+    rows.find((r) => r.event === "miner-start-confirmed").runId,
+    result.runId,
+  );
+  assert.equal(
+    rows.find((r) => r.event === "miner-stop-failed").runId,
+    result.runId,
+  );
+  assert.equal(
+    rows.find((r) => r.event === "miner-parent-exit").runId,
+    result.runId,
+  );
+  assert.ok(rows.some((r) => r.event === "miner-stop-confirmed"));
+  assert.doesNotMatch(JSON.stringify(rows), /secret-wallet|secret-password/);
+  for (const record of [
+    () => {
+      throw Error("disk failed");
+    },
+    () => Promise.reject(Error("async logger failed")),
+  ]) {
+    const bad = fixture({ record });
+    assert.equal((await bad.manager.start(request)).success, true);
+    assert.equal((await bad.manager.stop({ minerId: "cpu" })).success, true);
+  }
+});
