@@ -1,6 +1,6 @@
 {
-  "version": "3.7.0",
-  "source": "https://github.com/doktor83/SRBMiner-Multi/blob/3.7.0/README.md",
+  "version": "3.7.1",
+  "source": "https://github.com/doktor83/SRBMiner-Multi/blob/3.7.1/README.md",
   "algorithms": [
     {
       "algorithm": "argon2d_16000",

@@ -1,4 +1,4 @@
-import { parseAggregate, rateFreshMs } from "./telemetry";
+import { parseAggregate, rateFreshMs, needsStop } from "./telemetry";
 /**
  * Shared formatting utilities for consistent display across the app
  */
@@ -117,6 +117,8 @@ export function truncate(str, maxLength = 50) {
 }
 
 export function formatMinerRate(miner, now = Date.now()) {
+  if (!miner.running && !miner.restartPendingAt && needsStop(miner))
+    return "Stop required";
   if (!miner.running) return "Stopped";
   if (miner.paused) return `Paused (${miner.pauseReason || "miner"})`;
   if (!Number.isFinite(miner.hashrate)) return "Waiting for first sample";

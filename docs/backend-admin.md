@@ -318,3 +318,9 @@ Explicit Windows diagnostics now include `diagnostic.windows.checkedPaths` (up t
 ## Unused-engine file diagnostics
 
 Shared rig views exclude a stopped process's file-verification error from operational status only when its diagnostic explicitly names a different engine than the selected one and exactly matches the reported error. The original diagnostic remains visible and the view retains `process.reportedError`; the stored report is unchanged. Running-process failures, unrelated errors and ownership/Stop failures remain operational. This corrects older clients' startup check of XMRig in a Nanominer-selected CPU slot without pretending that missing XMRig files were repaired.
+
+## October 2 stability follow-up
+
+The pinned SRBMiner catalog is now 3.7.1. Its algorithm/vendor/fee entries are unchanged from 3.7.0; upstream reports Quantus performance improvements for AMD/Intel. Clients need the new managed binary to use those improvements; custom paths remain operator-managed.
+
+Admin quick controls treat `PROCESS_EXIT_PENDING`, `PROCESS_STOP_FAILED`, `UNTRACKED_MINER`, `EXTERNAL_STOP_FAILED` and `PROCESS_INVENTORY_UNAVAILABLE` diagnostics as requiring Stop even with `running:false`. Pause stays available for disabled slots and missing GPU inventory; Play excludes those slots and their rate label says **Stop required**. This uses existing diagnostic fields, without asserting that an unobserved child is mining or contributing hashrate. Confirmed cleanup clears resolved ownership diagnostics. A normal `PROCESS_EXIT` with no remaining ownership uncertainty still permits Play. No command scopes, access permissions or automatic recovery policy changed.

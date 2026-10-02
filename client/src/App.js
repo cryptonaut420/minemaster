@@ -19,6 +19,7 @@ import { addConsoleOutput } from "./utils/consoleManager";
 import { masterServer } from "./services/masterServer";
 import versionInfo from "./version.json";
 import {
+  needsStop,
   createProcessLineBuffer,
   parseAggregate,
   parseShares,
@@ -876,9 +877,10 @@ function App() {
         throw Error(result.error || "Stop could not be confirmed");
       patchMiner(minerId, {
         ...stoppedProcessState(),
+        diagnostic: result.diagnostic || null,
         loading: false,
         restartPendingAt: null,
-        error: null,
+        error: result.error || null,
       });
       addNotification(`${miner.name} stopped`, "success");
       sendImmediateStatusUpdateRef.current?.();
@@ -959,7 +961,7 @@ function App() {
 
   const handleStartAll = () => {
     miners.forEach((miner) => {
-      if (miner.enabled && !miner.running) {
+      if (miner.enabled && !needsStop(miner)) {
         handleStartMiner(miner.id);
       }
     });

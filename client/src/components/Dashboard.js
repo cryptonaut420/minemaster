@@ -8,6 +8,7 @@ import {
   formatTemp,
   formatPercent,
 } from "../utils/formatters";
+import { needsStop } from "../utils/telemetry";
 import MasterServerPanel from "./MasterServerPanel";
 
 function Dashboard({
@@ -29,10 +30,7 @@ function Dashboard({
   // This component only collects local system stats for display
 
   // Memoize expensive calculations to prevent lag
-  const anyRunning = useMemo(
-    () => miners.some((m) => m.running || m.restartPendingAt),
-    [miners],
-  );
+  const anyRunning = useMemo(() => miners.some(needsStop), [miners]);
   const anyLoading = useMemo(() => miners.some((m) => m.loading), [miners]);
 
   // Check if GPUs are detected - memoized to only recalculate when systemInfo changes
@@ -292,12 +290,11 @@ function Dashboard({
                       <button
                         disabled={
                           miner.loading ||
-                          (!miner.running &&
-                            !miner.restartPendingAt &&
+                          (!needsStop(miner) &&
                             (miner.enabled === false || shouldDisable))
                         }
                         onClick={() =>
-                          miner.running || miner.restartPendingAt
+                          needsStop(miner)
                             ? onStop(miner.id)
                             : onStart(miner.id)
                         }
@@ -306,7 +303,7 @@ function Dashboard({
                           ? "Working…"
                           : miner.restartPendingAt
                             ? "Cancel restart"
-                            : miner.running
+                            : needsStop(miner)
                               ? "Stop"
                               : "Start"}
                       </button>

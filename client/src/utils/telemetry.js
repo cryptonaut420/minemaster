@@ -1,3 +1,17 @@
+// An exited parent or failed Stop is not proof that its owned children stopped.
+export function needsStop(process) {
+  return !!(
+    process.running ||
+    process.restartPendingAt ||
+    [
+      "PROCESS_EXIT_PENDING",
+      "PROCESS_STOP_FAILED",
+      "UNTRACKED_MINER",
+      "EXTERNAL_STOP_FAILED",
+      "PROCESS_INVENTORY_UNAVAILABLE",
+    ].includes(process.diagnostic?.code)
+  );
+}
 export const rateFreshMs = (miner) =>
   (miner.engine || miner.activeConfig?.engine) === "srbminer" ? 120000 : 60000;
 export function minerLogLevel(line) {

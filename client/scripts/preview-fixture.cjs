@@ -18,10 +18,13 @@ let update = {state:'idle',supported:true,autoInstall:true,updatedAt:new Date().
 let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
-const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.7.0':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),stage:'file verification',message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
+const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.7.1':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),stage:'file verification',message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
 const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
 diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
+if (new URLSearchParams(location.search).get('ownership') === '1') {
+ diagnostics['nanominer-1'] = {status:'unavailable',engine:'srbminer',code:'PROCESS_EXIT_PENDING',message:'Simulated parent exit: a managed miner child still needs Stop.'};
+}
 const info = {hostname:'Workshop rig 07',gpuDetectionStatus:'complete',os:{distro:platform==='linux'?'Linux':'Windows',release:platform==='linux'?'6.8':'11',platform,arch},cpu:{brand:'AMD Ryzen 9 5950X',cores:32,physicalCores:16},memory:{total:34359738368},gpus:[{deviceId:'pci:0000:02:00.0',model:'AMD Radeon RX 6800',vram:16384}]};
 const api = {
  platform,arch,getSystemInfo:async()=>info,getCpuStats:async()=>({usage:32,temperature:54,observedAt:Date.now()}),getMemoryStats:async()=>({total:34359738368,used:8589934592,usagePercent:25}),
@@ -33,7 +36,7 @@ const api = {
   if(diagnostic.status==='unavailable')return{success:false,error:diagnostic.message,diagnostic};
   const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
   setTimeout(()=>{
-   if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.7.0\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
+   if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.7.1\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
    else if(minerType==='xmrig' && engine==='nanominer') {
     emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'nanominer v3.10.0\\nTotal: 72'});
     emit('output',{minerId,runId:state.runId,stream:'stderr',data:'Simulated pool warning\\n'});
@@ -42,7 +45,7 @@ const api = {
   },50);
   return{success:true,...state,diagnostic};
  },
- stopMiner:async({minerId})=>{states[minerId]={running:false};return{success:true};},
+ stopMiner:async({minerId})=>{states[minerId]={running:false};diagnostics[minerId]=ready('nanominer');return{success:true,diagnostic:diagnostics[minerId]};},
  diagnoseMiner:async({minerId,minerType,includeWindows})=>{
   const diagnostic=inspect(minerType);
   if(includeWindows)diagnostic.windows={status:'available',signatureStatus:'NotSigned',checkedPaths:[diagnostic.path,'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+minerType+'/fixture.staging/archive.zip'],checkedAt:new Date().toISOString(),message:'Simulated Windows history. Historical detections do not prove a current block; no match does not prove the file is allowed.',detections:minerType==='xmrig'&&!xmrigRepaired?[{threatName:'Fixture-only detection',resource:diagnostic.path,detectedAt:new Date().toISOString(),actionSuccess:true}]:[]};

@@ -470,3 +470,63 @@ test("legacy file checks cannot blame the currently selected engine, while owner
     miner.error,
   );
 });
+
+test("desktop and admin agree when a stopped parent still needs Stop", async () => {
+  const { needsStop, selectedEngineDiagnostics } = await esm("telemetry.js");
+  const admin = await import(
+    uri(
+      fs.readFileSync(
+        path.join(__dirname, "../../server/public/src/utils/rigControls.js"),
+        "utf8",
+      ),
+    )
+  );
+  for (const code of [
+    "PROCESS_EXIT_PENDING",
+    "PROCESS_STOP_FAILED",
+    "UNTRACKED_MINER",
+    "EXTERNAL_STOP_FAILED",
+    "PROCESS_INVENTORY_UNAVAILABLE",
+    "PROCESS_EXIT",
+    "ENOENT",
+  ]) {
+    const miner = {
+      type: "xmrig",
+      running: false,
+      config: { engine: "nanominer" },
+      diagnostic: {
+        engine: "srbminer",
+        status: "unavailable",
+        code,
+        message: "Unresolved process ownership",
+      },
+      error: "Unresolved process ownership",
+    };
+    assert.equal(needsStop(miner), admin.needsStop(miner));
+    assert.equal(needsStop(miner), !["PROCESS_EXIT", "ENOENT"].includes(code));
+    assert.equal(selectedEngineDiagnostics(miner).error, miner.error);
+  }
+  assert.equal(needsStop({ running: true }), true);
+  assert.equal(needsStop({ restartPendingAt: 123 }), true);
+  assert.equal(needsStop({ running: false, diagnostic: null }), false);
+});
+
+test("unconfirmed stop is labeled distinctly from ordinary stopped mining", async () => {
+  const { formatMinerRate } = await esm("formatters.js");
+  assert.equal(
+    formatMinerRate({
+      running: false,
+      enabled: false,
+      diagnostic: { code: "PROCESS_EXIT_PENDING" },
+    }),
+    "Stop required",
+  );
+  assert.equal(
+    formatMinerRate({
+      running: false,
+      enabled: true,
+      diagnostic: { code: "PROCESS_EXIT" },
+    }),
+    "Stopped",
+  );
+});

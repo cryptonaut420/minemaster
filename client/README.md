@@ -28,10 +28,10 @@ npm run build:mac                             # macOS x64 and arm64
 
 Packaging runs `scripts/prepare-miners.js` for the actual target platform and architecture, including cross builds. Missing downloads, failed checksums, unsupported targets and extraction failures stop the build. Windows extraction requires the native `tar.exe` present on supported Windows 10/11 systems. Unix hosts use `tar` and `unzip`. Windows packaging on Linux still needs the existing Wine/container build environment. macOS packaging needs a macOS builder.
 
-Current pinned releases, checked against official latest stable releases September 29, 2026:
+Current pinned releases, checked against official latest stable releases October 2, 2026:
 
 - [XMRig 6.26.0](https://github.com/xmrig/xmrig/releases/tag/v6.26.0): Linux static x64, Windows x64, macOS x64 and arm64. The static Linux build avoids depending on Ubuntu Noble's particular glibc version.
-- [SRBMiner-MULTI 3.7.0](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.7.0): Windows/Linux x64. Quantus vendor support now includes Intel Arc; actual model/driver compatibility needs a hardware trial.
+- [SRBMiner-MULTI 3.7.1](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.7.1): Windows/Linux x64. Quantus vendor support now includes Intel Arc; actual model/driver compatibility needs a hardware trial.
 - [Nanominer 3.10.0](https://github.com/nanopool/nanominer/releases/tag/v3.10.0): Linux x64 and Windows x64. Nanominer does not ship a macOS build in this release.
 
 Versions, official URLs, archive SHA-256 and extracted runtime-file SHA-256 values live in `electron/mining/releases.json`. XMRig executable hashes were derived from the checksum-verified upstream archives; Nanominer publishes executable hashes too. Upstream license files included in the archives are retained. [XMRig's source and license](https://github.com/xmrig/xmrig/tree/v6.26.0) accompany its release.
@@ -134,7 +134,7 @@ Timed-out server connections ignore late events from the retired socket, includi
 
 ## Version 1.4 — SRBMiner CPU and GPU
 
-SRBMiner-MULTI 3.7.0 is selectable independently for CPU and GPU on Windows/Linux x64. Existing engine choices remain unchanged. In either miner's **engine, pools and recovery** section, choose SRBMiner, select an algorithm, and enter the appropriate pool and wallet. For Pearl select GPU `pearlhash`; RandomX CPU uses `rx/0`. The coin field is a display label, not automatic pool or algorithm discovery.
+SRBMiner-MULTI 3.7.1 is selectable independently for CPU and GPU on Windows/Linux x64. Existing engine choices remain unchanged. In either miner's **engine, pools and recovery** section, choose SRBMiner, select an algorithm, and enter the appropriate pool and wallet. For Pearl select GPU `pearlhash`; RandomX CPU uses `rx/0`. The coin field is a display label, not automatic pool or algorithm discovery.
 
 The admin provides the same managed settings: algorithm, wallet, worker, password, primary pool and up to three backups, TLS, keepalive, reconnect/failover delays, job timeout and Ethash stratum mode. CPU adds thread budget/explicit thread count, huge pages and SRBMiner thread priority. GPU adds intensity (0 means automatic). Algorithm choices show upstream fees and hardware vendors. A listed vendor does not guarantee every GPU model or driver supports that algorithm. Upgrade clients before delivering SRBMiner configurations; older clients reject operational commands requiring this engine.
 
@@ -216,3 +216,9 @@ Before starting a miner, MineMaster checks Windows process inventory for a manag
 Startup no longer prepares/checks XMRig and Nanominer based solely on legacy slot names. The actual selected engine is prepared and verified at launch or explicit maintenance. A stopped slot ignores a retained file check for another engine; process ownership failures remain visible. A file check cannot clear a process-exit/Stop failure or overwrite a later launch. Confirmed Stop clears resolved lifecycle failures; failed Stop remains visible through subsequent polling.
 
 Desktop Stop All now reaches the native owner for both slots even if the renderer reports stopped, allowing the managed-survivor checks to run. Windows survivor identity still requires the resolved executable path and exact per-slot log argument; a basename in the executable command-line argument is allowed because the OS supplies the actual image path separately. No unmanaged process is terminated by basename alone.
+
+## Version 1.4.12: survivor controls and engine refresh
+
+SRBMiner 3.7.1 includes upstream Quantus improvements for AMD and Intel GPUs. Windows/Linux archives are verified against official SHA-256 digests; only the executable and supplied notice are installed. XMRig 6.26.0 and Nanominer 3.10.0 remain current. No NVIDIA speed improvement or Windows policy compatibility is assumed.
+
+A parent exit with possible surviving children, a failed Stop or an unreadable process inventory keeps Stop available in the desktop and Pause in the admin. Missing GPU inventory and a disabled slot cannot hide this cleanup control. Play excludes these slots until resolved; Repair remains blocked. A confirmed parent exit with closed output is still an ordinary stopped process. Stop now checks for managed survivors that appear during parent shutdown in that same request, and retains failure if cleanup cannot be confirmed. Ownership failures remain visible after switching the selected engine; file checks do not clear them.

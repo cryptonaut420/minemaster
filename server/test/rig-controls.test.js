@@ -222,3 +222,40 @@ test("rig rows summarize full startup logs and keep sensor identities and missin
   rig.freshness.connected = false;
   assert.deepEqual(rigSensors(rig).cpu, {});
 });
+
+test("unconfirmed exit or stop keeps Pause available even for disabled slots without GPU inventory", async () => {
+  const { primaryControl, quickScope, processRateLabel } = await helpers;
+  for (const code of [
+    "PROCESS_EXIT_PENDING",
+    "PROCESS_STOP_FAILED",
+    "UNTRACKED_MINER",
+    "EXTERNAL_STOP_FAILED",
+    "PROCESS_INVENTORY_UNAVAILABLE",
+  ]) {
+    const rig = connectedRig();
+    rig.hardware.gpus = [];
+    rig.processes = [
+      {
+        deviceType: "GPU",
+        enabled: false,
+        running: false,
+        diagnostic: { status: "unavailable", code },
+      },
+    ];
+    assert.equal(primaryControl(rig).action, "stop", code);
+    assert.equal(primaryControl(rig).disabled, false, code);
+    assert.equal(
+      processRateLabel(rig, rig.processes[0], String),
+      "Stop required",
+      code,
+    );
+    rig.processes[0].enabled = true;
+    rig.hardware.gpus = [{}];
+    assert.equal(quickScope(rig, "start"), null, code);
+    rig.processes[0].diagnostic = {
+      status: "unavailable",
+      code: "PROCESS_EXIT",
+    };
+    assert.equal(primaryControl(rig).action, "start");
+  }
+});

@@ -689,3 +689,29 @@ test("a successful file check does not erase an operating-system launch failure"
   assert.equal(f.manager.snapshot("cpu").diagnostic.code, "EPERM");
   assert.equal(f.manager.snapshot("cpu").diagnostic.stage, "launch");
 });
+
+test("one Stop reclaims a managed survivor created during parent shutdown", async () => {
+  let reclaimed = false;
+  const f = fixture({
+    signal: async (child) => {
+      f.setLive(false);
+      child.exitCode = 0;
+      child.emit("exit", 0);
+    },
+    externalProcesses: {
+      find: async () => [],
+      stop: async () => {
+        const child = f.children[0];
+        if (child?.exitCode === 0) {
+          reclaimed = true;
+          child.emit("close", 0);
+        }
+      },
+    },
+  });
+  await f.manager.start(request);
+  const result = await f.manager.stop({ minerId: "cpu" });
+  assert.equal(result.success, true);
+  assert.equal(reclaimed, true);
+  assert.equal(f.manager.snapshot("cpu").error, null);
+});

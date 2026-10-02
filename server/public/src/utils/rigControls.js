@@ -1,3 +1,17 @@
+// An exited parent or failed Stop is not proof that its owned children stopped.
+export function needsStop(process) {
+  return !!(
+    process.running ||
+    process.restartPendingAt ||
+    [
+      "PROCESS_EXIT_PENDING",
+      "PROCESS_STOP_FAILED",
+      "UNTRACKED_MINER",
+      "EXTERNAL_STOP_FAILED",
+      "PROCESS_INVENTORY_UNAVAILABLE",
+    ].includes(process.diagnostic?.code)
+  );
+}
 export function controlUnavailable(rig) {
   if (rig.archivedAt || rig.forgottenAt) return "Restore this rig first";
   if (!rig.freshness?.connected)
@@ -12,8 +26,7 @@ export function quickScope(rig, action) {
     .filter(
       (p) =>
         p.enabled !== false &&
-        !p.running &&
-        !p.restartPendingAt &&
+        !needsStop(p) &&
         (p.deviceType !== "GPU" || rig.hardware?.gpus?.length > 0),
     )
     .map((p) => p.deviceType);
@@ -37,7 +50,7 @@ export function primaryControl(rig, receipt) {
   const stop =
     stopping ||
     starting ||
-    rig.processes?.some((p) => p.running || p.restartPendingAt) ||
+    rig.processes?.some(needsStop) ||
     (rig.freshness?.connected && !rig.freshness.telemetryFresh);
   const action = stop ? "stop" : "start";
   const unavailable = controlUnavailable(rig);
@@ -154,6 +167,7 @@ export function processRateLabel(rig, process, format) {
   if (!rig.freshness?.connected) return "Offline";
   if (!rig.freshness?.telemetryFresh) return "Last report stale";
   if (process.restartPendingAt) return "Restart pending";
+  if (!process.running && needsStop(process)) return "Stop required";
   if (!process.running)
     return process.enabled === false ? "Disabled" : "Stopped";
   if (process.paused) return "Paused by miner";

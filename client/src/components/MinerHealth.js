@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { formatMinerRate, formatUptime } from "../utils/formatters";
 import "./MinerHealth.css";
 import { engineFor } from "../utils/miningConfig";
+import { needsStop, selectedEngineDiagnostics } from "../utils/telemetry";
 import versionInfo from "../version.json";
 export default function MinerHealth({
   miner,
@@ -25,14 +26,13 @@ export default function MinerHealth({
     miner.type,
     miner.running ? miner.activeConfig : miner.config,
   );
-  const differentEngine =
-    miner.diagnostic?.engine && miner.diagnostic.engine !== engine;
-  const diagnostic = differentEngine ? null : miner.diagnostic;
+  const health = selectedEngineDiagnostics(miner);
+  const diagnostic = health.diagnostic;
   const pending =
     miner.running &&
     JSON.stringify(miner.activeConfig) !== JSON.stringify(miner.config);
   const problem =
-    (!differentEngine && miner.error) ||
+    health.error ||
     (diagnostic?.status === "unavailable" ? diagnostic.message : null);
   return (
     <section
@@ -99,9 +99,11 @@ export default function MinerHealth({
         </p>
       )}
       <div className="health-actions">
-        {miner.restartPendingAt && onStop && (
+        {needsStop(miner) && !miner.running && onStop && (
           <button disabled={miner.loading} onClick={() => onStop(miner.id)}>
-            Cancel scheduled restart
+            {miner.restartPendingAt
+              ? "Cancel scheduled restart"
+              : "Stop remaining miner processes"}
           </button>
         )}
         <button
@@ -113,7 +115,7 @@ export default function MinerHealth({
         <button
           disabled={
             miner.loading ||
-            miner.running ||
+            needsStop(miner) ||
             !!miner.config.customPath ||
             diagnostic?.code === "UNSUPPORTED_PLATFORM"
           }

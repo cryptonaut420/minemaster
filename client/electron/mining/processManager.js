@@ -86,7 +86,11 @@ function createProcessManager({
   const unsettledExit = (entry) => entry?.exited && !entry?.outputClosed;
   const exitPendingMessage =
     "Miner process exited but its output handles remain open. A miner-owned restart or descendant may still be running. Check the local process tree before starting, repairing or updating; MineMaster will not assume everything stopped.";
-  const waitForOutputClose = async (entry) => {
+  const waitForOutputClose = async (entry, id) => {
+    // Descendants can outlive the parent during this Stop, not only before it.
+    // Reclaim only identities verified by the native managed-process matcher.
+    if (unsettledExit(entry))
+      await externalProcesses.stop(id, entry.process.pid);
     for (let i = 0; i < stopPolls && unsettledExit(entry); i++) await wait(200);
     if (unsettledExit(entry)) return false;
     if (entry?.finalizing) await entry.finalizing;
@@ -364,7 +368,7 @@ function createProcessManager({
   async function stopEntry(id) {
     const entry = entries.get(id);
     if (!running(entry)) {
-      if (!(await waitForOutputClose(entry)))
+      if (!(await waitForOutputClose(entry, id)))
         return { success: false, ...snapshot(id), error: exitPendingMessage };
       await entry?.logTail?.finish?.().catch(() => {});
       entry?.logTail?.close();
@@ -381,7 +385,7 @@ function createProcessManager({
       for (let attempt = 0; attempt < stopPolls && running(entry); attempt++)
         await wait(200);
       if (!running(entry)) {
-        if (!(await waitForOutputClose(entry)))
+        if (!(await waitForOutputClose(entry, id)))
           return { success: false, ...snapshot(id), error: exitPendingMessage };
         await entry.logTail?.finish?.().catch(() => {});
         entry.logTail?.close();
@@ -406,8 +410,6 @@ function createProcessManager({
     generations.set(id, (generations.get(id) || 0) + 1);
     return enqueue(id, async () => {
       try {
-        if (unsettledExit(entries.get(id)))
-          await externalProcesses.stop(id, entries.get(id)?.process.pid);
         const result = await stopEntry(id);
         if (!result.success) {
           diagnostics.set(id, {
@@ -420,7 +422,7 @@ function createProcessManager({
         }
         await externalProcesses.stop(id);
         if (lifecycleDiagnostic(diagnostics.get(id))) diagnostics.delete(id);
-        return result;
+        return { ...result, ...snapshot(id) };
       } catch (error) {
         const diagnostic = {
           status: "unavailable",

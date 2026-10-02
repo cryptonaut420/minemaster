@@ -289,6 +289,27 @@ const { ObjectId } = require("mongodb");
               ]
             : []),
         ];
+        if (i === 9) {
+          processes = [
+            {
+              id: "nanominer-1",
+              type: "nanominer",
+              deviceType: "GPU",
+              engine: "srbminer",
+              running: false,
+              enabled: true,
+              algorithm: "quantus",
+              hashrate: 50e6,
+              error: "Simulated parent exit; owned child may remain",
+              diagnostic: {
+                status: "unavailable",
+                engine: "srbminer",
+                code: "PROCESS_EXIT_PENDING",
+                message: "Simulated parent exit; owned child may remain",
+              },
+            },
+          ];
+        }
         await db.collection("miners").updateOne(
           { id },
           {
@@ -346,7 +367,11 @@ const { ObjectId } = require("mongodb");
           for (const p of processes.filter(
             (p) => c.deviceType === "ALL" || p.deviceType === c.deviceType,
           )) {
-            if (c.action === "stop") p.running = false;
+            if (c.action === "stop") {
+              p.running = false;
+              p.error = null;
+              p.diagnostic = null;
+            }
             if (c.action === "start" || c.action === "restart")
               p.running = true;
             if (c.configs?.[p.type]) {
