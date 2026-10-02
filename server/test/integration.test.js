@@ -2356,9 +2356,9 @@ test("WebSocket clocks ahead and behind retain fresh API rates, sensors and orig
   }
 });
 
-test("clock-offset Stop, pause and removed processes close history in observation time", async () => {
+test("clock-offset Stop, pause, missing samples and removal close history in observation time", async () => {
   for (const offset of [-180000, 180000])
-    for (const transition of ["stop", "pause", "remove"]) {
+    for (const transition of ["stop", "pause", "remove", "unavailable"]) {
       const identity = `history-end-${offset}-${transition}`;
       const ws = await socket();
       send(ws, "register", registration(identity));
@@ -2382,6 +2382,21 @@ test("clock-offset Stop, pause and removed processes close history in observatio
           (await db.collection("miners").findOne({ id: rig.id })).processes?.[0]
             ?.hashrate === 100,
       );
+      // A sweep must not pre-fill the freshness window before the actual end.
+      const Miner = require("../src/models/Miner"),
+        originalAll = Miner.getAll;
+      Miner.getAll = async () => [rig];
+      try {
+        await require("../src/websocket/server").sweep();
+      } finally {
+        Miner.getAll = originalAll;
+      }
+      assert.equal(
+        await db
+          .collection("hashrateBuckets")
+          .countDocuments({ minerId: rig.id }),
+        0,
+      );
       const next =
         transition === "remove"
           ? []
@@ -2391,6 +2406,9 @@ test("clock-offset Stop, pause and removed processes close history in observatio
                 running: transition !== "stop",
                 paused: transition === "pause",
                 hashrate: null,
+                ...(transition === "unavailable"
+                  ? { hashrateObservedAt: null }
+                  : {}),
               },
             ];
       send(ws, "status-update", { timestamp: report, processes: next });
@@ -2399,9 +2417,11 @@ test("clock-offset Stop, pause and removed processes close history in observatio
           .processes;
         return transition === "remove"
           ? rows?.length === 0
-          : transition === "stop"
-            ? rows?.[0]?.running === false
-            : rows?.[0]?.paused === true;
+          : transition === "unavailable"
+            ? rows?.[0]?.hashrate === null
+            : transition === "stop"
+              ? rows?.[0]?.running === false
+              : rows?.[0]?.paused === true;
       });
       const rows = await db
         .collection("hashrateBuckets")
@@ -2422,6 +2442,68 @@ test("clock-offset Stop, pause and removed processes close history in observatio
       );
       ws.close();
     }
+});
+
+test("monitor sweeps expire rates by engine in the original bounded report clock", async () => {
+  const Miner = require("../src/models/Miner"),
+    HashRate = require("../src/models/HashRate"),
+    websocket = require("../src/websocket/server"),
+    telemetry = require("../src/services/telemetry");
+  const now = Date.now(),
+    fixtures = [],
+    recorded = [];
+  for (const offset of [-180000, 0, 180000])
+    for (const [engine, age] of [
+      ["srbminer", 20000],
+      ["srbminer", 90000],
+      ["srbminer", 121000],
+      ["nanominer", 61000],
+    ]) {
+      const at = now + offset - age;
+      fixtures.push({
+        id: `sweep-clock-${offset}-${engine}-${age}`,
+        agentClock: telemetry.clockObservation(at, now - age),
+        processes: [
+          {
+            id: "gpu",
+            engine,
+            algorithm: "quantus",
+            deviceType: "GPU",
+            running: true,
+            hashrate: 100,
+            hashrateObservedAt: new Date(at).toISOString(),
+          },
+        ],
+      });
+    }
+  const originalAll = Miner.getAll,
+    originalById = Miner.getById,
+    originalRecord = HashRate.record;
+  Miner.getAll = async () => fixtures;
+  Miner.getById = async (id) => fixtures.find((r) => r.id === id);
+  HashRate.record = async (...args) => recorded.push(args);
+  try {
+    await websocket.sweep();
+    const expired = fixtures.filter((r) => /-(121000|61000)$/.test(r.id));
+    assert.deepEqual(
+      recorded.map(([id]) => id).sort(),
+      expired.map((r) => r.id).sort(),
+    );
+    for (const [id, boundary, previous] of recorded) {
+      assert.equal(boundary.hashrate, null, id);
+      assert.equal(boundary.quality, "unavailable", id);
+      assert.equal(
+        Date.parse(boundary.hashrateObservedAt),
+        Date.parse(previous.hashrateObservedAt) +
+          telemetry.rateFreshMs(previous),
+        id,
+      );
+    }
+  } finally {
+    Miner.getAll = originalAll;
+    Miner.getById = originalById;
+    HashRate.record = originalRecord;
+  }
 });
 
 test("database failures are unavailable responses, never successful empty data", async () => {

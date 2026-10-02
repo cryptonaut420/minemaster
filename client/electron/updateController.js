@@ -46,6 +46,15 @@ function createUpdateController({
     transferred = 0;
   const watchDownload = (result) => {
     if (!result?.downloadPromise) return;
+    if (disposed) {
+      // A check can settle after cleanup. Observe its rejection and cancel the
+      // newly returned transfer instead of leaving it running without an owner.
+      Promise.resolve(result.downloadPromise).catch(() => {});
+      try {
+        result.cancellationToken?.cancel();
+      } catch (_) {}
+      return;
+    }
     const current = {
       token: result.cancellationToken,
       startedAt: now(),
@@ -211,6 +220,10 @@ function createUpdateController({
       return Promise.resolve({ success: false, ...getState() });
     }
     if (check) return check;
+    // Cancellation changes visible state before asynchronous stop/save finishes.
+    // The install attempt still owns the updater until that work settles.
+    if (attempt)
+      return Promise.resolve({ success: !attempt.error, ...getState() });
     if (transfer)
       return Promise.resolve({ success: !transfer.canceled, ...getState() });
     if (["available", "downloading", "installing"].includes(state.state))
@@ -221,6 +234,7 @@ function createUpdateController({
         const result = await updater.checkForUpdates();
         // Upstream returns the background download separately. Always observe its rejection.
         watchDownload(result);
+        if (disposed) return { success: false, error: "Updater closed" };
         return {
           success: !["error", "unsupported"].includes(state.state),
           ...getState(),

@@ -65,11 +65,11 @@ function queryWindow(query = {}, now = Date.now()) {
   };
 }
 class HashRate {
-  static async record(minerId, p, previous) {
+  static async record(minerId, p, previous, boundaryNow = Date.now()) {
     const db = getDb(),
       observed = date(p.hashrateObservedAt);
     // Finish the previous observed interval, including transitions to zero/stopped/unavailable.
-    const nextAt = observed ?? Date.now();
+    const nextAt = observed ?? boundaryNow;
     for (const part of intervalParts(previous, nextAt)) {
       const key = {
         minerId,

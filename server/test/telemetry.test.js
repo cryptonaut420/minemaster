@@ -1196,6 +1196,28 @@ test("clock tolerance rejects future samples relative to the report and never ch
   );
 });
 
+test("history retains bounded clock offsets after disconnect without refreshing live measurements", () => {
+  for (const offset of [-300000, 300000]) {
+    const clock = t.clockObservation(now + offset, now);
+    assert.equal(
+      t.historyObservationNow(clock, now + 180000),
+      now + offset + 180000,
+    );
+    assert.equal(t.observationNow(clock, now + 180000), now + 180000);
+  }
+  for (const clock of [
+    null,
+    {},
+    t.clockObservation(now - 300001, now),
+    t.clockObservation(now + 300001, now),
+  ])
+    assert.equal(t.historyObservationNow(clock, now + 180000), now + 180000);
+  assert.equal(
+    t.historyObservationNow(t.clockObservation(now + 10000, now + 10000), now),
+    now,
+  );
+});
+
 test("unused-engine file errors remain inspectable without masking working mining", () => {
   const cpu = {
     id: "cpu",

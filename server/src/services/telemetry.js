@@ -45,6 +45,14 @@ function observationNow(clock, now = Date.now()) {
   // continue aging as the sender timestamp advances; heartbeats cannot refresh them.
   return reported + (now - received);
 }
+// History must finish the last observed interval even after reporting stops.
+// Retain only the last validated bounded offset for this boundary calculation;
+// this must never extend live telemetry/sensor freshness or alter sample times.
+function historyObservationNow(clock, now = Date.now()) {
+  const received = date(clock?.receivedAt);
+  if (received === null || received > now + 5000) return now;
+  return observationNow(clock, received) + (now - received);
+}
 function normalizeDiagnostic(d) {
   if (!d || typeof d !== "object" || Array.isArray(d)) return null;
   const result = Object.fromEntries(
@@ -646,6 +654,7 @@ module.exports = {
   iso,
   clockObservation,
   observationNow,
+  historyObservationNow,
   CLOCK_TOLERANCE_MS,
   normalizeGpus,
   gpuIdentity,

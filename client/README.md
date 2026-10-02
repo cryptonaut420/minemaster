@@ -228,3 +228,7 @@ A parent exit with possible surviving children, a failed Stop or an unreadable p
 The existing **Diagnostic logs** folder now includes `miner-start-confirmed`, `miner-parent-exit`, `miner-stop-confirmed`, `miner-stop-failed` and `miner-log-capture-failed` events. Correlate process ID, run ID, engine and PID where available; a parent exit alone is not confirmed descendant closure. These lifecycle records do not add launch arguments, wallets or passwords. Existing error logs may still contain paths/output; review before sharing. Logging is bounded and failure-isolated.
 
 If a miner log disappears after being read, capture reports the failure once, resets partial lines, and safely follows a recreated file. Initial absence while waiting for file creation is not reported as an error. See the [October 2 visit checklist](../docs/audits/site-visit-2026-10-02.md).
+
+## Version 1.4.14: update cancellation ownership
+
+A canceled or failed installation retains updater ownership until asynchronous stop/save preparation settles; a new check cannot start another transfer during that cleanup. Closing the updater while a check is pending also cancels any download returned by the late check and observes its rejection without creating another watchdog. Automatic-install policy and explicit retry after a failed/canceled target remain unchanged. See the [sweep/updater follow-up](../docs/audits/sweep-updater-2026-10-02.md).

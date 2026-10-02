@@ -2,6 +2,73 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("events");
 const { createUpdateController } = require("../electron/updateController");
+test("canceling preparation retains update ownership until shutdown settles", async (t) => {
+  const updater = new EventEmitter();
+  let finishStop,
+    checks = 0,
+    installs = 0;
+  updater.checkForUpdates = async () => {
+    checks++;
+    return {};
+  };
+  updater.quitAndInstall = () => installs++;
+  const c = createUpdateController({
+    autoInstall: false,
+    updater,
+    stopMiners: () =>
+      new Promise((resolve) => {
+        finishStop = resolve;
+      }),
+  });
+  t.after(() => c.cleanup());
+  updater.emit("update-downloaded", { version: "2.0.0" });
+  const installing = c.install("2.0.0");
+  c.cancelInstall();
+  const checked = await c.checkForUpdates();
+  finishStop();
+  assert.equal((await installing).success, false);
+  assert.equal(checked.success, false);
+  assert.equal(
+    checks,
+    0,
+    "a canceled but unsettled install still owns the updater",
+  );
+  assert.equal(installs, 0);
+  await c.checkForUpdates();
+  assert.equal(checks, 1, "checks resume after preparation settles");
+});
+
+test("cleanup during a pending check cancels its late download without creating a watchdog", async () => {
+  const updater = new EventEmitter();
+  let finishCheck,
+    canceled = 0,
+    timers = 0;
+  updater.checkForUpdates = () =>
+    new Promise((resolve) => {
+      finishCheck = resolve;
+    });
+  const c = createUpdateController({
+    updater,
+    schedule: () => {
+      timers++;
+      return 1;
+    },
+    unschedule: () => {},
+  });
+  const checking = c.checkForUpdates();
+  await Promise.resolve();
+  c.cleanup();
+  finishCheck({
+    downloadPromise: Promise.reject(Error("canceled background download")),
+    cancellationToken: { cancel: () => canceled++ },
+  });
+  const result = await checking;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(canceled, 1);
+  assert.equal(timers, 0);
+  assert.equal(result.success, false);
+});
+
 test("failed status notification cannot interrupt installation cleanup or updater events", async () => {
   const updater = new EventEmitter();
   let released = false;

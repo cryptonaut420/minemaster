@@ -11,6 +11,8 @@ const {
   date,
   clockObservation,
   observationNow,
+  historyObservationNow,
+  rateFreshMs,
 } = require("../services/telemetry");
 const commands = require("../services/commands");
 const monitoring = require("../services/monitoring");
@@ -211,7 +213,7 @@ async function status(c, data) {
             algorithm: previous.algorithm,
           }
         : process;
-    await HashRate.record(miner.id, closedInterval, previous);
+    await HashRate.record(miner.id, closedInterval, previous, sampleNow);
   }
   for (const previous of miner.processes || [])
     if (!processes.some((p) => p.id === previous.id))
@@ -426,13 +428,23 @@ async function sweep() {
           const latest = await Miner.getById(miner.id);
           if (!latest) return;
           // Close observed intervals even if no more samples arrive; never hold a rate beyond its freshness limit.
-          for (const p of latest.processes || [])
-            if (Date.now() - date(p.hashrateObservedAt) >= 60000)
+          const historyNow = historyObservationNow(latest.agentClock);
+          for (const p of latest.processes || []) {
+            const observed = date(p.hashrateObservedAt);
+            if (observed !== null && historyNow - observed >= rateFreshMs(p))
               await HashRate.record(
                 latest.id,
-                { ...p, hashrateObservedAt: null, quality: "unavailable" },
+                {
+                  ...p,
+                  hashrate: null,
+                  hashrateObservedAt: new Date(
+                    observed + rateFreshMs(p),
+                  ).toISOString(),
+                  quality: "unavailable",
+                },
                 p,
               );
+          }
           await monitoring.check(latest, settings);
           await require("../services/recovery").check(latest);
         });
