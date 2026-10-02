@@ -15,4 +15,8 @@ The read-only snapshot during this pass contained 18 online rigs. Six were on 1.
 
 No live mining, repair or forced-install command was sent. Existing chart buckets are not rewritten because original missing timing evidence cannot be recovered reliably. Real Windows update/relaunch and policy/driver/cooling checks remain on the [visit checklist](site-visit-2026-10-02.md). No UI controls, routes, access boundaries or protocol fields changed in this pass.
 
-Release/deployment evidence will be recorded after the verified pipeline completes.
+## Deployment and release evidence
+
+Source commit `09e66a3` was pushed to master and deployed to tsqr using the existing Docker deployment script. Container `10c9a96968a3fd49a36db74da9a07c8f90415759a7b7c508a9b9ea005fe3e8b0` serves the update; rollback image `minemaster:before-1.4.14` retains the previous deployment. Production health reported ready database/indexes and a successful monitoring sweep at `2026-10-02T20:29:25Z` with zero failed checks. The fleet summary and one-hour history endpoints returned HTTP 200; history contained three algorithm/scope series with 39 points. The summary had 18 online rigs and complete current rate coverage for six Quantus, five KawPow and two RandomX processes. These are snapshots, not proof of every device's health.
+
+Client **1.4.14+118.09e66a3** was published as a stable release at `2026-10-02T20:30:28Z`. The pipeline reran both passing suites and production builds, verified the Windows/Linux bundled miner files/hashes, all seven release assets, both updater feeds and uploaded digests before publication. Packaged updater/process-manager/log-reader source matched the source checkout on both platforms. Official stable checks confirmed the existing SRBMiner 3.7.1, Nanominer 3.10.0 and XMRig 6.26.0 pins. Supported rigs discover the release on their normal cycle; no forced installation was sent. Real Windows installer execution was not tested on this Linux host.
