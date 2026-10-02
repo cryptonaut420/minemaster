@@ -162,7 +162,7 @@ Windows Nanominer logging is restored: each CPU/GPU process writes `miner.log` i
 
 An enabled native server configuration now reconnects after a missing browser binding flag. Explicit Unbind persists the disabled setting. Open but unregistered sockets retry registration every 15 seconds and display errors. Updates directly from 1.1.3 accept its exact old resume file once within ten minutes; newer version-bound resume rules are unchanged. This cannot restore intent already discarded by an earlier update.
 
-See [September 15 findings and remaining hardware limits](../docs/audits/regression-repair-2026-09-15/README.md). Publishing does not automatically install updates on 1.4.x rigs: use the installed client's update control or the admin's advanced update actions after download. Disconnected PCs must reconnect before they can receive commands.
+See [September 15 findings and remaining hardware limits](../docs/audits/regression-repair-2026-09-15/README.md). Clients older than 1.4.9 require explicit installation after download through the client or admin update controls. Supported clients from 1.4.9 onward automatically install verified downloads through the controlled shutdown/resume path described below. Disconnected PCs must reconnect before they can receive commands.
 
 ## Version 1.4.5 follow-up
 
@@ -182,7 +182,7 @@ The accompanying admin/API adds a configurable warning for repeated recent error
 
 Miner troubleshooting distinguishes download, file verification, extraction/copy/replacement and launch failures. The diagnostic report retains the affected path and OS operation; these errors alone do not prove antivirus detection. Repair reports failure if its final inspection cannot verify the restored files. Nanominer accepted/rejected share counters now reach the client and admin with their original timestamps.
 
-App downloads are canceled after five minutes without new transferred bytes or two hours overall. They can retry on the next check after cancellation settles; a stuck upstream cancellation remains visible and needs an app restart. Late completions cannot trigger installation, and UI notification failures cannot interrupt updater cleanup. Automatic checks/downloads remain hourly, with explicit installation. See [the 1.4.8 audit](../docs/audits/end-to-end-2026-09-28.md) for verification and Windows hardware limits.
+App downloads are canceled after five minutes without new transferred bytes or two hours overall. They can retry on the next check after cancellation settles; a stuck upstream cancellation remains visible and needs an app restart. Late completions cannot trigger installation, and UI notification failures cannot interrupt updater cleanup. In 1.4.8, automatic checks/downloads are hourly and installation is explicit; 1.4.9 introduced automatic installation on supported clients. See [the 1.4.8 audit](../docs/audits/end-to-end-2026-09-28.md) for verification and Windows hardware limits.
 
 
 ## Version 1.4.9 follow-up
