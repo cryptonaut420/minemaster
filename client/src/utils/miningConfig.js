@@ -403,7 +403,7 @@ function switchEngine(type, config, engine) {
     cpuPriority: 0,
     pauseOnBattery: false,
     pauseOnActive: 0,
-    tls: false,
+    tls: engine === "krig",
     keepAlive: false,
     hugePages: true,
   });
@@ -417,8 +417,28 @@ function switchEngine(type, config, engine) {
     next.coin = next.algorithm === "pearlhash" ? "PRL" : "QTC";
   return next;
 }
+function krigPoolError(pool, tls) {
+  if (typeof pool !== "string") return null;
+  const match = pool.match(
+    /^(?:stratum\+(?:tcp|ssl|tls):\/\/)?([\w.-]+):(\d+)$/i,
+  );
+  if (!match || !/(^|\.)kryptex\.network$/i.test(match[1])) return null;
+  if (
+    !(tls === true || /^stratum\+(ssl|tls):/i.test(pool)) ||
+    [7048, 7049].includes(Number(match[2]))
+  )
+    return "KRig requires Kryptex SSL: enable TLS and use port 8049 for Quantus or 8048 for Pearl (including backup pools)";
+  return null;
+}
 function validateKrig(type, config) {
   const errors = [];
+  for (const pool of [
+    config.pool,
+    ...(Array.isArray(config.backupPools) ? config.backupPools : []),
+  ]) {
+    const error = krigPoolError(pool, config.tls);
+    if (error) errors.push(error);
+  }
   if (
     type !== "nanominer" ||
     !KRIG.algorithms.some((r) => r.algorithm === config.algorithm)

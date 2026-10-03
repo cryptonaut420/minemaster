@@ -82,7 +82,8 @@ export default function EngineOptions({ miner, onChange, bound }) {
             KRig 1.5.6 · Quantus / Pearl GPU mining. 0% developer fee on
             Kryptex; 3% elsewhere, plus pool fees. Windows/Linux x64. GPU/driver
             compatibility needs a trial; Linux AMD needs an installed HIP
-            runtime.
+            runtime. Kryptex requires TLS with port 8049 for Quantus or 8048 for
+            Pearl, including backups.
           </p>
           <div className="form-group">
             <label htmlFor={id("password")}>Pool password</label>

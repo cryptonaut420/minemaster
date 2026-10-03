@@ -62,6 +62,19 @@ const ALGORITHMS = {
     "autolykos2",
   ],
 };
+function krigPoolError(pool, tls) {
+  if (typeof pool !== "string") return null;
+  const match = pool.match(
+    /^(?:stratum\+(?:tcp|ssl|tls):\/\/)?([\w.-]+):(\d+)$/i,
+  );
+  if (!match || !/(^|\.)kryptex\.network$/i.test(match[1])) return null;
+  if (
+    !(tls === true || /^stratum\+(ssl|tls):/i.test(pool)) ||
+    [7048, 7049].includes(Number(match[2]))
+  )
+    return "KRig requires Kryptex SSL: enable TLS and use port 8049 for Quantus or 8048 for Pearl (including backup pools)";
+  return null;
+}
 function validPool(value) {
   if (typeof value !== "string" || /\s/.test(value)) return false;
   const match = value.match(
@@ -205,6 +218,18 @@ function validate(type, config, { partial = true } = {}) {
           "This setting requires XMRig; use SRBMiner thread priority";
   }
   if (config.engine === "krig") {
+    for (const [field, pools] of [
+      ["pool", [config.pool]],
+      [
+        "backupPools",
+        Array.isArray(config.backupPools) ? config.backupPools : [],
+      ],
+    ]) {
+      for (const pool of pools) {
+        const error = krigPoolError(pool, config.tls);
+        if (error) errors[field] = error;
+      }
+    }
     if (config.keepAlive)
       errors.keepAlive = "KRig does not expose a keepalive override";
     if (config.rigName && !/^[a-zA-Z0-9_-]{1,100}$/.test(config.rigName))

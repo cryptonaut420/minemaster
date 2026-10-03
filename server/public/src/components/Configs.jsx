@@ -350,10 +350,11 @@ export default function Configs() {
                 {draft.engine === "krig" && (
                   <p>
                     KRig {KRIG.version} · Quantus / Pearl. 0% developer fee on
-                    Kryptex; 3% on other pools, plus pool fees. Requires a
-                    KRig-capable Windows/Linux x64 client. Test GPU/driver
-                    compatibility on one rig first. Linux AMD requires a HIP
-                    runtime.
+                    Kryptex; 3% on other pools, plus pool fees. Kryptex requires
+                    TLS with port 8049 for Quantus or 8048 for Pearl, including
+                    backups. Requires a KRig-capable Windows/Linux x64 client.
+                    Test GPU/driver compatibility on one rig first. Linux AMD
+                    requires a HIP runtime.
                   </p>
                 )}
                 {draft.engine === "srbminer" && (
@@ -456,7 +457,7 @@ export default function Configs() {
                                       hugePages: true,
                                     }
                                   : {}),
-                                tls: false,
+                                tls: e.target.value === "krig",
                                 keepAlive: false,
                               },
                             })

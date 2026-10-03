@@ -344,3 +344,48 @@ test("KRig GPU stop cancels its monitor, discards late stats, and leaves Nanomin
   assert.equal(manager.snapshot("xmrig-1").running, true);
   await manager.stopAll();
 });
+
+test("KRig rejects plaintext Kryptex and its TCP ports in primary and backup pools", () => {
+  for (const pool of [
+    "qtc-us.kryptex.network:7049",
+    "prl.kryptex.network:7048",
+    "stratum+ssl://qtc.kryptex.network:7049",
+    "qtc.kryptex.network:8049",
+  ]) {
+    for (const patch of [{ pool }, { backupPools: [pool] }]) {
+      assert.equal(validate("nanominer", { ...base, ...patch }).valid, false);
+      assert.throws(() => Config.validate("nanominer", { ...base, ...patch }));
+    }
+  }
+  for (const patch of [
+    {
+      pool: "qtc-us.kryptex.network:8049",
+      tls: true,
+      backupPools: ["qtc.kryptex.network:8049"],
+    },
+    { pool: "STRATUM+SSL://QTC.KRYPTEX.NETWORK:8049" },
+    { pool: "stratum+tls://prl.kryptex.network:8048" },
+    { pool: "kryptex.network.example:7049" },
+  ]) {
+    assert.equal(validate("nanominer", { ...base, ...patch }).valid, true);
+    assert.doesNotThrow(() =>
+      Config.validate("nanominer", { ...base, ...patch }),
+    );
+  }
+  assert.equal(
+    validate("nanominer", {
+      ...base,
+      pool: "qtc.kryptex.network:7049",
+      tls: true,
+    }).valid,
+    false,
+  );
+  assert.throws(() =>
+    Config.validate("nanominer", {
+      ...base,
+      pool: "qtc.kryptex.network:7049",
+      tls: true,
+    }),
+  );
+  assert.equal(switchEngine("nanominer", base, "krig").tls, true);
+});
