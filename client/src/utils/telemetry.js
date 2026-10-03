@@ -14,6 +14,24 @@ export function needsStop(process) {
 }
 export const rateFreshMs = (miner) =>
   (miner.engine || miner.activeConfig?.engine) === "srbminer" ? 120000 : 60000;
+export function shareQuality(miner, now = Date.now()) {
+  const shares = miner.shares,
+    observed = Date.parse(shares?.observedAt);
+  if (
+    !shares ||
+    !Number.isSafeInteger(shares.accepted) ||
+    shares.accepted < 0 ||
+    !Number.isSafeInteger(shares.rejected) ||
+    shares.rejected < 0 ||
+    !Number.isFinite(observed) ||
+    observed > now + 5000 ||
+    (Number.isFinite(miner.startTime) && observed < miner.startTime)
+  )
+    return "unavailable";
+  return !miner.running || miner.paused || now - observed > rateFreshMs(miner)
+    ? "stale"
+    : "valid";
+}
 export function minerLogLevel(line) {
   const text = String(line || "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
@@ -25,6 +43,21 @@ export function minerLogLevel(line) {
     )
   )
     return "info";
+  const level = text
+    .match(
+      /^(?:\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+)?(fail|crit|warn|info|dbug|trce):/i,
+    )?.[1]
+    ?.toLowerCase();
+  if (level)
+    return {
+      fail: "error",
+      crit: "error",
+      warn: "warning",
+      info: "info",
+      dbug: "debug",
+      trce: "debug",
+    }[level];
+  if (/^Mining statistics unavailable:/i.test(text)) return "warning";
   return /error|failed|fatal/i.test(text) ? "error" : "info";
 }
 // Process aggregates only: a per-GPU line must never replace the process total.
@@ -279,21 +312,31 @@ export function parseProcessDetails(
     text.match(/\bXMRig\/(\d+\.\d+\.\d+(?:[-\w.]*)?)/i) ||
     text.match(/\bnanominer\s+(?:v(?:ersion)?\s*)?(\d+\.\d+\.\d+)/i) ||
     text.match(/\bSRBMiner-MULTI\s+(?:v)?(\d+\.\d+\.\d+)/i) ||
+    text.match(/\bkrig-miner\s+v?(\d+\.\d+\.\d+(?:[-\w.]*)?)/i) ||
     text.match(/\bMiner version:\s*(\d+\.\d+\.\d+)/i);
   if (version) result.minerVersion = version[1];
-  const pool = text.match(
-    /\b(?:new job from|use pool|(?:re)?connected to(?: pool)?:?)\s+([^\s]+)/i,
+  const krigPool = text.match(
+    /^(?:\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+)?(?:info:\s*)?connected:\s+(stratum\+(?:ssl|tls|tcp):\/\/[^\s]+)/i,
   );
+  const pool =
+    krigPool ||
+    text.match(
+      /\b(?:new job from|use pool|(?:re)?connected to(?: pool)?:?)\s+([^\s]+)/i,
+    );
   if (pool)
     result.pool = {
       address: pool[1],
-      status: /\b(?:new job from|(?:re)?connected to)\b/i.test(text)
-        ? "connected"
-        : "connecting",
+      status:
+        krigPool || /\b(?:new job from|(?:re)?connected to)\b/i.test(text)
+          ? "connected"
+          : "connecting",
       observedAt,
       source: "process-log",
     };
   else if (
+    /^(?:\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+)?(?:warn:\s*|info:\s*)?disconnected:/i.test(
+      text,
+    ) ||
     /\b(?:connect error|connection refused|no active pools|connection (?:was )?(?:closed|lost))\b/i.test(
       text,
     )

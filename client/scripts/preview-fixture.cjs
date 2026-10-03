@@ -12,6 +12,7 @@ localStorage.setItem('minemaster-config', JSON.stringify({
 }));
 const connectedFixture = new URLSearchParams(location.search).get('connected') === '1';
 const platform = new URLSearchParams(location.search).get('platform') === 'linux' ? 'linux' : 'win32';
+const staleShares = new URLSearchParams(location.search).get('shares') === 'stale';
 const arch = new URLSearchParams(location.search).get('arch') === 'arm64' ? 'arm64' : 'x64';
 const listeners = {}, states = {}, diagnostics = {};
 let update = {state:'idle',supported:true,autoInstall:true,updatedAt:new Date().toISOString()};
@@ -37,9 +38,9 @@ const api = {
   const engine=config.engine||minerType;
   const diagnostic=diagnostics[minerId]=inspect(engine);
   if(diagnostic.status==='unavailable')return{success:false,error:diagnostic.message,diagnostic};
-  const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
+  const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now()-(staleShares?180000:0),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
   setTimeout(()=>{
-   if(engine==='krig') emit('output',{minerId,engine,runId:state.runId,stream:'stats',data:'',telemetry:{hashrate:config.algorithm==='quantus'?160e6:65e12,hashrateObservedAt:new Date().toISOString(),minerVersion:'1.5.6',shares:{accepted:12,rejected:0,observedAt:new Date().toISOString(),source:'fixture'}}});
+   if(engine==='krig') { emit('output',{minerId,engine,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'10:44:28.660 connected: stratum+ssl://qtc-us.kryptex.network:8049\\n'}); emit('output',{minerId,engine,runId:state.runId,stream:'stats',data:'',telemetry:{hashrate:config.algorithm==='quantus'?160e6:65e12,hashrateObservedAt:new Date().toISOString(),minerVersion:'1.5.6',shares:{accepted:12,rejected:0,observedAt:new Date(Date.now()-(staleShares?120000:0)).toISOString(),source:'fixture'}}}); }
    else if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.7.1\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
    else if(minerType==='xmrig' && engine==='nanominer') {
     emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'nanominer v3.10.0\\nTotal: 72'});

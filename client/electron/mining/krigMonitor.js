@@ -2,6 +2,7 @@
 // Poll only the owned run's loopback endpoint. Failed polls never produce zero.
 const http = require("http");
 const net = require("net");
+const { performance } = require("perf_hooks");
 async function chooseApiPort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -104,6 +105,7 @@ function monitorKrig({
   onData,
   onError,
   now = Date.now,
+  monotonic = () => performance.now(),
   request = readStats,
   schedule = setTimeout,
   unschedule = clearTimeout,
@@ -112,7 +114,11 @@ function monitorKrig({
     timer,
     pending,
     lastUptime = -1,
-    lastWarning = 0;
+    lastWarning = null;
+  // Wall time is for observation timestamps; run age must survive OS clock corrections.
+  const clockStart = monotonic(),
+    initialAge = Math.max(0, now() - startedAt);
+  const elapsed = () => initialAge + Math.max(0, monotonic() - clockStart);
   const safe = (callback, value) => {
     try {
       Promise.resolve(callback?.(value)).catch(() => {});
@@ -128,7 +134,7 @@ function monitorKrig({
       const result = parseKrigStats(body, {
         algorithm,
         observedAt,
-        elapsedSeconds: (now() - startedAt) / 1000,
+        elapsedSeconds: elapsed() / 1000,
       });
       if (result.uptime <= lastUptime)
         throw Error("KRig statistics uptime has not advanced");
@@ -138,10 +144,10 @@ function monitorKrig({
       // Startup needs time to bind; report persistent API loss at most once/minute.
       if (
         !closed &&
-        now() - startedAt >= 30000 &&
-        (!lastWarning || now() - lastWarning >= 60000)
+        elapsed() >= 30000 &&
+        (lastWarning === null || elapsed() - lastWarning >= 60000)
       ) {
-        lastWarning = now();
+        lastWarning = elapsed();
         safe(onError, error);
       }
     } finally {

@@ -406,7 +406,7 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                     </dd>
                     <dt>Process ID</dt>
                     <dd>{p.pid || "Not reported"}</dd>
-                    <dt>Pool</dt>
+                    <dt>Last pool event</dt>
                     <dd>
                       {p.pool
                         ? `${p.pool.status} ${p.pool.address || ""} · ${at(p.pool.observedAt)}`
@@ -415,7 +415,7 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                     <dt>Shares</dt>
                     <dd>
                       {p.shares
-                        ? `${p.shares.accepted} accepted / ${p.shares.rejected} rejected`
+                        ? `${p.shares.accepted} accepted / ${p.shares.rejected} rejected · ${p.shares.quality === "valid" ? "Current reading" : p.shares.quality === "stale" ? "Last reported" : "Observation time unavailable"} · ${at(p.shares.observedAt)}`
                         : "Unavailable"}
                     </dd>
                   </dl>

@@ -389,3 +389,54 @@ test("KRig rejects plaintext Kryptex and its TCP ports in primary and backup poo
   );
   assert.equal(switchEngine("nanominer", base, "krig").tls, true);
 });
+
+test("KRig polling survives wall-clock corrections and keeps monotonic stale-run guards", async () => {
+  let wall = 1000000,
+    mono = 0,
+    work,
+    uptime = 1;
+  const seen = [];
+  const monitor = monitorKrig({
+    port: 1,
+    algorithm: "quantus",
+    startedAt: wall,
+    now: () => wall,
+    monotonic: () => mono,
+    schedule: (fn) => (work = fn),
+    unschedule: () => {},
+    request: () => ({
+      promise: Promise.resolve(stats(18000, uptime)),
+      cancel: () => {},
+    }),
+    onData: (v) => seen.push(v),
+  });
+  mono = 1000;
+  wall += 1000;
+  await work();
+  mono += 10000;
+  wall -= 300000;
+  uptime = 11;
+  await work();
+  assert.equal(
+    seen.length,
+    2,
+    "backward Windows time correction must not permanently discard API readings",
+  );
+  assert.equal(seen[1].hashrateObservedAt, new Date(wall).toISOString());
+  mono += 10000;
+  wall += 600000;
+  uptime = 21;
+  await work();
+  assert.equal(seen.length, 3);
+  uptime = 200;
+  await work();
+  assert.equal(
+    seen.length,
+    3,
+    "forward clock change must not accept another run's uptime",
+  );
+  uptime = 21;
+  await work();
+  assert.equal(seen.length, 3, "frozen responses still rejected");
+  monitor.close();
+});

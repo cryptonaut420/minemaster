@@ -542,3 +542,104 @@ test("unconfirmed stop is labeled distinctly from ordinary stopped mining", asyn
     "Stopped",
   );
 });
+
+test("KRig pool events, version and explicit log severity match Windows output", async () => {
+  const { parseProcessDetails, minerLogLevel } = await esm("telemetry.js");
+  const time = "2026-10-03T17:44:28.697Z";
+  const connection = parseProcessDetails(
+    "10:44:28.660 connected: stratum+ssl://qtc-us.kryptex.network:8049",
+    time,
+  );
+  assert.equal(connection.pool.status, "connected");
+  assert.equal(
+    connection.pool.address,
+    "stratum+ssl://qtc-us.kryptex.network:8049",
+  );
+  assert.equal(connection.pool.observedAt, time);
+  assert.equal(
+    parseProcessDetails("10:44:27.765 krig-miner v1.5.6", time).minerVersion,
+    "1.5.6",
+  );
+  assert.equal(
+    parseProcessDetails("10:44:28.660 disconnected: EOF", time).pool.status,
+    "disconnected",
+  );
+  assert.equal(
+    parseProcessDetails(
+      "10:44:28.660 stratum: new job 9387c6b5_18253611008",
+      time,
+    ).pool,
+    undefined,
+  );
+  assert.equal(
+    minerLogLevel(
+      "10:40:18.600 fail: cli: Kryptex pools require stratum+ssl://",
+    ),
+    "error",
+  );
+  assert.equal(
+    minerLogLevel("10:40:18.600 warn: stratum: reconnecting"),
+    "warning",
+  );
+  assert.equal(
+    minerLogLevel("10:40:18.600 dbug: retry failed connection"),
+    "debug",
+  );
+  assert.equal(
+    minerLogLevel("Mining statistics unavailable: connect ECONNREFUSED"),
+    "warning",
+  );
+  assert.equal(
+    minerLogLevel(
+      "11:07:59.080 Total: 18.09 MH/s shares: 2 accepted 0 stale 0 rejected",
+    ),
+    "info",
+  );
+});
+
+test("share freshness preserves original counters and distinguishes old, invalid and paused readings", async () => {
+  const { shareQuality } = await esm("telemetry.js");
+  const now = Date.parse("2026-10-03T18:00:00Z");
+  const m = {
+    running: true,
+    engine: "krig",
+    startTime: now - 120000,
+    shares: {
+      accepted: 2,
+      rejected: 0,
+      observedAt: new Date(now).toISOString(),
+    },
+  };
+  assert.equal(shareQuality(m, now), "valid");
+  assert.equal(shareQuality(m, now + 61000), "stale");
+  assert.equal(shareQuality({ ...m, running: false }, now), "stale");
+  assert.equal(shareQuality({ ...m, paused: true }, now), "stale");
+  assert.equal(
+    shareQuality({ ...m, shares: { ...m.shares, observedAt: null } }, now),
+    "unavailable",
+  );
+  assert.equal(
+    shareQuality(
+      {
+        ...m,
+        shares: { ...m.shares, observedAt: new Date(now + 6000).toISOString() },
+      },
+      now,
+    ),
+    "unavailable",
+  );
+  assert.equal(
+    shareQuality(
+      {
+        ...m,
+        shares: {
+          ...m.shares,
+          observedAt: new Date(now - 130000).toISOString(),
+        },
+      },
+      now,
+    ),
+    "unavailable",
+  );
+  assert.equal(m.shares.accepted, 2);
+});

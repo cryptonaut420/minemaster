@@ -2,7 +2,11 @@ import React, { useState } from "react";
 import { formatMinerRate, formatUptime } from "../utils/formatters";
 import "./MinerHealth.css";
 import { engineFor } from "../utils/miningConfig";
-import { needsStop, selectedEngineDiagnostics } from "../utils/telemetry";
+import {
+  needsStop,
+  selectedEngineDiagnostics,
+  shareQuality,
+} from "../utils/telemetry";
 import versionInfo from "../version.json";
 export default function MinerHealth({
   miner,
@@ -76,11 +80,16 @@ export default function MinerHealth({
               miner.config.algorithm ||
               "Not configured"}
           </span>
-          <span>Pool: {miner.pool?.status || "No connection sample"}</span>
+          <span>
+            Last pool event:{" "}
+            {miner.pool
+              ? `${miner.pool.status} ${miner.pool.address || ""} · ${Number.isFinite(Date.parse(miner.pool.observedAt)) ? new Date(miner.pool.observedAt).toLocaleString() : "Time unavailable"}`
+              : "Not reported"}
+          </span>
           <span>
             Shares:{" "}
             {miner.shares
-              ? `${miner.shares.accepted} accepted / ${miner.shares.rejected} rejected`
+              ? `${miner.shares.accepted} accepted / ${miner.shares.rejected} rejected · ${shareQuality(miner) === "valid" ? "Current reading" : shareQuality(miner) === "stale" ? "Last reported" : "Observation time unavailable"}${Number.isFinite(Date.parse(miner.shares.observedAt)) ? " · " + new Date(miner.shares.observedAt).toLocaleString() : ""}`
               : "No sample"}
           </span>
           <span>

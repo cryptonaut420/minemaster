@@ -1266,3 +1266,96 @@ test("unused-engine file errors remain inspectable without masking working minin
     "error",
   );
 });
+
+test("share freshness agrees across desktop and API, including clock tolerance and offline history", async () => {
+  assert.equal(t.summary([], now).hashrateFreshnessSecondsByEngine.krig, 60);
+  const { shareQuality } = await esm("telemetry.js");
+  const base = {
+    id: "gpu",
+    deviceType: "GPU",
+    engine: "krig",
+    running: true,
+    startedAt: new Date(now - 300000).toISOString(),
+    shares: {
+      accepted: 2,
+      rejected: 0,
+      observedAt: timestamp,
+      source: "krig-api",
+    },
+  };
+  for (const [patch, age, expected] of [
+    [{}, 0, "valid"],
+    [{}, 61000, "stale"],
+    [{ running: false }, 0, "stale"],
+    [{ paused: true }, 0, "stale"],
+    [{ shares: { ...base.shares, observedAt: null } }, 0, "unavailable"],
+    [
+      {
+        shares: {
+          ...base.shares,
+          observedAt: new Date(now + 6000).toISOString(),
+        },
+      },
+      0,
+      "unavailable",
+    ],
+    [
+      {
+        shares: {
+          ...base.shares,
+          observedAt: new Date(now - 310000).toISOString(),
+        },
+      },
+      0,
+      "unavailable",
+    ],
+  ]) {
+    const process = { ...base, ...patch };
+    const viewed = t.viewRig(
+      {
+        connectionId: "test",
+        connectionLastSeen: new Date(now + age).toISOString(),
+        telemetryReceivedAt: new Date(now + age).toISOString(),
+        processes: [process],
+      },
+      now + age,
+    ).processes[0];
+    assert.equal(viewed.shares.quality, expected);
+    assert.equal(
+      shareQuality(
+        { ...process, startTime: Date.parse(process.startedAt) },
+        now + age,
+      ),
+      expected,
+    );
+    assert.equal(viewed.shares.accepted, 2);
+    assert.equal(viewed.shares.observedAt, process.shares.observedAt);
+    assert.equal(
+      process.shares.quality,
+      undefined,
+      "view quality must not mutate stored observations",
+    );
+  }
+  const offline = t.viewRig({ processes: [base] }, now).processes[0];
+  assert.equal(offline.shares.quality, "stale");
+  const skewed = {
+    ...base,
+    startedAt: new Date(now - 500000).toISOString(),
+    shares: {
+      ...base.shares,
+      observedAt: new Date(now - 200000).toISOString(),
+    },
+  };
+  const skewedRig = {
+    connectionId: "test",
+    connectionLastSeen: timestamp,
+    telemetryReceivedAt: timestamp,
+    agentClock: t.clockObservation(now - 200000, now),
+    processes: [skewed],
+  };
+  assert.equal(t.viewRig(skewedRig, now).processes[0].shares.quality, "valid");
+  assert.equal(
+    t.viewRig(skewedRig, now + 61000).processes[0].shares.quality,
+    "stale",
+  );
+});

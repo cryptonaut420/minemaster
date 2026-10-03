@@ -4087,11 +4087,37 @@
           },
           "shares": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "description": "Miner-reported counters for this run; observation time is preserved. Read responses add quality using the same freshness and clock rules as the admin. Retained counters are not proof of current pool acceptance.",
+            "properties": {
+              "accepted": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rejected": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "source": {
+                "type": "string",
+                "nullable": true
+              },
+              "quality": {
+                "type": "string",
+                "readOnly": true,
+                "enum": ["valid", "stale", "unavailable"]
+              }
+            }
           },
           "pool": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "description": "Last parsed pool connection event, not a continuously verified connectivity signal. observedAt retains its original native observation time."
           },
           "paused": {
             "type": "boolean"

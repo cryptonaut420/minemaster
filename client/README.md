@@ -1,6 +1,6 @@
-# MineMaster desktop client 1.3
+# MineMaster desktop client
 
-MineMaster manages a selectable Nanominer/XMRig CPU process and an independent Nanominer GPU process, reports their actual state to the admin, and accepts acknowledged remote commands. Miner registration and reporting do not need an API key. Reading/managing the fleet through REST requires a read/manage key or admin session; see [the backend contract](../docs/backend-admin.md).
+MineMaster manages independent CPU and GPU mining processes, reports their actual state to the admin, and accepts acknowledged remote commands. CPU supports Nanominer, XMRig and SRBMiner; GPU supports Nanominer, SRBMiner and KRig, subject to platform and algorithm compatibility. Miner registration and reporting do not need an API key. Reading/managing the fleet through REST requires a read/manage key or admin session; see [the backend contract](../docs/backend-admin.md).
 
 ## Install and build
 
@@ -28,8 +28,9 @@ npm run build:mac                             # macOS x64 and arm64
 
 Packaging runs `scripts/prepare-miners.js` for the actual target platform and architecture, including cross builds. Missing downloads, failed checksums, unsupported targets and extraction failures stop the build. Windows extraction requires the native `tar.exe` present on supported Windows 10/11 systems. Unix hosts use `tar` and `unzip`. Windows packaging on Linux still needs the existing Wine/container build environment. macOS packaging needs a macOS builder.
 
-Current pinned releases, checked against official latest stable releases October 2, 2026:
+Current pinned releases, checked against official latest stable releases October 3, 2026:
 
+- [KRig 1.5.6](https://github.com/kryptex/krig-miner/releases/tag/v1.5.6): Windows/Linux x64 GPU Quantus and Pearl. Kryptex requires SSL pool endpoints.
 - [XMRig 6.26.0](https://github.com/xmrig/xmrig/releases/tag/v6.26.0): Linux static x64, Windows x64, macOS x64 and arm64. The static Linux build avoids depending on Ubuntu Noble's particular glibc version.
 - [SRBMiner-MULTI 3.7.1](https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.7.1): Windows/Linux x64. Quantus vendor support now includes Intel Arc; actual model/driver compatibility needs a hardware trial.
 - [Nanominer 3.10.0](https://github.com/nanopool/nanominer/releases/tag/v3.10.0): Linux x64 and Windows x64. Nanominer does not ship a macOS build in this release.
@@ -246,3 +247,10 @@ MineMaster starts a foreground process with a private working directory and log 
 The initial 1.4.16 candidate is a prerelease for manual installation on a trial rig, not a new stable automatic-update target. Do not switch the whole fleet before a successful Windows trial.
 
 KRig with Kryptex requires TLS and the SSL pool port: Quantus `8049`, Pearl `8048`, including backup pools. Desktop 1.4.17 rejects plaintext Kryptex settings and its known TCP ports before launching; new KRig selections enable TLS. Other pool providers may still use TCP.
+
+
+## Desktop 1.4.18 reporting follow-up
+
+KRig pool connect/disconnect events and startup version are parsed from its native logs. Explicit `fail:`/`crit:` severity is an error, `warn:` is a warning, and API monitoring failures are warnings; log output cannot overwrite KRig API hashrate/share totals. Native run-age checks use monotonic time so Windows clock corrections do not permanently suppress valid API readings. Original wall-clock observation timestamps remain intact.
+
+Share counts in the desktop and admin label current versus last-reported readings and retain their observed time. A last pool event records what the miner reported at that time, not a continuously verified connection. See the [reporting audit](../docs/audits/krig-reporting-2026-10-03.md) for real FrontDesk evidence and remaining limits.

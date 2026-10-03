@@ -398,6 +398,26 @@ function reconcileProcess(
       : null;
   return process;
 }
+function shareQuality(p, sampleNow, fresh) {
+  const observed = date(p.shares?.observedAt);
+  if (
+    !p.shares ||
+    !Number.isSafeInteger(p.shares.accepted) ||
+    p.shares.accepted < 0 ||
+    !Number.isSafeInteger(p.shares.rejected) ||
+    p.shares.rejected < 0 ||
+    observed === null ||
+    observed > sampleNow + 5000 ||
+    (date(p.startedAt) !== null && observed < date(p.startedAt))
+  )
+    return "unavailable";
+  return !fresh ||
+    !p.running ||
+    p.paused ||
+    sampleNow - observed > rateFreshMs(p)
+    ? "stale"
+    : "valid";
+}
 function viewRig(rig, now = Date.now()) {
   const r = { ...rig };
   const sampleNow = observationNow(r.agentClock, now);
@@ -431,6 +451,9 @@ function viewRig(rig, now = Date.now()) {
           : p.hashrate === 0
             ? "zero"
             : "valid",
+    shares: p.shares
+      ? { ...p.shares, quality: shareQuality(p, sampleNow, fresh) }
+      : null,
     uptime:
       fresh && p.running && date(p.startedAt) !== null
         ? Math.max(0, Math.floor((sampleNow - date(p.startedAt)) / 1000))
@@ -642,6 +665,7 @@ function summary(rigs, now = Date.now()) {
       xmrig: 60,
       nanominer: 60,
       srbminer: 120,
+      krig: 60,
     },
   };
 }

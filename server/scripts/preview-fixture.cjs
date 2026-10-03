@@ -174,7 +174,7 @@ const { ObjectId } = require("mongodb");
               commandResults: true,
               appUpdates: true,
               cpuEngines: ["xmrig", "nanominer", "srbminer"],
-              gpuEngines: ["nanominer", "srbminer"],
+              gpuEngines: ["nanominer", "srbminer", "krig"],
             },
             systemInfo: {
               hostname: `workshop-${i + 1}`,
@@ -203,6 +203,16 @@ const { ObjectId } = require("mongodb");
             processes: processes.map((p) => ({
               ...p,
               hashrateObservedAt: now,
+              ...(p.engine === "krig"
+                ? {
+                    shares: {
+                      ...p.shares,
+                      observedAt: new Date(
+                        Date.now() - (i === 2 ? 120000 : 0),
+                      ).toISOString(),
+                    },
+                  }
+                : {}),
             })),
             stats: {
               observedAt: now,
@@ -274,12 +284,27 @@ const { ObjectId } = require("mongodb");
                 {
                   id: "nanominer-1",
                   type: "nanominer",
-                  engine: "nanominer",
-                  minerVersion: "3.10.0",
+                  engine: [1, 2].includes(i) ? "krig" : "nanominer",
+                  minerVersion: [1, 2].includes(i) ? "1.5.6" : "3.10.0",
+                  ...([1, 2].includes(i)
+                    ? {
+                        shares: {
+                          accepted: 2,
+                          rejected: 0,
+                          source: "fixture",
+                          observedAt: new Date().toISOString(),
+                        },
+                        pool: {
+                          status: "connected",
+                          address: "stratum+ssl://qtc-us.kryptex.network:8049",
+                          observedAt: new Date().toISOString(),
+                        },
+                      }
+                    : {}),
                   deviceType: "GPU",
                   running: true,
                   enabled: true,
-                  algorithm: "kawpow",
+                  algorithm: [1, 2].includes(i) ? "quantus" : "kawpow",
                   hashrate: 58e6 + i * 1e6,
                   startedAt: new Date(Date.now() - 25e6).toISOString(),
                   activeConfig: config.nanominer,
