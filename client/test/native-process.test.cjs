@@ -50,6 +50,31 @@ const request = {
   minerType: "xmrig",
   config: { version: "v1", gpus: [0] },
 };
+test("a Windows inventory failure after Stop keeps the engine that was running", async () => {
+  const f = fixture({
+    externalProcesses: {
+      find: async () => [],
+      stop: async () => {
+        throw Object.assign(
+          Error(
+            "Could not verify existing Windows miner processes: The Windows process check timed out before it could list miner processes.",
+          ),
+          { code: "PROCESS_INVENTORY_UNAVAILABLE" },
+        );
+      },
+    },
+  });
+  await f.manager.start({ ...request, config: { engine: "nanominer" } });
+  const result = await f.manager.stop({ minerId: "cpu" });
+  assert.equal(result.success, false);
+  assert.match(result.error, /timed out before it could list miner processes/);
+  assert.doesNotMatch(result.error, /EncodedCommand/);
+  assert.equal(f.manager.snapshot("cpu").diagnostic.engine, "nanominer");
+  assert.equal(
+    f.manager.snapshot("cpu").diagnostic.code,
+    "PROCESS_INVENTORY_UNAVAILABLE",
+  );
+});
 test("a parent exit with inherited output still open is an error and blocks duplicate starts, repair and update shutdown", async () => {
   const f = fixture();
   await f.manager.start(request);

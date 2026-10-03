@@ -48,6 +48,69 @@ test("explicit Windows checks include recent failed archives only inside the man
   await runtime.inspect("srbminer", null, { includeWindows: true });
   assert.ok(!targets.some((p) => p.endsWith(".zip")));
 });
+test("a first file check accepts a verified package and does not call a missing install quarantined", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-first-install-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const release = require("../electron/mining/releases.json").nanominer[
+    "linux-x64"
+  ];
+  const runtime = createRuntime({
+    userData: root,
+    bundledRoot: path.join(root, "bundle"),
+    platform: "linux",
+    arch: "x64",
+    hostname: "fixture",
+    verify: async (dir) => {
+      if (dir.includes(`${path.sep}bundle${path.sep}`)) return dir;
+      throw Object.assign(Error("missing managed copy"), {
+        code: "ENOENT",
+        path: dir,
+        syscall: "open",
+      });
+    },
+  });
+  const first = await runtime.inspect("nanominer");
+  assert.equal(first.status, "bundled");
+  assert.equal(first.version, release.version);
+  assert.match(first.message, /first time this engine starts/);
+  assert.doesNotMatch(
+    first.message,
+    /Check file availability|quarantine|Protection History/,
+  );
+  const dest = path.join(root, "miners", "nanominer", release.version);
+  await fs.mkdir(path.dirname(dest), { recursive: true });
+  await fs.writeFile(`${dest}.installed`, release.version);
+  const removed = await runtime.inspect("nanominer");
+  assert.equal(removed.status, "unavailable");
+  assert.equal(removed.code, "ENOENT");
+  assert.match(removed.message, /file verification failed/);
+  const unprepared = createRuntime({
+    userData: path.join(root, "empty"),
+    bundledRoot: path.join(root, "empty-bundle"),
+    platform: "linux",
+    arch: "x64",
+    hostname: "fixture",
+  });
+  const missing = await unprepared.inspect("xmrig");
+  assert.equal(missing.status, "unavailable");
+  assert.equal(missing.code, "PACKAGE_MISSING");
+  assert.match(missing.message, /not installed yet/);
+  assert.doesNotMatch(missing.message, /Check file availability|quarantine/);
+  await assert.rejects(
+    unprepared.launchSpec("xmrig", "xmrig-1", {
+      engine: "nanominer",
+      algorithm: "rx/0",
+      pool: "pool:3333",
+      user: "fixture",
+    }),
+    (error) => {
+      assert.equal(error.code, "PACKAGE_MISSING");
+      assert.equal(error.stage, "file preparation");
+      assert.match(error.message, /not installed yet/);
+      return true;
+    },
+  );
+});
 test("launch preparation preserves inspection and configuration filesystem failure details", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mm-prepare-error-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -107,6 +170,13 @@ test("file preparation failures retain their stage and OS operation without clai
   assert.match(d.message, /download failed/);
   assert.doesNotMatch(d.message, /could not launch/);
   assert.match(d.path, /miner.zip/);
+  const missing = describeError(
+    { code: "PACKAGE_MISSING", stage: "file preparation", message: "not installed yet" },
+    null,
+    "win32",
+  );
+  assert.equal(missing.message, "not installed yet");
+  assert.equal(missing.stage, "file preparation");
 });
 test("CPU and GPU Nanominer use separate working directories and single-algorithm configs", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "minemaster-runtime-"));

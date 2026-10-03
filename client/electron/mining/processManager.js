@@ -468,11 +468,18 @@ function createProcessManager({
         audit("miner-stop-confirmed", context);
         return { ...result, ...snapshot(id) };
       } catch (error) {
+        const message =
+          error.code === "PROCESS_INVENTORY_UNAVAILABLE"
+            ? error.message.replace(
+                /^Could not verify existing Windows miner processes:\s*/,
+                "Windows could not confirm this slot is clear. Use Stop to retry. ",
+              )
+            : error.message;
         const diagnostic = {
           status: "unavailable",
-          engine: "srbminer",
+          engine: context.engine,
           code: error.code || "EXTERNAL_STOP_FAILED",
-          message: error.message,
+          message,
         };
         diagnostics.set(id, diagnostic);
         audit("miner-stop-failed", {
@@ -480,7 +487,7 @@ function createProcessManager({
           code: diagnostic.code,
           message: diagnostic.message,
         });
-        return { success: false, ...snapshot(id), error: error.message };
+        return { success: false, ...snapshot(id), error: message };
       }
     });
   }

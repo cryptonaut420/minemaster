@@ -90,7 +90,8 @@ export default function MinerHealth({
           </span>
         </div>
       )}
-      {diagnostic?.status === "retrying" && (
+      {(diagnostic?.status === "retrying" ||
+        diagnostic?.status === "bundled") && (
         <p role="status">{diagnostic.message}</p>
       )}
       {problem && (

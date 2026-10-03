@@ -395,8 +395,11 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                     <dt>Miner files</dt>
                     <dd>
                       {p.diagnostic?.engine && `${p.diagnostic.engine} · `}
-                      {p.diagnostic?.status || "Not checked"}{" "}
-                      {p.diagnostic?.code || ""}
+                      {p.diagnostic?.status === "bundled"
+                        ? "packaged, installs on first start"
+                        : [p.diagnostic?.status || "Not checked", p.diagnostic?.code]
+                            .filter(Boolean)
+                            .join(" ")}
                     </dd>
                     <dt>Process ID</dt>
                     <dd>{p.pid || "Not reported"}</dd>

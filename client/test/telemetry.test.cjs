@@ -469,6 +469,18 @@ test("legacy file checks cannot blame the currently selected engine, while owner
     }).error,
     miner.error,
   );
+  assert.equal(
+    selectedEngineDiagnostics({
+      ...miner,
+      error: null,
+      diagnostic: {
+        engine: "xmrig",
+        status: "bundled",
+        message: "Packaged miner files are verified.",
+      },
+    }).diagnostic,
+    null,
+  );
 });
 
 test("desktop and admin agree when a stopped parent still needs Stop", async () => {

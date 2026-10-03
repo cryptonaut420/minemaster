@@ -19,6 +19,8 @@ const {
   srbAlgorithm,
 } = require("../../src/utils/miningConfig");
 const { createWindowsDiagnostics } = require("./windowsDiagnostics");
+const notInstalledMessage =
+  "This engine is not installed yet, and the packaged copy could not be verified. Use Repair to download the pinned release. Repair does not start mining.";
 function describeError(error, executable, platform = process.platform) {
   const code = error.code || "START_FAILED";
   const stage = error.stage || "launch";
@@ -26,6 +28,15 @@ function describeError(error, executable, platform = process.platform) {
     typeof error.syscall === "string"
       ? error.syscall.split(/\s/)[0].slice(0, 80)
       : null;
+  if (code === "PACKAGE_MISSING")
+    return {
+      code,
+      stage,
+      syscall,
+      message: String(error.message || notInstalledMessage).slice(0, 1000),
+      path: error.path || executable || null,
+      observedAt: new Date().toISOString(),
+    };
   if (stage !== "launch")
     return {
       code,
@@ -76,6 +87,8 @@ function describeError(error, executable, platform = process.platform) {
     observedAt: new Date().toISOString(),
   };
 }
+const placed = (dest) =>
+  fs.existsSync(dest) || fs.existsSync(`${dest}.installed`);
 function createRuntime({
   userData,
   bundledRoot,
@@ -85,6 +98,7 @@ function createRuntime({
   logicalCores = os.availableParallelism?.() || os.cpus().length,
   windowsDiagnostics = createWindowsDiagnostics({ platform }),
   install = installRelease,
+  verify = verifyDirectory,
   now = Date.now,
 }) {
   const directory = (type) =>
@@ -94,6 +108,8 @@ function createRuntime({
       type,
       releaseFor(type, platform, arch).version,
     );
+  const placed = (dest) =>
+    fs.existsSync(dest) || fs.existsSync(`${dest}.installed`);
   const busy = new Set();
   const recentFailurePaths = new Map();
   function rememberFailure(type, error) {
@@ -140,7 +156,40 @@ function createRuntime({
           observedAt: new Date().toISOString(),
         };
       }
-      await verifyDirectory(directory(type), release);
+      const dest = directory(type);
+      if (!placed(dest)) {
+        const source = path.join(bundledRoot, type, release.version);
+        try {
+          await verify(source, release);
+        } catch (error) {
+          return {
+            status: "unavailable",
+            engine: type,
+            code: "PACKAGE_MISSING",
+            stage: "file verification",
+            message: notInstalledMessage,
+            path: error.path || path.join(source, release.binary),
+            expectedVersion: release.version,
+            expectedSha256: release.files[release.binary] || null,
+            sourceUrl: release.url,
+            observedAt: new Date().toISOString(),
+          };
+        }
+        return {
+          status: "bundled",
+          engine: type,
+          version: release.version,
+          expectedVersion: release.version,
+          sha256: release.files[release.binary],
+          expectedSha256: release.files[release.binary],
+          sourceUrl: release.url,
+          path: path.join(source, release.binary),
+          message:
+            "Packaged miner files are verified. They are copied into the miner folder the first time this engine starts.",
+          observedAt: new Date().toISOString(),
+        };
+      }
+      await verify(dest, release);
       if (platform !== "win32")
         await fs.promises.access(executable, fs.constants.X_OK);
       return {
@@ -206,18 +255,19 @@ function createRuntime({
       const release = releaseFor(type, platform, arch),
         dest = directory(type);
       // Once a version has been installed, a missing file is a fault requiring explicit repair.
-      if (
-        !repair &&
-        (fs.existsSync(dest) || fs.existsSync(`${dest}.installed`))
-      ) {
-        await verifyDirectory(dest, release);
+      if (!repair && placed(dest)) {
+        await verify(dest, release);
         return;
       }
       const source = path.join(bundledRoot, type, release.version);
       try {
-        await verifyDirectory(source, release);
+        await verify(source, release);
       } catch (error) {
-        if (!repair) throw error;
+        if (!repair)
+          throw Object.assign(Error(notInstalledMessage), {
+            code: "PACKAGE_MISSING",
+            path: error.path || path.join(source, release.binary),
+          });
         const result = await install(type, dest, { platform, arch });
         await fs.promises.writeFile(`${dest}.installed`, release.version);
         return result;

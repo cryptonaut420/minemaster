@@ -154,7 +154,9 @@ export function selectedEngineDiagnostics(miner) {
     !miner.running &&
     diagnostic?.engine &&
     diagnostic.engine !== engine &&
-    (diagnostic.status === "ready" || diagnostic.stage === "file verification")
+    (diagnostic.status === "ready" ||
+      diagnostic.status === "bundled" ||
+      diagnostic.stage === "file verification")
   ) {
     return {
       ...miner,

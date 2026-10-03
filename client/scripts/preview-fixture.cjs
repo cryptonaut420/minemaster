@@ -22,6 +22,9 @@ const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26
 const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
 diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
+if (new URLSearchParams(location.search).get('files') === 'bundled') {
+ diagnostics['xmrig-1'] = {status:'bundled',engine:'nanominer',version:'3.10.0',path:'C:/Program Files/MineMaster/resources/miners/nanominer/3.10.0/nanominer.exe',message:'Packaged miner files are verified. They are copied into the miner folder the first time this engine starts.',observedAt:new Date().toISOString()};
+}
 if (new URLSearchParams(location.search).get('ownership') === '1') {
  diagnostics['nanominer-1'] = {status:'unavailable',engine:'srbminer',code:'PROCESS_EXIT_PENDING',message:'Simulated parent exit: a managed miner child still needs Stop.'};
 }
