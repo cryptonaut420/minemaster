@@ -1359,3 +1359,44 @@ test("share freshness agrees across desktop and API, including clock tolerance a
     "stale",
   );
 });
+
+test("clock correction cannot pin a future cached rate over a fresh current report", () => {
+  const previous = {
+    id: "gpu",
+    running: true,
+    paused: false,
+    startedAt: new Date(now - 600000).toISOString(),
+    pid: 10,
+    algorithm: "quantus",
+    hashrate: 35e6,
+    hashrateObservedAt: new Date(now + 290000).toISOString(),
+    quality: "valid",
+  };
+  const current = {
+    ...previous,
+    hashrate: 18e6,
+    hashrateObservedAt: timestamp,
+  };
+  const corrected = t.reconcileProcess(
+    { ...current },
+    previous,
+    timestamp,
+    now,
+    now,
+  );
+  assert.equal(corrected.hashrate, 18e6);
+  assert.equal(corrected.hashrateObservedAt, timestamp);
+  const freshPrevious = {
+    ...previous,
+    hashrateObservedAt: new Date(now - 1000).toISOString(),
+  };
+  const delayed = {
+    ...current,
+    hashrateObservedAt: new Date(now - 10000).toISOString(),
+  };
+  assert.equal(
+    t.reconcileProcess(delayed, freshPrevious, timestamp, now, now).hashrate,
+    35e6,
+    "genuinely delayed observations must still preserve newer valid data",
+  );
+});

@@ -378,6 +378,8 @@ function reconcileProcess(
     !process.paused &&
     date(process.hashrateObservedAt) !== null &&
     date(previous.hashrateObservedAt) !== null &&
+    // A clock correction can put the previous sample in the future on the new report clock.
+    date(previous.hashrateObservedAt) <= sampleNow + 5000 &&
     date(process.hashrateObservedAt) < date(previous.hashrateObservedAt)
   ) {
     Object.assign(process, {
