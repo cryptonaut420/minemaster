@@ -244,3 +244,5 @@ Pinned official archive and executable hashes are in `electron/mining/releases.j
 MineMaster starts a foreground process with a private working directory and log file, plus a loopback-only API port. Native polling reads `/hiveos` process totals in kH/s and converts to H/s. Failed/frozen/wrong-algorithm/old-run responses never refresh samples. Stopping or exiting the process cancels its polling; late replies cannot update a replacement process. File logs remain available for startup errors and troubleshooting. API failures are bounded/rate-limited diagnostics and do not interrupt Stop or CPU mining. The upstream API response shape and real accepted-share behavior remain hardware-trial checks.
 
 The initial 1.4.16 candidate is a prerelease for manual installation on a trial rig, not a new stable automatic-update target. Do not switch the whole fleet before a successful Windows trial.
+
+KRig with Kryptex requires TLS and the SSL pool port: Quantus `8049`, Pearl `8048`, including backup pools. Desktop 1.4.17 rejects plaintext Kryptex settings and its known TCP ports before launching; new KRig selections enable TLS. Other pool providers may still use TCP.

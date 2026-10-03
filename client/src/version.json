@@ -1,8 +1,8 @@
 {
-  "baseVersion": "1.4.16",
-  "buildMetadata": "121.d10d347",
-  "displayVersion": "1.4.16+121.d10d347",
-  "commitCount": 121,
-  "commitHash": "d10d347",
-  "generatedAt": "2026-10-03T17:10:26.219Z"
+  "baseVersion": "1.4.17",
+  "buildMetadata": "125.2d0aaaa",
+  "displayVersion": "1.4.17+125.2d0aaaa",
+  "commitCount": 125,
+  "commitHash": "2d0aaaa",
+  "generatedAt": "2026-10-03T17:46:06.546Z"
 }
