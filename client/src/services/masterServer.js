@@ -531,7 +531,7 @@ class MasterServerService {
                   window.electronAPI?.platform,
                   window.electronAPI?.arch,
                 )
-                  ? ["srbminer"]
+                  ? ["srbminer", "krig"]
                   : []),
               ],
       },

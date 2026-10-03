@@ -4,6 +4,7 @@ const run = promisify(execFile);
 const releases = require("../electron/mining/releases.json");
 const repositories = {
   srbminer: "doktor83/SRBMiner-Multi",
+  krig: "kryptex/krig-miner",
   nanominer: "nanopool/nanominer",
   xmrig: "xmrig/xmrig",
 };

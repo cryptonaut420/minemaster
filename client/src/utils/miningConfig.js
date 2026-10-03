@@ -1,5 +1,6 @@
 // Shared renderer/native validation: configurations must describe the process we actually launch.
 const SRB = require("./srbminer.json");
+const KRIG = require("./krig.json");
 const GPU_ALGORITHMS = [
   "ethash",
   "etchash",
@@ -104,6 +105,7 @@ function validate(type, config) {
   integer("crashRestartDelaySeconds", 10, 600);
   integer("maxCrashRestartsPerHour", 0, 5);
   const engine = engineFor(type, config);
+  if (engine === "krig") errors.push(...validateKrig(type, config));
   if (engine === "srbminer") {
     errors.push(...validateSrb(type, config));
   }
@@ -147,7 +149,7 @@ function validate(type, config) {
           "Nanominer supports thread limits and crash recovery here. Use XMRig for activity/battery pauses, priority, strict TLS, keepalive or huge-page overrides.",
         );
     }
-  } else if (type === "nanominer" && engine !== "srbminer") {
+  } else if (type === "nanominer" && !["srbminer", "krig"].includes(engine)) {
     if (engine !== "nanominer") errors.push("Unsupported GPU engine");
     if (
       [
@@ -280,6 +282,8 @@ function srbAlgorithm(type, algorithm) {
 }
 function algorithmsFor(type, config = {}) {
   const engine = engineFor(type, config);
+  if (engine === "krig")
+    return type === "nanominer" ? KRIG.algorithms.map((r) => r.algorithm) : [];
   if (engine === "srbminer")
     return SRB.algorithms
       .filter((r) => srbAlgorithm(type, r.algorithm))
@@ -405,10 +409,72 @@ function switchEngine(type, config, engine) {
   });
   const allowed = algorithmsFor(type, next);
   if (!allowed.includes(next.algorithm))
-    next.algorithm = type === "xmrig" ? "rx/0" : "kawpow";
+    next.algorithm =
+      engine === "krig" ? "quantus" : type === "xmrig" ? "rx/0" : "kawpow";
+  for (const [key, spec] of Object.entries(SRB.fields))
+    next[key] = spec.default;
+  if (engine === "krig")
+    next.coin = next.algorithm === "pearlhash" ? "PRL" : "QTC";
   return next;
 }
+function validateKrig(type, config) {
+  const errors = [];
+  if (
+    type !== "nanominer" ||
+    !KRIG.algorithms.some((r) => r.algorithm === config.algorithm)
+  )
+    errors.push("KRig supports GPU Quantus and Pearl only");
+  if (config.gpus?.length)
+    errors.push("Clear legacy GPU indices before changing to KRig");
+  if (config.additionalArgs)
+    errors.push("Use managed KRig settings instead of additional arguments");
+  if (config.keepAlive)
+    errors.push("KRig does not expose a keepalive override");
+  for (const [key, spec] of Object.entries(SRB.fields))
+    if (config[key] !== undefined && config[key] !== spec.default)
+      errors.push(`${key} is SRBMiner-only; reset it before choosing KRig`);
+  if (config.rigName && !/^[a-zA-Z0-9_-]{1,100}$/.test(config.rigName))
+    errors.push(
+      "KRig worker names use letters, numbers, underscores and hyphens (up to 100)",
+    );
+  return errors;
+}
+function krigArguments(config, hostname, apiPort) {
+  const worker =
+    config.rigName ||
+    String(hostname || "rig")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 100);
+  // Preserve an explicitly supplied pool worker suffix. Kryptex accepts wallet/worker.
+  const user = /[/.]/.test(config.user)
+    ? config.user
+    : `${config.user}/${worker}`;
+  return [
+    "--coin",
+    KRIG.algorithms.find((r) => r.algorithm === config.algorithm).argument,
+    ...[config.pool, ...(config.backupPools || [])].flatMap((pool) => {
+      const tls = config.tls === true || /^stratum\+(ssl|tls):/i.test(pool);
+      const address = pool.replace(/^stratum\+(tcp|ssl|tls):\/\//i, "");
+      return [
+        "--url",
+        `stratum+${tls ? "ssl" : "tcp"}://${address}`,
+        "--user",
+        user,
+        "--password",
+        config.password || "x",
+      ];
+    }),
+    "--no-tui",
+    "--api-host",
+    "127.0.0.1",
+    "--api-port",
+    String(apiPort),
+  ];
+}
 module.exports = {
+  KRIG,
+  validateKrig,
+  krigArguments,
   supportsSrbPlatform,
   switchEngine,
   SRB,

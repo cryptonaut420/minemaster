@@ -16,6 +16,7 @@ const {
   cpuThreads,
   supportsSrbPlatform,
   srbArguments,
+  krigArguments,
   srbAlgorithm,
 } = require("../../src/utils/miningConfig");
 const { createWindowsDiagnostics } = require("./windowsDiagnostics");
@@ -100,6 +101,7 @@ function createRuntime({
   install = installRelease,
   verify = verifyDirectory,
   now = Date.now,
+  chooseApiPort = require("./krigMonitor").chooseApiPort,
 }) {
   const directory = (type) =>
     path.join(
@@ -294,8 +296,11 @@ function createRuntime({
         code: "INVALID_CONFIG",
       });
     const engine = engineFor(type, config);
-    if (engine === "srbminer" && !supportsSrbPlatform(platform, arch))
-      throw Object.assign(Error("SRBMiner requires Windows/Linux x64"), {
+    if (
+      ["srbminer", "krig"].includes(engine) &&
+      !supportsSrbPlatform(platform, arch)
+    )
+      throw Object.assign(Error(`${engine} requires Windows/Linux x64`), {
         code: "UNSUPPORTED_PLATFORM",
       });
     if (!config.customPath) await prepare(engine);
@@ -317,7 +322,7 @@ function createRuntime({
       }
     };
     await prepareFile(() => fs.promises.mkdir(workDir, { recursive: true }));
-    const logFile = ["nanominer", "srbminer"].includes(engine)
+    const logFile = ["nanominer", "srbminer", "krig"].includes(engine)
       ? path.join(workDir, "miner.log")
       : null;
     // The process manager calls preparation only with this process stopped.
@@ -330,41 +335,44 @@ function createRuntime({
       workDir,
       engine === "nanominer" ? "config.ini" : "config.json",
     );
-    const content =
-      engine === "srbminer"
-        ? JSON.stringify(config, null, 2)
-        : engine === "xmrig"
-          ? JSON.stringify(xmrigConfig(config, hostname), null, 2)
-          : nanominerConfig(config, hostname, {
-              cpu: type === "xmrig",
-              logicalCores,
-            });
+    const content = ["srbminer", "krig"].includes(engine)
+      ? JSON.stringify(config, null, 2)
+      : engine === "xmrig"
+        ? JSON.stringify(xmrigConfig(config, hostname), null, 2)
+        : nanominerConfig(config, hostname, {
+            cpu: type === "xmrig",
+            logicalCores,
+          });
     await prepareFile(() =>
       fs.promises.writeFile(`${configPath}.tmp`, content, { mode: 0o600 }),
     );
     await prepareFile(() =>
       fs.promises.rename(`${configPath}.tmp`, configPath),
     );
+    const apiPort = engine === "krig" ? await chooseApiPort() : null;
     const args =
-      engine === "srbminer"
-        ? [
-            ...srbArguments(type, config, hostname, logicalCores),
-            "--log-file",
-            logFile,
-            "--log-file-mode",
-            "0",
-          ]
-        : engine === "xmrig"
+      engine === "krig"
+        ? [...krigArguments(config, hostname, apiPort), "--log-file", logFile]
+        : engine === "srbminer"
           ? [
-              "--config",
-              configPath,
-              ...(config.threads > 0
-                ? ["--threads", String(config.threads)]
-                : []),
-              ...parseArguments(config.additionalArgs),
+              ...srbArguments(type, config, hostname, logicalCores),
+              "--log-file",
+              logFile,
+              "--log-file-mode",
+              "0",
             ]
-          : [configPath];
+          : engine === "xmrig"
+            ? [
+                "--config",
+                configPath,
+                ...(config.threads > 0
+                  ? ["--threads", String(config.threads)]
+                  : []),
+                ...parseArguments(config.additionalArgs),
+              ]
+            : [configPath];
     return {
+      apiPort,
       executable: diagnostic.path,
       args,
       cwd: workDir,

@@ -1,6 +1,7 @@
 const { randomUUID } = require("crypto");
 const { getDb } = require("../db/mongodb");
 const SRB = require("../services/srbminer.json");
+const KRIG = require("../services/krig.json");
 const DEFAULTS = {
   xmrig: {
     engine: "nanominer",
@@ -140,7 +141,10 @@ function validate(type, config, { partial = true } = {}) {
               ? r.devices.includes("CPU")
               : r.devices.some((d) => d !== "CPU")),
         )
-      : ALGORITHMS[type].includes(config.algorithm))
+      : config.engine === "krig"
+        ? type === "nanominer" &&
+          KRIG.algorithms.some((r) => r.algorithm === config.algorithm)
+        : ALGORITHMS[type].includes(config.algorithm))
   )
     errors.algorithm = "Unsupported algorithm";
   if (
@@ -148,7 +152,7 @@ function validate(type, config, { partial = true } = {}) {
     !(
       type === "xmrig"
         ? ["xmrig", "nanominer", "srbminer"]
-        : ["nanominer", "srbminer"]
+        : ["nanominer", "srbminer", "krig"]
     ).includes(config.engine)
   )
     errors.engine = "Choose a supported CPU/GPU engine";
@@ -175,7 +179,7 @@ function validate(type, config, { partial = true } = {}) {
   )
     errors.pool = "Use host:port with a port from 1 to 65535";
   if (
-    ((type === "nanominer" && config.engine !== "srbminer") ||
+    ((type === "nanominer" && !["srbminer", "krig"].includes(config.engine)) ||
       config.engine === "nanominer") &&
     [
       config.pool,
@@ -199,6 +203,16 @@ function validate(type, config, { partial = true } = {}) {
       if (config[key])
         errors[key] =
           "This setting requires XMRig; use SRBMiner thread priority";
+  }
+  if (config.engine === "krig") {
+    if (config.keepAlive)
+      errors.keepAlive = "KRig does not expose a keepalive override";
+    if (config.rigName && !/^[a-zA-Z0-9_-]{1,100}$/.test(config.rigName))
+      errors.rigName =
+        "Use letters, numbers, underscores and hyphens (up to 100)";
+    for (const [key, spec] of Object.entries(SRB.fields))
+      if (config[key] !== undefined && config[key] !== spec.default)
+        errors[key] = "SRBMiner-only setting; reset before choosing KRig";
   }
   if (!partial)
     for (const key of ["pool", "user", "algorithm"])

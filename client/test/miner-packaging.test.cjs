@@ -84,7 +84,7 @@ test("packaging only stages verified current runtime files and preserves a good 
 test("release freshness gate rejects outdated, changed or unverifiable official assets", async () => {
   const manifest = {},
     upstream = {};
-  for (const engine of ["srbminer", "nanominer", "xmrig"]) {
+  for (const engine of ["srbminer", "nanominer", "xmrig", "krig"]) {
     const pin = {
       version: "1.0.0",
       archive: "fixture.zip",
@@ -107,9 +107,15 @@ test("release freshness gate rejects outdated, changed or unverifiable official 
   }
   const load = async (repo) =>
     structuredClone(
-      upstream[repo.startsWith("doktor83/") ? "srbminer" : repo.split("/")[1]],
+      upstream[
+        repo.startsWith("doktor83/")
+          ? "srbminer"
+          : repo.startsWith("kryptex/")
+            ? "krig"
+            : repo.split("/")[1]
+      ],
     );
-  assert.equal((await checkMinerReleases({ manifest, load })).length, 3);
+  assert.equal((await checkMinerReleases({ manifest, load })).length, 4);
   const baseline = structuredClone(upstream.srbminer);
   for (const patch of [
     { tag_name: "3.7.0" },

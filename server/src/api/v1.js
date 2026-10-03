@@ -633,6 +633,7 @@ router.get(
   route(async (req, res) =>
     res.json({
       data: {
+        krig: require("../services/krig.json"),
         srbminer: {
           ...require("../services/srbminer.json"),
           platforms: ["win32-x64", "linux-x64"],

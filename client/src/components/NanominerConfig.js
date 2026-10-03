@@ -43,6 +43,10 @@ function NanominerConfig({
     onConfigChange({
       ...miner.config,
       [field]: value,
+      ...(field === "algorithm" &&
+      engineFor(miner.type, miner.config) === "krig"
+        ? { coin: value === "pearlhash" ? "PRL" : "QTC" }
+        : {}),
     });
   };
 

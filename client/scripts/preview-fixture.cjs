@@ -18,7 +18,7 @@ let update = {state:'idle',supported:true,autoInstall:true,updatedAt:new Date().
 let xmrigRepaired = false;
 const emit = (name, payload) => (listeners[name] || []).forEach(fn => fn(payload));
 const on = name => fn => { (listeners[name] ||= []).push(fn); return () => listeners[name] = listeners[name].filter(f => f !== fn); };
-const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.7.1':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),stage:'file verification',message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
+const ready = engine => ({status:'ready',engine,version:engine === 'xmrig'?'6.26.0':engine === 'srbminer'?'3.7.1':engine === 'krig'?'1.5.6':'3.10.0',path:'C:/Users/Miner/AppData/Roaming/MineMaster/miners/'+engine+'/'+engine+'.exe',expectedSha256:'a'.repeat(64),stage:'file verification',message:'Simulated verified upstream executable',observedAt:new Date().toISOString()});
 const inspect = engine => engine === 'xmrig' && !xmrigRepaired ? {...ready(engine),status:'unavailable',code:'EPERM',message:'Simulated operating-system block. Review Windows Security Protection History for this exact file.'} : ready(engine);
 diagnostics['xmrig-1'] = ready('nanominer');
 diagnostics['nanominer-1'] = ready('nanominer');
@@ -39,7 +39,8 @@ const api = {
   if(diagnostic.status==='unavailable')return{success:false,error:diagnostic.message,diagnostic};
   const state={running:true,engine,pid:minerType==='xmrig'?1234:5678,runId:Date.now().toString(),startedAt:Date.now(),activeConfig:config,effectiveSettings:minerType==='xmrig'&&engine==='nanominer'?{cpuThreads:16,devFeePercent:2}:null}; states[minerId]=state;
   setTimeout(()=>{
-   if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.7.1\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
+   if(engine==='krig') emit('output',{minerId,engine,runId:state.runId,stream:'stats',data:'',telemetry:{hashrate:config.algorithm==='quantus'?160e6:65e12,hashrateObservedAt:new Date().toISOString(),minerVersion:'1.5.6',shares:{accepted:12,rejected:0,observedAt:new Date().toISOString(),source:'fixture'}}});
+   else if(engine==='srbminer') emit('output',{minerId,runId:state.runId,stream:'stdout',data:'SRBMiner-MULTI 3.7.1\\nTotal: '+(minerType==='xmrig'?'7.25 kH/s':'65.00 TH/s')+'\\n'});
    else if(minerType==='xmrig' && engine==='nanominer') {
     emit('output',{minerId,runId:state.runId,stream:'file',observedAt:new Date().toISOString(),data:'nanominer v3.10.0\\nTotal: 72'});
     emit('output',{minerId,runId:state.runId,stream:'stderr',data:'Simulated pool warning\\n'});

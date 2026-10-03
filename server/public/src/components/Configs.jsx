@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import { useNotifications } from "./Notifications";
 import SRB from "../../../src/services/srbminer.json";
+import KRIG from "../../../src/services/krig.json";
 import ConfigProfiles from "./ConfigProfiles";
 import Profitability from "./Profitability";
 import { compactIssue } from "../utils/rigControls";
@@ -63,6 +64,8 @@ Object.assign(
   ),
 );
 function availableAlgorithms(type, engine) {
+  if (engine === "krig")
+    return type === "nanominer" ? KRIG.algorithms.map((r) => r.algorithm) : [];
   if (engine === "srbminer")
     return SRB.algorithms
       .filter((r) =>
@@ -344,6 +347,15 @@ export default function Configs() {
                     CPU settings.
                   </p>
                 )}
+                {draft.engine === "krig" && (
+                  <p>
+                    KRig {KRIG.version} · Quantus / Pearl. 0% developer fee on
+                    Kryptex; 3% on other pools, plus pool fees. Requires a
+                    KRig-capable Windows/Linux x64 client. Test GPU/driver
+                    compatibility on one rig first. Linux AMD requires a HIP
+                    runtime.
+                  </p>
+                )}
                 {draft.engine === "srbminer" && (
                   <p>
                     SRBMiner {SRB.version} ·{" "}
@@ -364,6 +376,7 @@ export default function Configs() {
                   .filter(
                     ([k]) =>
                       labels[k] &&
+                      !(draft.engine === "krig" && k === "keepAlive") &&
                       (!SRB.fields[k] ||
                         (draft.engine === "srbminer" &&
                           (type === "xmrig"
@@ -380,7 +393,7 @@ export default function Configs() {
                       ) &&
                       !(
                         type === "nanominer" &&
-                        draft.engine !== "srbminer" &&
+                        !["srbminer", "krig"].includes(draft.engine) &&
                         ["password", "tls", "keepAlive"].includes(k)
                       ) &&
                       !(
@@ -411,14 +424,29 @@ export default function Configs() {
                               [type]: {
                                 ...draft,
                                 engine: e.target.value,
+                                ...(e.target.value === "krig"
+                                  ? {
+                                      coin:
+                                        draft.algorithm === "pearlhash"
+                                          ? "PRL"
+                                          : "QTC",
+                                    }
+                                  : {}),
                                 algorithm: availableAlgorithms(
                                   type,
                                   e.target.value,
                                 ).includes(draft.algorithm)
                                   ? draft.algorithm
-                                  : type === "xmrig"
-                                    ? "rx/0"
-                                    : "kawpow",
+                                  : e.target.value === "krig"
+                                    ? "quantus"
+                                    : type === "xmrig"
+                                      ? "rx/0"
+                                      : "kawpow",
+                                ...Object.fromEntries(
+                                  Object.entries(SRB.fields).map(
+                                    ([key, spec]) => [key, spec.default],
+                                  ),
+                                ),
                                 ...(type === "xmrig"
                                   ? {
                                       additionalArgs: "",
@@ -443,6 +471,9 @@ export default function Configs() {
                               XMRig · advanced CPU controls
                             </option>
                           )}
+                          {type === "nanominer" && (
+                            <option value="krig">KRig · Quantus / Pearl</option>
+                          )}
                           <option value="srbminer">
                             SRBMiner-MULTI · CPU/GPU algorithms
                           </option>
@@ -455,7 +486,18 @@ export default function Configs() {
                           onChange={(e) =>
                             setDrafts({
                               ...drafts,
-                              [type]: { ...draft, [k]: e.target.value },
+                              [type]: {
+                                ...draft,
+                                [k]: e.target.value,
+                                ...(draft.engine === "krig"
+                                  ? {
+                                      coin:
+                                        e.target.value === "pearlhash"
+                                          ? "PRL"
+                                          : "QTC",
+                                    }
+                                  : {}),
+                              },
                             })
                           }
                         >

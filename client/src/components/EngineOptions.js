@@ -10,6 +10,7 @@ export default function EngineOptions({ miner, onChange, bound }) {
   const set = (key, value) => onChange({ ...miner.config, [key]: value });
   const id = (key) => `${miner.id}-${key}`;
   const srb = engineFor(miner.type, miner.config) === "srbminer";
+  const krig = engineFor(miner.type, miner.config) === "krig";
   const nanoCpu =
     miner.deviceType === "CPU" &&
     engineFor(miner.type, miner.config) === "nanominer";
@@ -18,7 +19,7 @@ export default function EngineOptions({ miner, onChange, bound }) {
       <summary>
         {miner.deviceType === "CPU"
           ? "CPU engine, pools and recovery"
-          : "Pool failover and recovery settings"}
+          : "GPU engine, pools and recovery"}
       </summary>
       {
         <div className="form-group">
@@ -54,6 +55,19 @@ export default function EngineOptions({ miner, onChange, bound }) {
             >
               SRBMiner-MULTI · CPU/GPU algorithms
             </option>
+            {miner.deviceType === "GPU" && (
+              <option
+                value="krig"
+                disabled={
+                  !supportsSrbPlatform(
+                    window.electronAPI?.platform,
+                    window.electronAPI?.arch,
+                  )
+                }
+              >
+                KRig · Quantus / Pearl
+              </option>
+            )}
           </select>
           <span className="field-hint">
             CPU and GPU run separately. Changing engine clears its custom path
@@ -62,12 +76,41 @@ export default function EngineOptions({ miner, onChange, bound }) {
           </span>
         </div>
       }
+      {krig && (
+        <>
+          <p className="field-hint">
+            KRig 1.5.6 · Quantus / Pearl GPU mining. 0% developer fee on
+            Kryptex; 3% elsewhere, plus pool fees. Windows/Linux x64. GPU/driver
+            compatibility needs a trial; Linux AMD needs an installed HIP
+            runtime.
+          </p>
+          <div className="form-group">
+            <label htmlFor={id("password")}>Pool password</label>
+            <input
+              id={id("password")}
+              value={miner.config.password ?? "x"}
+              disabled={disabled}
+              onChange={(e) => set("password", e.target.value)}
+            />
+          </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={miner.config.tls === true}
+              disabled={disabled}
+              onChange={(e) => set("tls", e.target.checked)}
+            />{" "}
+            Require TLS for all pools
+          </label>
+        </>
+      )}
       {srb && (
         <>
           <p className="field-hint">
-            SRBMiner {SRB.version}. One algorithm per process; GPU models must support
-            the selected algorithm. MSR tuning and miner-owned restarts are
-            disabled. Pool fees are separate from the algorithm's developer fee.
+            SRBMiner {SRB.version}. One algorithm per process; GPU models must
+            support the selected algorithm. MSR tuning and miner-owned restarts
+            are disabled. Pool fees are separate from the algorithm's developer
+            fee.
           </p>
           {Object.entries(SRB.fields)
             .filter(([key]) =>

@@ -3381,7 +3381,7 @@
     "/mining/engines": {
       "get": {
         "summary": "Pinned optional engine algorithm and setting catalog",
-        "description": "Read access required. SRBMiner 3.7.0 vendor/scope compatibility, developer fees, setting defaults and bounds; no profitability estimates or hardware validation claim.",
+        "description": "Read access required. Pinned SRBMiner and KRig scope/platform/algorithm catalogs and developer fees; no profitability estimates or hardware validation claim.",
         "responses": {
           "200": {
             "description": "Engine catalog",
@@ -3394,6 +3394,9 @@
                       "type": "object",
                       "properties": {
                         "srbminer": {
+                          "type": "object"
+                        },
+                        "krig": {
                           "type": "object"
                         }
                       }
@@ -4220,7 +4223,7 @@
           "engine": {
             "type": "string",
             "nullable": true,
-            "enum": ["xmrig", "nanominer", "srbminer"],
+            "enum": ["xmrig", "nanominer", "srbminer", "krig"],
             "description": "Actual executable engine, independent of CPU/GPU scope and legacy configuration slot."
           },
           "effectiveSettings": {
@@ -4634,8 +4637,8 @@
           },
           "engine": {
             "type": "string",
-            "enum": ["xmrig", "nanominer", "srbminer"],
-            "description": "CPU slot xmrig supports xmrig/nanominer/srbminer; GPU slot nanominer supports nanominer/srbminer. SRBMiner requires cpuEngines/gpuEngines capability and MineMaster 1.4 Windows/Linux x64. Omitted engine keeps legacy slot semantics. SRBMiner runs one algorithm per CPU/GPU process; native names randomx, randomarq and autolykos2 use canonical rx/0, rx/arq and autolykos in this API. Use GET /mining/engines for the pinned algorithm/vendor/fee catalog."
+            "enum": ["xmrig", "nanominer", "srbminer", "krig"],
+            "description": "CPU slot xmrig supports xmrig/nanominer/srbminer; GPU slot nanominer supports nanominer/srbminer/krig. KRig supports quantus/pearlhash only and requires the gpuEngines krig capability on Windows/Linux x64. SRBMiner requires cpuEngines/gpuEngines capability and MineMaster 1.4 Windows/Linux x64. Omitted engine keeps legacy slot semantics. SRBMiner runs one algorithm per CPU/GPU process; native names randomx, randomarq and autolykos2 use canonical rx/0, rx/arq and autolykos in this API. Use GET /mining/engines for the pinned algorithm/vendor/fee catalog."
           },
           "srbGpuIntensity": {
             "type": "integer",

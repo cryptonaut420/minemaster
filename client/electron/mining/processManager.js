@@ -3,6 +3,7 @@ const { promisify } = require("util");
 const { randomUUID } = require("crypto");
 const { describeError } = require("./runtime");
 const { followLog } = require("./logTail");
+const { monitorKrig } = require("./krigMonitor");
 const { engineFor } = require("../../src/utils/miningConfig");
 const runFile = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,6 +59,7 @@ function createProcessManager({
   unschedule = clearTimeout,
   now = Date.now,
   tailLog = followLog,
+  monitorStats = monitorKrig,
   externalProcesses = { find: async () => [], stop: async () => {} },
 } = {}) {
   const entries = new Map(),
@@ -82,7 +84,7 @@ function createProcessManager({
   };
   const valid = (id, type) => {
     if (!/^[\w-]{1,80}$/.test(id || "")) throw Error("Invalid miner identity");
-    if (type && !["xmrig", "nanominer", "srbminer"].includes(type))
+    if (type && !["xmrig", "nanominer", "srbminer", "krig"].includes(type))
       throw Error("Unsupported miner type");
   };
   const running = (entry) =>
@@ -210,6 +212,7 @@ function createProcessManager({
                 minerId: id,
                 runId: entry.runId,
                 stream,
+                engine,
                 data,
                 observedAt,
                 reset,
@@ -245,6 +248,37 @@ function createProcessManager({
                   },
                 },
               );
+            if (spec.apiPort)
+              entry.statsMonitor = monitorStats({
+                port: spec.apiPort,
+                algorithm: activeConfig.algorithm,
+                startedAt: entry.startedAt,
+                onData: (telemetry) => {
+                  if (!owned() || entry.exited || !running(entry)) return;
+                  emit("miner-output", {
+                    minerId: id,
+                    runId: entry.runId,
+                    engine,
+                    stream: "stats",
+                    data: "",
+                    telemetry,
+                  });
+                },
+                onError: (error) => {
+                  if (owned() && !entry.exited) {
+                    audit("miner-stats-unavailable", {
+                      minerId: id,
+                      runId: entry.runId,
+                      engine,
+                      message: error.message,
+                    });
+                    output(
+                      `Mining statistics unavailable: ${error.message}\n`,
+                      "stderr",
+                    );
+                  }
+                },
+              });
             child.on("error", (error) => {
               if (!owned()) return;
               entry.error = error;
@@ -265,6 +299,7 @@ function createProcessManager({
             child.on("exit", (code, signalName) => {
               if (!owned()) return;
               entry.exited = true;
+              entry.statsMonitor?.close();
               audit("miner-parent-exit", {
                 minerId: id,
                 runId: entry.runId,
@@ -342,6 +377,7 @@ function createProcessManager({
                 expected: entry.expected,
                 diagnostic: diagnostics.get(id),
               });
+              entry.statsMonitor?.close();
               entry.logTail?.close();
               entries.delete(id);
             };
@@ -402,6 +438,7 @@ function createProcessManager({
       if (!(await waitForOutputClose(entry, id)))
         return { success: false, ...snapshot(id), error: exitPendingMessage };
       await entry?.logTail?.finish?.().catch(() => {});
+      entry?.statsMonitor?.close();
       entry?.logTail?.close();
       if (entries.get(id) === entry) entries.delete(id);
       return { success: true, alreadyStopped: true };
@@ -419,6 +456,7 @@ function createProcessManager({
         if (!(await waitForOutputClose(entry, id)))
           return { success: false, ...snapshot(id), error: exitPendingMessage };
         await entry.logTail?.finish?.().catch(() => {});
+        entry.statsMonitor?.close();
         entry.logTail?.close();
         if (entries.get(id) === entry) entries.delete(id);
         return { success: true };

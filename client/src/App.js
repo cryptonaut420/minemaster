@@ -327,17 +327,20 @@ function App() {
           const read = (lineBuffers.current[data.minerId] ||=
             createProcessLineBuffer());
           const lines = read(data.data, data.stream, data.runId);
-          let observation = null,
+          let observation = data.telemetry || null,
             shares = null,
             details = {};
           for (const line of lines) {
-            const rate = parseAggregate(line);
+            const rate = data.engine === "krig" ? null : parseAggregate(line);
             if (rate !== null)
               observation = {
                 hashrate: rate,
                 hashrateObservedAt: data.observedAt || new Date().toISOString(),
               };
-            shares = parseShares(line, data.observedAt) || shares;
+            shares =
+              data.engine === "krig"
+                ? null
+                : parseShares(line, data.observedAt) || shares;
             Object.assign(details, parseProcessDetails(line, data.observedAt));
             masterServer.queueLog(
               data.minerId,

@@ -232,3 +232,15 @@ If a miner log disappears after being read, capture reports the failure once, re
 ## Version 1.4.14: update cancellation ownership
 
 A canceled or failed installation retains updater ownership until asynchronous stop/save preparation settles; a new check cannot start another transfer during that cleanup. Closing the updater while a check is pending also cancels any download returned by the late check and observes its rejection without creating another watchdog. Automatic-install policy and explicit retry after a failed/canceled target remain unchanged. See the [sweep/updater follow-up](../docs/audits/sweep-updater-2026-10-02.md).
+
+## KRig trial — version 1.4.16
+
+KRig 1.5.6 is an additional **GPU-only** engine for `quantus` and `pearlhash` on Windows/Linux x64. Select it under **GPU engine, pools and recovery**, or deliver a GPU profile from admin after installing this client. Nanominer CPU mining remains independent. KRig is not a Ravencoin/KawPow or CPU engine.
+
+Managed options cover pool/wallet/password/worker, up to three backups, TCP/TLS and MineMaster crash recovery. All compatible GPUs are used; old engine indices/custom executable paths are cleared when switching engines. Nondefault SRBMiner tuning and unsupported options are rejected. Linux AMD requires a compatible installed HIP runtime; no runtime or driver is installed automatically. Per-model performance, driver compatibility and Windows Security behavior require a real rig trial.
+
+Pinned official archive and executable hashes are in `electron/mining/releases.json`. The original executable names are retained. These upstream archives contain an executable and example launch script; only the executable is extracted. KRig's upstream license is retained in `assets/notices/KRig-LICENSE.txt` and packaged with the application. Source/parameters: [KRig](https://github.com/kryptex/krig-miner), [1.5.6 release](https://github.com/kryptex/krig-miner/releases/tag/v1.5.6). Published fees are 0% on Kryptex and 3% elsewhere, excluding pool fees.
+
+MineMaster starts a foreground process with a private working directory and log file, plus a loopback-only API port. Native polling reads `/hiveos` process totals in kH/s and converts to H/s. Failed/frozen/wrong-algorithm/old-run responses never refresh samples. Stopping or exiting the process cancels its polling; late replies cannot update a replacement process. File logs remain available for startup errors and troubleshooting. API failures are bounded/rate-limited diagnostics and do not interrupt Stop or CPU mining. The upstream API response shape and real accepted-share behavior remain hardware-trial checks.
+
+The initial 1.4.16 candidate is a prerelease for manual installation on a trial rig, not a new stable automatic-update target. Do not switch the whole fleet before a successful Windows trial.

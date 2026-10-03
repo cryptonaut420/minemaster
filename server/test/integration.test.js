@@ -2506,6 +2506,153 @@ test("monitor sweeps expire rates by engine in the original bounded report clock
   }
 });
 
+test("KRig profiles require capability support, survive reconnect and preserve GPU telemetry and failed controls", async () => {
+  const Miner = require("../src/models/Miner");
+  const Config = require("../src/models/Config");
+  const prior = await Config.get("nanominer");
+  const ids = [];
+  try {
+    const saved = await api("/v1/configs/nanominer", "PUT", {
+      ...Config.DEFAULTS.nanominer,
+      engine: "krig",
+      algorithm: "quantus",
+      coin: "QTC",
+      pool: "pool.test:7049",
+      user: "test-wallet",
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.data));
+    const catalog = await api("/v1/mining/engines");
+    assert.equal(catalog.data.data.krig.version, "1.5.6");
+    assert.deepEqual(catalog.data.data.krig.scopes, ["GPU"]);
+    assert.equal((await fetch(origin + "/api/v1/mining/engines")).status, 401);
+    const legacy = await socket(),
+      capable = await socket();
+    send(legacy, "register", registration("krig-legacy"));
+    const reg = {
+      ...registration("krig-capable"),
+      capabilities: {
+        commandResults: true,
+        minerMaintenance: true,
+        gpuEngines: ["nanominer", "srbminer", "krig"],
+        cpuEngines: ["nanominer"],
+      },
+    };
+    send(capable, "register", reg);
+    const oldBind = await waitFor(() =>
+      legacy.messages.find((m) => m.type === "bound"),
+    );
+    const bind = await waitFor(() =>
+      capable.messages.find((m) => m.type === "bound"),
+    );
+    ids.push(oldBind.data.minerId, bind.data.minerId);
+    assert.equal(oldBind.data.configs.nanominer, undefined);
+    assert.equal(bind.data.configs.nanominer.engine, "krig");
+    for (const action of ["start", "restart", "config-update", "device-enable"])
+      assert.equal(
+        (
+          await api("/v1/commands", "POST", {
+            minerId: ids[0],
+            action,
+            deviceType: "GPU",
+          })
+        ).status,
+        422,
+      );
+    const applied = await api("/v1/configs/nanominer/apply", "POST", {
+      minerIds: [ids[1]],
+    });
+    assert.equal(applied.status, 202);
+    const command = applied.data.results[0].command;
+    const dispatch = await waitFor(() =>
+      capable.messages.find(
+        (m) => m.type === "command" && m.data.id === command.id,
+      ),
+    );
+    assert.equal(dispatch.data.deviceType, "GPU");
+    assert.equal(dispatch.data.configs.nanominer.engine, "krig");
+    send(capable, "command-result", {
+      id: command.id,
+      status: "succeeded",
+      result: { configured: true },
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/commands/${command.id}`)).data.data.status ===
+        "succeeded",
+    );
+    const stamp = new Date().toISOString();
+    send(capable, "status-update", {
+      protocolVersion: 2,
+      processes: [
+        {
+          id: "nanominer-1",
+          type: "nanominer",
+          deviceType: "GPU",
+          engine: "krig",
+          running: true,
+          enabled: true,
+          algorithm: "quantus",
+          hashrate: 160e6,
+          hashrateObservedAt: stamp,
+          startedAt: stamp,
+          minerVersion: "1.5.6",
+          activeConfig: saved.data.data,
+          shares: {
+            accepted: 12,
+            rejected: 1,
+            observedAt: stamp,
+            source: "krig-api",
+          },
+        },
+      ],
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/rigs/${ids[1]}/devices`)).data.processes?.[0]
+          ?.engine === "krig",
+    );
+    const process = (await api(`/v1/rigs/${ids[1]}/devices`)).data.processes[0];
+    assert.equal(process.hashrate, 160e6);
+    assert.equal(process.algorithm, "quantus");
+    assert.equal(process.shares.accepted, 12);
+    const restart = await api("/v1/commands", "POST", {
+      minerId: ids[1],
+      action: "restart",
+      deviceType: "GPU",
+    });
+    assert.equal(restart.status, 202);
+    await waitFor(() =>
+      capable.messages.find(
+        (m) => m.type === "command" && m.data.id === restart.data.data.id,
+      ),
+    );
+    send(capable, "command-result", {
+      id: restart.data.data.id,
+      status: "failed",
+      error: "KRig GPU driver unavailable",
+    });
+    await waitFor(
+      async () =>
+        (await api(`/v1/commands/${restart.data.data.id}`)).data.data.status ===
+        "failed",
+    );
+    send(capable, "register", { ...reg, silent: true });
+    const rebound = await waitFor(() =>
+      capable.messages.find((m) => m.type === "registered"),
+    );
+    assert.equal(rebound.data.configs.nanominer.engine, "krig");
+  } finally {
+    const current = await Config.get("nanominer");
+    await Config.update(
+      "nanominer",
+      { ...prior, version: current.version },
+      "test-restore",
+      current.version,
+    );
+    for (const id of ids) await Miner.delete(id);
+  }
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);

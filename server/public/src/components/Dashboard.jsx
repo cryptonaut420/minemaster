@@ -84,7 +84,7 @@ function RigMiningCell({ rig, scope }) {
             <span>
               {algorithmName(p.algorithm)}
               {p.engine
-                ? ` · ${{ nanominer: "Nanominer", xmrig: "XMRig", srbminer: "SRBMiner" }[p.engine] || p.engine}`
+                ? ` · ${{ nanominer: "Nanominer", xmrig: "XMRig", srbminer: "SRBMiner", krig: "KRig" }[p.engine] || p.engine}`
                 : ""}
             </span>
           </div>
@@ -397,7 +397,10 @@ function RigDetail({ id, close, onAction, onChanged, controls }) {
                       {p.diagnostic?.engine && `${p.diagnostic.engine} · `}
                       {p.diagnostic?.status === "bundled"
                         ? "packaged, installs on first start"
-                        : [p.diagnostic?.status || "Not checked", p.diagnostic?.code]
+                        : [
+                            p.diagnostic?.status || "Not checked",
+                            p.diagnostic?.code,
+                          ]
                             .filter(Boolean)
                             .join(" ")}
                     </dd>
