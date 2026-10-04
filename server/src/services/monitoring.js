@@ -18,6 +18,7 @@ const DEFAULT_RULES = {
   rejects: true,
   crash_loop: true,
   miner_errors: true,
+  miner_failure: true,
   temperatureC: 85,
   zeroGraceSeconds: 120,
   rejectPercent: 5,
@@ -121,6 +122,20 @@ function evaluate(raw, rules = DEFAULT_RULES, now = Date.now()) {
   if (r.freshness.telemetryFresh) {
     for (const p of r.processes) {
       const label = `${p.deviceType || "Miner"}${p.engine ? ` (${p.engine})` : ""}`;
+      // A single terminal failure must stay visible after the crash-loop/log
+      // windows expire. Do not infer failure merely from a stopped process.
+      if (
+        !p.running &&
+        !p.paused &&
+        !p.restartPendingAt &&
+        p.enabled !== false &&
+        p.error
+      )
+        add(
+          "miner_failure",
+          `${label} stopped with an error: ${String(p.error).split(/\r?\n/)[0].slice(0, 240)}`,
+          "critical",
+        );
       if (
         p.running &&
         !p.paused &&

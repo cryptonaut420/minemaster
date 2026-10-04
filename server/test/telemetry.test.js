@@ -15,6 +15,100 @@ const esm = async (name) =>
   );
 const now = Date.now(),
   timestamp = new Date(now).toISOString();
+test("CPU-only activity on a GPU rig is explicit without treating intentional stops as failures", () => {
+  const rig = {
+    connectionId: "test",
+    connectionLastSeen: timestamp,
+    telemetryReceivedAt: timestamp,
+    hardware: { gpus: [{ deviceId: "pci:0000:01:00.0" }] },
+    processes: [
+      {
+        id: "cpu",
+        deviceType: "CPU",
+        running: true,
+        hashrate: 100,
+        quality: "valid",
+        hashrateObservedAt: timestamp,
+      },
+      { id: "gpu", deviceType: "GPU", enabled: true, running: false },
+    ],
+  };
+  assert.equal(t.viewRig(rig, now).reason, "CPU mining · GPU stopped");
+  assert.equal(t.viewRig(rig, now).status, "mining");
+  assert.equal(t.viewRig(rig, now).attention, false);
+  assert.equal(
+    t.viewRig({ ...rig, hardware: { gpus: [] } }, now).reason,
+    "Mining",
+  );
+  for (const patch of [
+    { enabled: false },
+    { paused: true },
+    { restartPendingAt: timestamp },
+  ])
+    assert.equal(
+      t.viewRig(
+        {
+          ...rig,
+          processes: [rig.processes[0], { ...rig.processes[1], ...patch }],
+        },
+        now,
+      ).reason,
+      "Mining",
+    );
+});
+test("stopped miner failures remain incidents without flagging intentional pauses or retries", () => {
+  const raw = {
+    connectionId: "test",
+    connectionLastSeen: timestamp,
+    telemetryReceivedAt: timestamp,
+    processes: [
+      {
+        id: "nanominer-1",
+        deviceType: "GPU",
+        engine: "krig",
+        enabled: true,
+        running: false,
+        error: "Miner exited (0).\r\nlong startup log",
+      },
+    ],
+  };
+  const failure = (r = raw, rules = monitoring.DEFAULT_RULES) =>
+    monitoring
+      .evaluate(r, rules, now)
+      .filter((i) => i.rule === "miner_failure");
+  assert.deepEqual(failure(), [
+    {
+      rule: "miner_failure",
+      severity: "critical",
+      message: "GPU (krig) stopped with an error: Miner exited (0).",
+    },
+  ]);
+  for (const patch of [
+    { error: null },
+    { enabled: false },
+    { running: true },
+    { paused: true },
+    { restartPendingAt: new Date(now + 30000).toISOString() },
+  ]) {
+    assert.equal(
+      failure({ ...raw, processes: [{ ...raw.processes[0], ...patch }] })
+        .length,
+      0,
+    );
+  }
+  for (const patch of [
+    { connectionId: null },
+    { telemetryReceivedAt: new Date(now - 61000) },
+    { archivedAt: timestamp },
+    { forgottenAt: timestamp },
+  ]) {
+    assert.equal(failure({ ...raw, ...patch }).length, 0);
+  }
+  assert.equal(
+    failure(raw, { ...monitoring.DEFAULT_RULES, miner_failure: false }).length,
+    0,
+  );
+});
 test("agent clock discrepancies beyond five minutes retain warnings and stale samples", () => {
   assert.equal(t.clockObservation("invalid", now), null);
   assert.equal(t.clockObservation(Infinity, now), null);

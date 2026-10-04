@@ -319,7 +319,9 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       : command.action === "start" || command.action === "restart"
         ? "running"
         : null;
-  if (state) {
+  // A conditional restart only refreshes already-running work. It must not
+  // replace an operator's Stop intent for processes the client will skip.
+  if (state && !(command.action === "restart" && command.restartRunningOnly)) {
     const intent = {
       state,
       commandId: command.id,
@@ -377,7 +379,7 @@ const dispatchQueues = new Map();
 function profileSpec(profile, extra = {}) {
   return {
     ...extra,
-    action: "restart",
+    action: extra.action || "restart",
     deviceType: profile.type === "xmrig" ? "CPU" : "GPU",
     configType: profile.type,
     profileId: profile.id,

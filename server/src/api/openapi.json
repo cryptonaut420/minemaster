@@ -2445,7 +2445,7 @@
             }
           }
         },
-        "description": "Shared incident rules. miner_errors is enabled by default and flags at least three error-level log entries in the last five minutes for a currently running, unpaused process. Entries must belong to its current launch and retain a recent original observation time. No automatic restart is performed for log errors."
+        "description": "Shared incident rules. miner_errors is enabled by default and flags at least three error-level log entries in the last five minutes for a currently running, unpaused process. Entries must belong to its current launch and retain a recent original observation time. No automatic restart is performed for log errors. miner_failure keeps stopped-process errors visible until cleared, disabled, paused, recovering, or no longer freshly reported."
       },
       "put": {
         "summary": "Update monitoring rules",
@@ -2536,7 +2536,7 @@
             }
           }
         },
-        "description": "Merge supplied fields with existing rules. Shared incident rules. miner_errors is enabled by default and flags at least three error-level log entries in the last five minutes for a currently running, unpaused process. Entries must belong to its current launch and retain a recent original observation time. No automatic restart is performed for log errors."
+        "description": "Merge supplied fields with existing rules. Shared incident rules. miner_errors is enabled by default and flags at least three error-level log entries in the last five minutes for a currently running, unpaused process. Entries must belong to its current launch and retain a recent original observation time. No automatic restart is performed for log errors. miner_failure keeps stopped-process errors visible until cleared, disabled, paused, recovering, or no longer freshly reported."
       }
     },
     "/configs": {
@@ -4877,6 +4877,11 @@
             "minimum": 1,
             "maximum": 100,
             "default": 3
+          },
+          "miner_failure": {
+            "type": "boolean",
+            "default": true,
+            "description": "Persistent incident for a stopped, enabled, unpaused process reporting an error in fresh telemetry. Pending crash recovery is excluded; no automatic restart is performed."
           }
         }
       },

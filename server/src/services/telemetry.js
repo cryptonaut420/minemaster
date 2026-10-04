@@ -508,6 +508,36 @@ function viewRig(rig, now = Date.now()) {
       ? `Agent timestamp is ${Math.abs(r.agentClock.differenceSeconds)}s ${r.agentClock.differenceSeconds > 0 ? "behind" : "ahead of"} server receipt. Check system time and network delay; sample timestamps are unchanged.`
       : null;
   r.mining = fresh && r.processes.some((p) => p.running && !p.paused);
+  const runningScopes = [
+    ...new Set(
+      r.processes
+        .filter(
+          (p) =>
+            p.running && !p.paused && ["CPU", "GPU"].includes(p.deviceType),
+        )
+        .map((p) => p.deviceType),
+    ),
+  ];
+  const stoppedScopes = [
+    ...new Set(
+      r.processes
+        .filter(
+          (p) =>
+            !p.running &&
+            !p.paused &&
+            !p.restartPendingAt &&
+            p.enabled !== false &&
+            ["CPU", "GPU"].includes(p.deviceType) &&
+            !runningScopes.includes(p.deviceType) &&
+            (p.deviceType !== "GPU" || r.hardware?.gpus?.length),
+        )
+        .map((p) => p.deviceType),
+    ),
+  ];
+  const miningReason =
+    runningScopes.length && stoppedScopes.length
+      ? `${runningScopes.join(" + ")} mining · ${stoppedScopes.join(" + ")} stopped`
+      : "Mining";
   r.maintenance = date(r.maintenanceUntil) > now;
   r.configDrift = r.processes
     .filter(
@@ -549,7 +579,7 @@ function viewRig(rig, now = Date.now()) {
                 )
               ? "Hashrate unavailable"
               : r.mining
-                ? "Mining"
+                ? miningReason
                 : "Idle");
   return r;
 }

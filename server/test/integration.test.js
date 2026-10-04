@@ -2202,6 +2202,149 @@ test("fleet profile activation snapshots offline delivery, preserves CPU and rej
   second.terminate();
 });
 
+test("conditional profile restarts preserve stopped intent and CPU-only delivery is config-only", async () => {
+  const commands = require("../src/services/commands");
+  const ws = await socket(),
+    reg = registration("conditional-profile-intent");
+  reg.capabilities.cpuEngines = ["xmrig", "nanominer", "srbminer"];
+  reg.capabilities.gpuEngines = ["nanominer", "srbminer", "krig"];
+  send(ws, "register", reg);
+  await waitFor(() => ws.messages.some((m) => m.type === "bound"));
+  const rig = await db.collection("miners").findOne({ systemId: reg.systemId });
+  const intent = {
+    state: "stopped",
+    commandId: "prior-stop",
+    updatedAt: new Date().toISOString(),
+  };
+  await db.collection("miners").updateOne(
+    { id: rig.id },
+    {
+      $set: {
+        desiredState: { ALL: intent, CPU: intent, GPU: intent },
+        processes: [
+          { id: "xmrig-1", type: "xmrig", deviceType: "CPU", running: true },
+          {
+            id: "nanominer-1",
+            type: "nanominer",
+            deviceType: "GPU",
+            running: false,
+          },
+        ],
+      },
+    },
+  );
+  const conditional = await api("/v1/commands", "POST", {
+    minerId: rig.id,
+    action: "restart",
+    deviceType: "ALL",
+    restartRunningOnly: true,
+  });
+  assert.equal(conditional.status, 202);
+  assert.deepEqual(
+    (await db.collection("miners").findOne({ id: rig.id })).desiredState,
+    { ALL: intent, CPU: intent, GPU: intent },
+  );
+  await commands.cancel(conditional.data.data.id);
+  const profile = await require("../src/models/ConfigProfile").create(
+    {
+      name: "CPU-only delivery fixture",
+      type: "nanominer",
+      config: {
+        engine: "nanominer",
+        algorithm: "kawpow",
+        coin: "RVN",
+        pool: "fixture.example:1234",
+        user: "fixture-wallet",
+      },
+    },
+    "test",
+  );
+  await db.collection("miners").updateOne(
+    { id: rig.id },
+    {
+      $set: {
+        "hardware.gpus": [],
+        "pendingProfileActivation.nanominer": {
+          id: "cpu-only",
+          profile,
+          actor: "test",
+        },
+      },
+    },
+  );
+  const delivered =
+    await require("../src/services/profileActivation").deliverPending(
+      rig.id,
+      rig.connectionId,
+      "nanominer",
+    );
+  assert.equal(
+    delivered[0].command?.action,
+    "config-update",
+    JSON.stringify(delivered),
+  );
+  assert.equal(
+    (await db.collection("miners").findOne({ id: rig.id })).desiredState.GPU
+      .state,
+    "stopped",
+  );
+  await commands.cancel(delivered[0].command.id);
+  const start = await api("/v1/commands", "POST", {
+    minerId: rig.id,
+    action: "start",
+    deviceType: "CPU",
+  });
+  assert.equal(start.status, 202);
+  assert.equal(
+    (await db.collection("miners").findOne({ id: rig.id })).desiredState.CPU
+      .state,
+    "running",
+  );
+  await commands.cancel(start.data.data.id);
+  ws.terminate();
+});
+
+test("stopped miner incidents persist, respect maintenance, and resolve on recovery", async () => {
+  const monitoring = require("../src/services/monitoring"),
+    now = Date.now();
+  const rig = {
+    id: "stopped-miner-incident",
+    connectionId: "test",
+    connectionLastSeen: new Date(now),
+    telemetryReceivedAt: new Date(now),
+    processes: [
+      {
+        id: "nanominer-1",
+        deviceType: "GPU",
+        engine: "krig",
+        enabled: true,
+        running: false,
+        error: "Miner exited (0).",
+      },
+    ],
+  };
+  const key = `${rig.id}:miner_failure`;
+  await monitoring.check(rig, monitoring.DEFAULT_RULES, now);
+  let incident = await db.collection("incidents").findOne({ key });
+  assert.equal(incident?.resolvedAt, null);
+  assert.equal(incident?.severity, "critical");
+  await monitoring.check(
+    { ...rig, maintenanceUntil: new Date(now + 60000) },
+    monitoring.DEFAULT_RULES,
+    now,
+  );
+  assert.equal(
+    (await db.collection("incidents").findOne({ key })).suppressed,
+    true,
+  );
+  await monitoring.check(
+    { ...rig, processes: [{ ...rig.processes[0], error: null }] },
+    monitoring.DEFAULT_RULES,
+    now,
+  );
+  assert.ok((await db.collection("incidents").findOne({ key })).resolvedAt);
+});
+
 test("server profitability schedule persists daily deduplication and isolates provider/Discord failures", async () => {
   const service = require("../src/services/profitability");
   const jobs = db.collection("scheduledJobs");
