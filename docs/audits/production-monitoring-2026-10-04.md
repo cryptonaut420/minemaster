@@ -22,4 +22,6 @@ Read-only production inspection began at 06:42 UTC (October 3, 23:42 Vancouver).
 
 Browser checks passed persistent failure incidents, the new rule toggle, CPU-mining/GPU-stopped display, backend outage feedback and a measured 390px viewport without horizontal overflow or page errors. The narrow monitoring screenshot was inspected. Only simulated commands were sent to the disposable loopback fixture.
 
-Production deployment verification is recorded below after completion.
+## Deployment verification
+
+Committed and pushed `2eb1d80` on master, then deployed backend/admin on tsqr using the project deployment script. Exit code was zero; container `09b7eddf9a3a0a6880be25936460cc45989c2eef453039c953e873ca61c537cb` runs that revision. At 06:52 UTC all 16 connected rigs still reported client 1.4.18, monitoring was healthy with zero failed checks, and 10 reporting GPUs contributed approximately 1.849 GH/s. The API exposed `miner_failure: true`, KAM_Z4's persistent GPU failure incident, and explicit CPU-mining/GPU-stopped reasons on PG_GH1, PG_Z3, PG_Z6 and PG_Z8. PG_Z2 remained idle following its explicit Stop. Existing stopped miners were not started, no live verification commands were sent, and client 1.4.18 did not need another installation.
