@@ -18,4 +18,6 @@ Twelve rigs were connected, all reporting client 1.4.18. The monitored period af
 
 150 backend tests and 149 client tests passed; the admin production build passed. Browser fixture checks covered dated action failures, dismissal with live state retained, and a successful retry, including visual inspection in a 390px iframe. Only synthetic mining actions were used during browser checks. No client source or mining engine binary changed; client 1.4.18 remains current.
 
-Deployment verification is recorded after completion.
+## Deployment verification
+
+Committed/pushed `5a46c53` on master and deployed through tsqr's project deployment script, exit code zero. Container `5aa7be5354a68c2c3f6cfeea00fddb63ed28315db64d03f44da42a12319e9bc7` was checked for the dated/dismissible admin messages and rejection-audit implementation. Public readiness returned database/index readiness. At 23:59 UTC PG_Z2 remained connected with fresh telemetry, KRig capability and no current process error. Validation of its captured desired GPU configuration and capabilities passed the backend's actual launch-validation and compatibility functions. Monitoring was healthy with zero failed checks; all 12 connected rigs remained on 1.4.18. Its explicit paused/idle state was preserved. A real KRig launch on PG_Z2 was not performed, so actual execution/performance on that rig remains unverified.
