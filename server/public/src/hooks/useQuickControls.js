@@ -23,6 +23,13 @@ export default function useQuickControls(onChanged) {
   const changed = useRef(onChanged);
   changed.current = onChanged;
   function record(rows) {
+    rows = rows.map((row) => ({
+      ...row,
+      attemptedAt:
+        row.attemptedAt ||
+        operations.current.get(row.operation)?.startedAt ||
+        new Date().toISOString(),
+    }));
     for (const row of rows) {
       const op = operations.current.get(row.operation);
       if (!op) continue;
@@ -144,6 +151,7 @@ export default function useQuickControls(onChanged) {
       operations.current.set(operation, {
         toast,
         action,
+        startedAt: new Date().toISOString(),
         skipped,
         count: eligible.length,
         rows: new Map(),
@@ -216,5 +224,18 @@ export default function useQuickControls(onChanged) {
       setBusy(false);
     }
   }
-  return { run, receipts, notice, busy };
+  function dismiss(minerId) {
+    const receipt = receipts[minerId];
+    if (!receipt || receipt.sending || active(receipt.command)) return;
+    // A late poll for an old batch must not restore an explicitly dismissed
+    // message. Persisted command history and the rig's live error remain intact.
+    delete current.current[minerId];
+    setReceipts((prev) => {
+      if (prev[minerId] !== receipt) return prev;
+      const next = { ...prev };
+      delete next[minerId];
+      return next;
+    });
+  }
+  return { run, receipts, notice, busy, dismiss };
 }

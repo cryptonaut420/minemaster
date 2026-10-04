@@ -325,6 +325,9 @@
 .operations .op-quick .op-command-error {
   color: #ffb47d;
   font-size: 11px;
+  display: grid;
+  gap: 5px;
+  overflow-wrap: anywhere;
 }
 .operations .op-table-wrap {
   overflow-x: auto;

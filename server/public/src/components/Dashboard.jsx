@@ -49,10 +49,24 @@ function QuickButtons({ rig, controls, blocked = false }) {
         {control.label}
       </button>
       {failure && (
-        <small role="alert" className="op-command-error" title={failure}>
-          {String(failure).slice(0, 110)}
-          {String(failure).length > 110 ? "…" : ""}
-        </small>
+        <div className="op-command-error">
+          <small>
+            Last {receipt.action === "start" ? "Play" : "Pause"} attempt ·{" "}
+            {at(receipt.command?.createdAt || receipt.attemptedAt)}
+          </small>
+          <small role="alert" title={failure}>
+            {String(failure).slice(0, 110)}
+            {String(failure).length > 110 ? "…" : ""}
+          </small>
+          <button
+            type="button"
+            className="op-secondary"
+            aria-label={`Dismiss previous action message for ${rig.name}`}
+            onClick={() => controls.dismiss(rig.id)}
+          >
+            Dismiss message
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1084,7 +1098,9 @@ export default function Dashboard() {
               r.error || ["failed", "timed_out"].includes(r.command?.status),
           ) && (
             <details className="op-control-errors">
-              <summary>Some rigs need attention — view command results</summary>
+              <summary>
+                Previous actions need review — view command results
+              </summary>
               {Object.values(controls.receipts)
                 .filter(
                   (r) =>
@@ -1093,7 +1109,8 @@ export default function Dashboard() {
                 )
                 .map((r) => (
                   <p key={r.minerId}>
-                    {r.name || r.minerId}:{" "}
+                    {r.name || r.minerId} ·{" "}
+                    {at(r.command?.createdAt || r.attemptedAt)}:{" "}
                     {r.error || r.command.error || r.command.status}
                   </p>
                 ))}

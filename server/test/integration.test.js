@@ -2649,6 +2649,79 @@ test("monitor sweeps expire rates by engine in the original bounded report clock
   }
 });
 
+test("upgraded clients replace old KRig capability failures with current registration evidence", async () => {
+  const Config = require("../src/models/Config");
+  const ws = await socket(),
+    reg = registration("krig-upgrade-rejection");
+  reg.version = "1.4.15";
+  reg.capabilities.gpuEngines = ["nanominer", "srbminer"];
+  send(ws, "register", reg);
+  const bound = await waitFor(() =>
+    ws.messages.find((m) => m.type === "bound"),
+  );
+  const id = bound.data.minerId;
+  await db.collection("miners").updateOne(
+    { id },
+    {
+      $set: {
+        "desiredConfigs.nanominer": {
+          ...Config.DEFAULTS.nanominer,
+          engine: "krig",
+          algorithm: "quantus",
+          coin: "QTC",
+          pool: "stratum+ssl://qtc-us.kryptex.network:8049",
+          tls: true,
+          user: "fixture-wallet",
+          version: "krig-fixture",
+        },
+      },
+    },
+  );
+  const rejected = await api("/v1/commands", "POST", {
+    minerId: id,
+    action: "start",
+    deviceType: "GPU",
+  });
+  assert.equal(rejected.status, 422);
+  assert.match(
+    rejected.data.error,
+    /Client 1.4.15 advertises: nanominer, srbminer/,
+  );
+  const history = await api(`/v1/events?minerId=${id}&kind=command-rejected`);
+  assert.equal(history.data.data.length, 1);
+  assert.equal(history.data.data[0].details.code, "ENGINE_UNSUPPORTED");
+  assert.equal(history.data.data[0].details.clientVersion, "1.4.15");
+  assert.equal(
+    await db.collection("commands").countDocuments({ minerId: id }),
+    0,
+  );
+  const upgraded = await socket();
+  send(upgraded, "register", {
+    ...reg,
+    version: "1.4.18",
+    capabilities: {
+      ...reg.capabilities,
+      gpuEngines: ["nanominer", "srbminer", "krig"],
+    },
+  });
+  await waitFor(() => upgraded.messages.some((m) => m.type === "bound"));
+  const accepted = await api("/v1/commands", "POST", {
+    minerId: id,
+    action: "start",
+    deviceType: "GPU",
+  });
+  assert.equal(accepted.status, 202, JSON.stringify(accepted.data));
+  await require("../src/services/commands").cancel(accepted.data.data.id);
+  assert.equal(
+    await db
+      .collection("events")
+      .countDocuments({ minerId: id, kind: "command-rejected" }),
+    1,
+  );
+  ws.terminate();
+  upgraded.terminate();
+});
+
 test("KRig profiles require capability support, survive reconnect and preserve GPU telemetry and failed controls", async () => {
   const Miner = require("../src/models/Miner");
   const Config = require("../src/models/Config");

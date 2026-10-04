@@ -254,11 +254,30 @@ async function createOne(minerId, input, actor = "admin", idempotencyKey) {
       ? ["xmrig", "nanominer"]
       : [spec.deviceType === "CPU" ? "xmrig" : "nanominer"]) {
       const config = command.configs?.[type] || miner.desiredConfigs?.[type];
-      if (!Config.supportsEngine(type, config, miner.capabilities))
-        throw problem(
-          `This agent cannot run the assigned ${config.engine} ${type === "xmrig" ? "CPU" : "GPU"} engine. Upgrade the client or assign a supported engine.`,
-          422,
-        );
+      if (!Config.supportsEngine(type, config, miner.capabilities)) {
+        const advertised =
+          miner.capabilities?.[type === "xmrig" ? "cpuEngines" : "gpuEngines"];
+        const supported = Array.isArray(advertised)
+          ? advertised
+              .filter((e) => typeof e === "string")
+              .slice(0, 10)
+              .map((e) => e.slice(0, 40))
+          : [];
+        const message = `This agent cannot run the assigned ${config.engine} ${type === "xmrig" ? "CPU" : "GPU"} engine. Client ${miner.version || "version unknown"} advertises: ${supported.join(", ") || "no optional engines"}. Upgrade the client or assign a supported engine.`;
+        // These requests fail before a command exists. Keep enough evidence to
+        // distinguish an old pre-upgrade rejection from the current client.
+        await require("./monitoring").event(minerId, "command-rejected", {
+          action: spec.action,
+          deviceType: spec.deviceType,
+          code: "ENGINE_UNSUPPORTED",
+          engine: config.engine,
+          clientVersion: miner.version || null,
+          supportedEngines: supported,
+          message,
+          actor,
+        });
+        throw problem(message, 422);
+      }
     }
   }
   try {

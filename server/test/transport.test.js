@@ -242,7 +242,7 @@ for (const character of ["界", "\u0000"])
     }
   });
 
-test("registration advertises SRBMiner only on supported native targets", async () => {
+test("registration advertises SRBMiner and KRig only on supported native targets", async () => {
   for (const [platform, arch, supported] of [
     ["win32", "x64", true],
     ["linux", "x64", true],
@@ -259,6 +259,12 @@ test("registration advertises SRBMiner only on supported native targets", async 
       return true;
     };
     await service.bind({}, true);
+    assert.equal(
+      registration.capabilities.gpuEngines.includes("krig"),
+      supported,
+      `${platform}/${arch}/KRig`,
+    );
+    assert.equal(registration.capabilities.cpuEngines.includes("krig"), false);
     for (const key of ["cpuEngines", "gpuEngines"])
       assert.equal(
         registration.capabilities[key].includes("srbminer"),
