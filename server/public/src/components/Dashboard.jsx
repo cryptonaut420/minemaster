@@ -1153,7 +1153,7 @@ export default function Dashboard() {
               filter("attention", filters.attention === "true" ? "" : "true")
             }
           />
-          <ClientUpdates />
+          <ClientUpdates onActivity={() => setScreen("Activity")} />
           <div className="op-toolbar op-filters">
             <label className="op-search">
               Find rigs

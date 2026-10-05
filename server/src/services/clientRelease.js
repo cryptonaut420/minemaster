@@ -72,7 +72,11 @@ function state(r, release) {
   if (online && !["current", "newer"].includes(status)) {
     if (!r.capabilities?.appUpdates || r.appUpdate?.supported === false)
       status = "manual";
-    else if (r.appUpdate?.state === "installing") status = "installing";
+    else if (r.activeUpdate) status = "installing";
+    else if (r.pendingCommand?.action === "app-update-check")
+      status = "checking";
+    else if (r.appUpdate?.state === "installing" && r.freshness?.telemetryFresh)
+      status = "installing";
     else if (
       r.appUpdate?.version === release &&
       r.appUpdate?.state === "downloaded" &&
@@ -81,7 +85,8 @@ function state(r, release) {
       status = "ready";
     else if (
       r.appUpdate?.version === release &&
-      r.appUpdate?.state === "downloading"
+      r.appUpdate?.state === "downloading" &&
+      r.freshness?.telemetryFresh
     )
       status = "downloading";
     else if (r.appUpdate?.state === "error") status = "error";
@@ -95,12 +100,20 @@ function state(r, release) {
     status,
     appUpdate: r.appUpdate,
     activeUpdate: r.activeUpdate || null,
+    pendingCommand: r.pendingCommand || null,
+    lastUpdate: r.lastUpdate || null,
+    telemetryFresh: !!r.freshness?.telemetryFresh,
     canCheck:
-      !["current", "newer", "installing"].includes(status) &&
+      (status !== "current" || r.appUpdate?.state === "error") &&
+      !["newer", "installing", "checking", "downloading", "ready"].includes(
+        status,
+      ) &&
+      !r.pendingCommand &&
+      !r.activeUpdate &&
       online &&
       !!r.capabilities?.appUpdates &&
       r.appUpdate?.supported !== false,
-    canInstall: status === "ready",
+    canInstall: status === "ready" && !r.pendingCommand && !r.activeUpdate,
   };
 }
 async function overview() {
@@ -124,29 +137,66 @@ async function overview() {
       throw e;
     }
   }
-  const updates = await getDb()
-    .collection("commands")
-    .find({
-      minerId: { $in: rows.map((r) => r.id) },
-      action: "app-update-install",
-      status: { $in: ["queued", "sent", "received", "running"] },
-      deadline: { $gt: new Date() },
-    })
-    .project({
+  const commands = getDb().collection("commands"),
+    ids = rows.map((r) => r.id),
+    projection = {
       _id: 0,
       minerId: 1,
       id: 1,
+      action: 1,
       status: 1,
       targetVersion: 1,
       deadline: 1,
-    })
-    .toArray();
+      createdAt: 1,
+      updatedAt: 1,
+      error: 1,
+    };
+  // Include all active controls: an update has ALL scope and cannot overlap
+  // another pending command. Keep overdue work blocked until expiry reconciles it.
+  const [pendingCommands, attempts] = await Promise.all([
+    commands
+      .find({
+        minerId: { $in: ids },
+        status: { $in: ["queued", "sent", "received", "running"] },
+      })
+      .project(projection)
+      .sort({ createdAt: -1, id: -1 })
+      .toArray(),
+    commands
+      .aggregate([
+        {
+          $match: {
+            minerId: { $in: ids },
+            action: { $in: ["app-update-check", "app-update-install"] },
+          },
+        },
+        { $sort: { minerId: 1, createdAt: -1, _id: -1 } },
+        { $group: { _id: "$minerId", attempt: { $first: "$$ROOT" } } },
+        { $replaceRoot: { newRoot: "$attempt" } },
+        { $project: projection },
+      ])
+      .toArray(),
+  ]);
+  const pendingByRig = new Map(),
+    installsByRig = new Map(),
+    lastByRig = new Map(attempts.map((c) => [c.minerId, c]));
+  for (const command of pendingCommands) {
+    if (!pendingByRig.has(command.minerId))
+      pendingByRig.set(command.minerId, command);
+    if (
+      command.action === "app-update-install" &&
+      !installsByRig.has(command.minerId)
+    )
+      installsByRig.set(command.minerId, command);
+  }
   const rigs = rows
     .map((r) =>
       state(
         {
           ...viewRig(r),
-          activeUpdate: updates.find((c) => c.minerId === r.id),
+          activeUpdate: installsByRig.get(r.id),
+          pendingCommand: pendingByRig.get(r.id),
+          lastUpdate: lastByRig.get(r.id),
         },
         release.version,
       ),

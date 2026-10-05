@@ -138,6 +138,19 @@ const { ObjectId } = require("mongodb");
       gaps: ["Synthetic missing CPU benchmark"],
     },
   });
+  // Deterministic, inert updater fixture; no downloads or installer execution.
+  await require("../src/services/clientRelease").latest(async () => ({
+    ok: true,
+    json: async () => ({
+      tag_name: "v1.4.18",
+      assets: [
+        "latest.yml",
+        "latest-linux.yml",
+        "MineMaster-1.4.18-Windows-Setup.exe",
+        "MineMaster-1.4.18-Linux.AppImage",
+      ].map((name) => ({ name })),
+    }),
+  }));
   const agents = [];
   for (let i = 0; i < 12; i++) {
     const gpus =
@@ -168,7 +181,7 @@ const { ObjectId } = require("mongodb");
             systemId: `fixture-${i}`,
             clientName: `Workshop ${String(i + 1).padStart(2, "0")}`,
             protocolVersion: 2,
-            version: "1.3.2+audit-fixture",
+            version: i === 0 ? "1.4.18+audit-fixture" : "1.3.2+audit-fixture",
             bootId: `fixture-boot-${i}`,
             capabilities: {
               commandResults: true,
@@ -194,10 +207,20 @@ const { ObjectId } = require("mongodb");
           data: {
             timestamp: Date.now() - (i === 6 ? 180000 : 0),
             appUpdate: {
-              state: "downloaded",
-              supported: true,
-              version: "1.3.3",
-              percent: 100,
+              state:
+                i === 1 || i === 5
+                  ? "idle"
+                  : i === 2
+                    ? "downloading"
+                    : [0, 7].includes(i)
+                      ? "error"
+                      : "downloaded",
+              supported: i !== 4,
+              version: "1.4.18",
+              percent: i === 2 ? 38 : 100,
+              message: [0, 7].includes(i)
+                ? "Synthetic update download failed"
+                : null,
               updatedAt: now,
             },
             processes: processes.map((p) => ({
@@ -412,7 +435,14 @@ const { ObjectId } = require("mongodb");
                 type: "command-result",
                 data: {
                   id: c.id,
-                  status: "succeeded",
+                  status:
+                    c.action.startsWith("app-update-") && [1, 3].includes(i)
+                      ? "failed"
+                      : "succeeded",
+                  error:
+                    c.action.startsWith("app-update-") && [1, 3].includes(i)
+                      ? "Synthetic updater failure; nothing installed"
+                      : null,
                   result: { simulated: true },
                 },
               }),

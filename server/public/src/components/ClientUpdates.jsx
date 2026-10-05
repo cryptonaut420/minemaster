@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import {
   useResource,
@@ -6,10 +6,11 @@ import {
   errorText,
   requestId,
   Badge,
+  at,
 } from "./Operations";
 import { useNotifications } from "./Notifications";
-export default function ClientUpdates() {
-  const data = useResource("client-release", {}, 15000),
+export default function ClientUpdates({ onActivity }) {
+  const data = useResource("client-release", {}, 8000),
     notify = useNotifications();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -20,11 +21,46 @@ export default function ClientUpdates() {
   const online = rows.filter((r) => r.online),
     current = online.filter((r) => r.status === "current"),
     ready = rows.filter((r) => r.canInstall),
-    checks = rows.filter((r) => r.canCheck && r.status !== "current");
-  async function run(install) {
+    checks = rows.filter((r) => r.canCheck);
+  const observed = useRef(new Map());
+  useEffect(() => {
+    for (const rig of data.data?.rigs || []) {
+      const command = rig.lastUpdate;
+      if (!command) continue;
+      const previous = observed.current.get(rig.id);
+      if (
+        previous?.id === command.id &&
+        ["queued", "sent", "received", "running"].includes(previous.status) &&
+        ["succeeded", "failed", "timed_out", "canceled"].includes(
+          command.status,
+        )
+      ) {
+        const label =
+          command.action === "app-update-install"
+            ? "Installation"
+            : "Update check";
+        if (command.status === "succeeded")
+          notify.success(
+            `${rig.name}: ${label} confirmed${command.action === "app-update-check" ? "; download and installation progress appears here." : "."}`,
+          );
+        else
+          notify.error(
+            `${rig.name}: ${label.toLowerCase()} ${command.status.replaceAll("_", " ")}. ${command.error || "See the last attempt below."}`,
+            10000,
+          );
+      }
+      observed.current.set(rig.id, { id: command.id, status: command.status });
+    }
+  }, [data.data]);
+  async function run(
+    install,
+    target = null,
+    expectedVersion = release?.version,
+  ) {
     setBusy(true);
     setConfirm(false);
     setError("");
+    setResults(null);
     notify.info(
       install
         ? "Requesting client installations…"
@@ -33,13 +69,15 @@ export default function ClientUpdates() {
     try {
       // Refresh immediately: never install a previously staged version after a release changes.
       const fresh = (await api.get("/v1/client-release")).data;
-      if (install && fresh.release.version !== release.version)
+      if (install && fresh.release.version !== expectedVersion)
         throw Error(
           "The latest release changed. Review the refreshed version before installing.",
         );
       const ids = fresh.rigs
-        .filter((r) =>
-          install ? r.canInstall : r.canCheck && r.status !== "current",
+        .filter(
+          (r) =>
+            (!target || r.id === target.id) &&
+            (install ? r.canInstall : r.canCheck),
         )
         .map((r) => r.id);
       if (!ids.length)
@@ -48,19 +86,53 @@ export default function ClientUpdates() {
             ? "No online rigs have the latest update ready yet."
             : "No online clients need an update check.",
         );
-      const response = await api.post(
-        "/v1/commands",
-        {
-          minerIds: ids,
-          action: install ? "app-update-install" : "app-update-check",
-          deviceType: "ALL",
-          ...(install
-            ? { targetVersion: fresh.release.version, timeoutSeconds: 900 }
-            : {}),
-        },
-        { headers: { "Idempotency-Key": requestId() } },
-      );
-      setResults(response.data.results);
+      const operation = requestId(),
+        outcomes = [];
+      // Bound each request: the server dispatches sequentially and a large
+      // fleet must not exceed the HTTP deadline or the 500-target API limit.
+      for (let offset = 0; offset < ids.length; offset += 8) {
+        const chunk = ids.slice(offset, offset + 8);
+        try {
+          const response = await api.post(
+            "/v1/commands",
+            {
+              minerIds: chunk,
+              action: install ? "app-update-install" : "app-update-check",
+              deviceType: "ALL",
+              ...(install
+                ? { targetVersion: fresh.release.version, timeoutSeconds: 900 }
+                : {}),
+            },
+            {
+              timeout: 65000,
+              headers: { "Idempotency-Key": `${operation}:${offset}` },
+            },
+          );
+          outcomes.push(...response.data.results);
+          for (const result of response.data.results) {
+            if (result.command)
+              observed.current.set(result.minerId, {
+                id: result.command.id,
+                status: result.command.status,
+              });
+          }
+        } catch (e) {
+          outcomes.push(
+            ...chunk.map((id) => ({
+              minerId: id,
+              error: `${errorText(e)} — outcome unconfirmed; review Activity before retrying.`,
+            })),
+          );
+        }
+        setResults([...outcomes]);
+      }
+      const failures = outcomes.filter((r) => r.error).length;
+      if (failures)
+        notify.error(
+          `${failures} update request${failures === 1 ? " needs" : "s need"} attention. See details below.`,
+          10000,
+        );
+      if (!outcomes.some((r) => r.command)) return;
       notify.info(
         install
           ? "Installations requested. Rigs reconnect after updating; “Current” confirms the reported version."
@@ -86,6 +158,7 @@ export default function ClientUpdates() {
     installing: "Installing",
     ready: "Ready to install",
     downloading: "Downloading",
+    checking: "Checking for updates",
     error: "Update error",
   };
   return (
@@ -122,21 +195,31 @@ export default function ClientUpdates() {
         <button
           className="op-primary"
           disabled={busy || !!data.error || !ready.length}
-          onClick={() => setConfirm(true)}
+          onClick={() => setConfirm({ all: true, version: release.version })}
         >
           Install latest on {ready.length} ready rigs
         </button>
         <button disabled={busy} onClick={data.reload}>
           Refresh versions
         </button>
+        {onActivity && (
+          <button onClick={onActivity}>View command history</button>
+        )}
       </div>
       {confirm && (
         <div className="op-warning">
           <p>
-            Install {release.version} on all ready online rigs? Mining pauses
-            briefly and the client restarts. Existing mining intent is retained.
+            Install {confirm.version} on{" "}
+            {confirm.all ? "all ready online rigs" : confirm.name}? Mining
+            pauses briefly and the client restarts. Existing mining intent is
+            retained.
           </p>
-          <button disabled={busy} onClick={() => run(true)}>
+          <button
+            disabled={busy}
+            onClick={() =>
+              run(true, confirm.all ? null : confirm, confirm.version)
+            }
+          >
             Confirm installations
           </button>
           <button disabled={busy} onClick={() => setConfirm(false)}>
@@ -165,6 +248,48 @@ export default function ClientUpdates() {
                   ? "Installing automatically"
                   : labels[r.status]}
               </Badge>
+              {r.status === "downloading" &&
+                Number.isFinite(r.appUpdate?.percent) && (
+                  <small>
+                    Download:{" "}
+                    {Math.max(
+                      0,
+                      Math.min(100, Math.round(r.appUpdate.percent)),
+                    )}
+                    %
+                  </small>
+                )}
+              {r.online && !r.telemetryFresh && (
+                <small>
+                  Update telemetry is overdue; progress is unconfirmed.
+                </small>
+              )}
+              {r.pendingCommand && (
+                <small>
+                  Pending: {r.pendingCommand.action.replaceAll("-", " ")} ·{" "}
+                  {r.pendingCommand.status} · deadline{" "}
+                  {at(r.pendingCommand.deadline)}. Manage in Activity.
+                </small>
+              )}
+              {r.lastUpdate && (
+                <small
+                  className={
+                    ["failed", "timed_out", "canceled"].includes(
+                      r.lastUpdate.status,
+                    )
+                      ? "op-warning"
+                      : "op-muted"
+                  }
+                >
+                  Last{" "}
+                  {r.lastUpdate.action === "app-update-install"
+                    ? "installation"
+                    : "check"}{" "}
+                  · {at(r.lastUpdate.createdAt)} ·{" "}
+                  {r.lastUpdate.status.replaceAll("_", " ")}
+                  {r.lastUpdate.error ? ` — ${r.lastUpdate.error}` : ""}
+                </small>
+              )}
               {r.status === "offline" &&
                 r.appUpdate?.state === "installing" && (
                   <small>
@@ -172,9 +297,41 @@ export default function ClientUpdates() {
                     installer on this PC.
                   </small>
                 )}
-              {["error", "manual", "ready"].includes(r.status) &&
+              {r.appUpdate?.state === "error" && r.appUpdate.message && (
+                <details className="op-update-error">
+                  <summary>Updater error · {at(r.appUpdate.updatedAt)}</summary>
+                  <pre>{r.appUpdate.message}</pre>
+                </details>
+              )}
+              {["manual", "ready"].includes(r.status) &&
                 r.appUpdate?.message && <small>{r.appUpdate.message}</small>}
             </span>
+            <div className="op-actions">
+              {r.canCheck && (
+                <button
+                  disabled={busy || !!data.error}
+                  aria-label={`Check and download update on ${r.name}`}
+                  onClick={() => run(false, r)}
+                >
+                  Check & download
+                </button>
+              )}
+              {r.canInstall && (
+                <button
+                  disabled={busy || !!data.error}
+                  aria-label={`Install latest client on ${r.name}`}
+                  onClick={() =>
+                    setConfirm({
+                      id: r.id,
+                      name: r.name,
+                      version: release.version,
+                    })
+                  }
+                >
+                  Install latest
+                </button>
+              )}
+            </div>
           </li>
         ))}
       </ul>

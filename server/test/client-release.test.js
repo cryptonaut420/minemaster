@@ -58,3 +58,78 @@ test("latest release rejects incomplete assets and caches a verified complete re
   await latest(f);
   assert.equal(calls, 2);
 });
+
+test("update controls block overlapping commands and fresh downloads while retaining actual installed version", () => {
+  const rig = {
+    id: "one",
+    version: "1.4.17",
+    freshness: { connected: true, telemetryFresh: true },
+    capabilities: { appUpdates: true },
+    appUpdate: { supported: true, state: "downloaded", version: "1.4.18" },
+  };
+  assert.equal(state(rig, "1.4.18").canInstall, true);
+  assert.equal(state(rig, "1.4.18").canCheck, false);
+  const command = { id: "check", action: "app-update-check", status: "sent" };
+  let result = state({ ...rig, pendingCommand: command }, "1.4.18");
+  assert.equal(result.status, "checking");
+  assert.equal(result.canCheck, false);
+  assert.equal(result.canInstall, false);
+  result = state(
+    { ...rig, pendingCommand: { ...command, action: "start" } },
+    "1.4.18",
+  );
+  assert.equal(result.status, "ready");
+  assert.equal(result.canInstall, false);
+  result = state(
+    { ...rig, activeUpdate: { ...command, action: "app-update-install" } },
+    "1.4.18",
+  );
+  assert.equal(result.status, "installing");
+  assert.equal(result.canInstall, false);
+  assert.equal(result.canCheck, false);
+  rig.appUpdate.state = "downloading";
+  assert.equal(state(rig, "1.4.18").canCheck, false);
+  rig.freshness.telemetryFresh = false;
+  assert.equal(state(rig, "1.4.18").status, "outdated");
+  assert.equal(state(rig, "1.4.18").canCheck, true);
+  rig.version = "1.4.18";
+  result = state(
+    {
+      ...rig,
+      lastUpdate: {
+        ...command,
+        status: "timed_out",
+        error: "Reconnect not confirmed",
+      },
+    },
+    "1.4.18",
+  );
+  assert.equal(result.status, "current");
+  assert.equal(result.lastUpdate.status, "timed_out");
+  rig.freshness.connected = false;
+  result = state({ ...rig, pendingCommand: command }, "1.4.18");
+  assert.equal(
+    result.status,
+    "offline",
+    "a check is not an installation/reconnect",
+  );
+  assert.equal(result.canCheck, false);
+});
+
+test("a current client keeps its accurate version badge but can explicitly retry a failed release check", () => {
+  const rig = {
+    id: "current",
+    version: "1.4.18",
+    capabilities: { appUpdates: true },
+    freshness: { connected: true, telemetryFresh: true },
+    appUpdate: { supported: true, state: "error", message: "GitHub HTTP 500" },
+  };
+  assert.equal(state(rig, "1.4.18").status, "current");
+  assert.equal(state(rig, "1.4.18").canCheck, true);
+  assert.equal(state(rig, "1.4.18").canInstall, false);
+  assert.equal(
+    state({ ...rig, pendingCommand: { action: "stop" } }, "1.4.18").canCheck,
+    false,
+  );
+  assert.equal(state({ ...rig, version: "1.4.19" }, "1.4.18").canCheck, false);
+});

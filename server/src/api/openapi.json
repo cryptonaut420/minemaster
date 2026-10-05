@@ -3926,7 +3926,7 @@
         ],
         "responses": {
           "200": {
-            "description": "release metadata, checkedAt, rigs with current/offline/ready/manual/error status; all filters and pages included"
+            "description": "Release metadata and all bound rigs with status (including checking), telemetryFresh, canCheck, canInstall, activeUpdate (installation only), pendingCommand (any active control), and lastUpdate (latest retained check/install outcome). Command summaries exclude configs and result payloads. Current version and updater errors are independent; stale telemetry never permits installation. All filters and pages included."
           },
           "503": {
             "description": "Latest release or database unavailable"

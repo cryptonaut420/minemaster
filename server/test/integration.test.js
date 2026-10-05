@@ -2869,9 +2869,123 @@ test("KRig profiles require capability support, survive reconnect and preserve G
   }
 });
 
+test("release overview retains latest update outcomes and blocks competing controls without exposing command payloads", async () => {
+  const releases = require("../src/services/clientRelease");
+  await releases.latest(async () => ({
+    ok: true,
+    json: async () => ({
+      tag_name: "v9.0.0",
+      assets: [
+        "latest.yml",
+        "latest-linux.yml",
+        "MineMaster-9.0.0-Windows-Setup.exe",
+        "MineMaster-9.0.0-Linux.AppImage",
+      ].map((name) => ({ name })),
+    }),
+  }));
+  const ws = await socket();
+  send(ws, "register", {
+    ...registration("update-overview"),
+    version: "1.4.18",
+    capabilities: { commandResults: true, appUpdates: true },
+  });
+  const bound = await waitFor(() =>
+    ws.messages.find((m) => m.type === "bound"),
+  );
+  const id = bound.data.minerId;
+  const now = new Date();
+  await db.collection("commands").insertMany([
+    {
+      id: "overview-old",
+      minerId: id,
+      action: "app-update-check",
+      status: "succeeded",
+      createdAt: new Date(+now - 1000),
+      configs: { secret: "do-not-return" },
+    },
+    {
+      id: "overview-last",
+      minerId: id,
+      action: "app-update-install",
+      status: "timed_out",
+      createdAt: now,
+      error: "No confirmed reconnect",
+      targetVersion: "9.0.0",
+      result: { secret: "do-not-return" },
+    },
+    {
+      id: "overview-pending",
+      minerId: id,
+      action: "start",
+      status: "running",
+      createdAt: now,
+      deadline: new Date(+now + 60000),
+    },
+  ]);
+  let response = await api("/v1/client-release");
+  assert.equal(response.status, 200);
+  let row = response.data.rigs.find((r) => r.id === id);
+  assert.equal(row.lastUpdate.id, "overview-last");
+  assert.equal(row.lastUpdate.error, "No confirmed reconnect");
+  assert.equal(row.lastUpdate.result, undefined);
+  assert.equal(row.lastUpdate.configs, undefined);
+  assert.equal(row.pendingCommand.id, "overview-pending");
+  assert.equal(row.canCheck, false);
+  assert.equal(row.activeUpdate, null);
+  await db
+    .collection("commands")
+    .updateOne({ id: "overview-pending" }, { $set: { status: "succeeded" } });
+  response = await api("/v1/client-release");
+  row = response.data.rigs.find((r) => r.id === id);
+  assert.equal(row.pendingCommand, null);
+  assert.equal(row.canCheck, true);
+  assert.equal(
+    row.lastUpdate.id,
+    "overview-last",
+    "outcome survives refresh and other controls",
+  );
+  const readKey = await api("/v1/api-keys", "POST", {
+    name: "Update overview reader",
+    permission: "read",
+  });
+  const headers = { Authorization: "", "X-API-Key": readKey.data.secret };
+  assert.equal(
+    (await api("/v1/client-release", "GET", undefined, headers)).status,
+    200,
+  );
+  assert.equal(
+    (
+      await api(
+        "/v1/commands",
+        "POST",
+        { minerId: id, action: "app-update-check", deviceType: "ALL" },
+        headers,
+      )
+    ).status,
+    403,
+  );
+  await db
+    .collection("apiKeys")
+    .updateOne(
+      { id: readKey.data.data.id },
+      { $set: { expiresAt: new Date(Date.now() - 1000) } },
+    );
+  assert.equal(
+    (await api("/v1/client-release", "GET", undefined, headers)).status,
+    401,
+  );
+  await api(`/v1/api-keys/${readKey.data.data.id}`, "DELETE");
+  assert.equal(
+    (await api("/v1/client-release", "GET", undefined, headers)).status,
+    401,
+  );
+  await db.collection("commands").deleteMany({ minerId: id });
+});
+
 test("database failures are unavailable responses, never successful empty data", async () => {
   await require("../src/db/mongodb").disconnect();
   assert.equal((await api("/v1/rigs")).status, 503);
+  assert.equal((await api("/v1/client-release")).status, 503);
   assert.equal((await api("/v1/config-profiles")).status, 503);
   assert.equal((await api("/health")).status, 503);
   assert.equal((await api("/live")).status, 200);
