@@ -15,13 +15,38 @@ export default function ClientUpdates({ onActivity }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [confirm, setConfirm] = useState(false),
-    [results, setResults] = useState(null);
+    [results, setResults] = useState(null),
+    [listFilter, setListFilter] = useState("all"),
+    [query, setQuery] = useState("");
   const rows = data.data?.rigs || [],
     release = data.data?.release;
   const online = rows.filter((r) => r.online),
     current = online.filter((r) => r.status === "current"),
     ready = rows.filter((r) => r.canInstall),
     checks = rows.filter((r) => r.canCheck);
+  const listViews = [
+    { key: "all", label: "All rigs", match: () => true },
+    {
+      key: "outdated",
+      label: "Update needed",
+      match: (r) => r.online && !["current", "newer"].includes(r.status),
+    },
+    {
+      key: "issues",
+      label: "Needs review",
+      match: (r) =>
+        r.appUpdate?.state === "error" ||
+        r.status === "manual" ||
+        (!["current", "newer"].includes(r.status) &&
+          ["failed", "timed_out", "canceled"].includes(r.lastUpdate?.status)),
+    },
+    { key: "offline", label: "Offline", match: (r) => !r.online },
+  ];
+  const visibleRows = rows.filter(
+    (r) =>
+      listViews.find((v) => v.key === listFilter).match(r) &&
+      r.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   const observed = useRef(new Map());
   useEffect(() => {
     for (const rig of data.data?.rigs || []) {
@@ -227,8 +252,51 @@ export default function ClientUpdates({ onActivity }) {
           </button>
         </div>
       )}
-      <ul className="op-feed">
-        {rows.map((r) => (
+      <div className="op-update-list-tools">
+        <div
+          className="op-quick-views"
+          role="group"
+          aria-label="Filter update list"
+        >
+          {listViews.map((view) => (
+            <button
+              key={view.key}
+              aria-pressed={listFilter === view.key}
+              onClick={() => setListFilter(view.key)}
+            >
+              {view.label} ({rows.filter(view.match).length})
+            </button>
+          ))}
+        </div>
+        <label>
+          Find a rig in updates
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rig name…"
+          />
+        </label>
+        <small>
+          {visibleRows.length} of {rows.length} rigs shown. List filters do not
+          change the fleet update actions above.
+        </small>
+      </div>
+      {!visibleRows.length && !data.loading && !data.error && (
+        <p className="op-empty">
+          No rigs match this update view.{" "}
+          <button
+            onClick={() => {
+              setQuery("");
+              setListFilter("all");
+            }}
+          >
+            Show all updates
+          </button>
+        </p>
+      )}
+      <ul className="op-feed op-update-list">
+        {visibleRows.map((r) => (
           <li key={r.id}>
             <strong>{r.name}</strong>
             <span>

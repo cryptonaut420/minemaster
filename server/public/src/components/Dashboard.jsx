@@ -16,6 +16,17 @@ import {
 import "./Dashboard.css";
 import useQuickControls from "../hooks/useQuickControls";
 import ClientUpdates from "./ClientUpdates";
+import {
+  fleetViews,
+  filterLabels,
+  filterValue,
+  changeQuery,
+  clearFilters,
+  readViews,
+  readColumns,
+  storePreference,
+  browserPreferences,
+} from "../utils/fleetViews";
 import FleetOverview, { algorithmName } from "./FleetOverview";
 import { useNotifications } from "./Notifications";
 import {
@@ -916,13 +927,16 @@ function IncidentList({ incidents, resolved = false, onSelect }) {
   );
 }
 export default function Dashboard() {
-  const [columns, setColumns] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("minemaster-columns") || "{}");
-    } catch (_) {
-      return {};
-    }
-  });
+  const notify = useNotifications();
+  const [columns, setColumns] = useState(() => readColumns(browserPreferences));
+  function persist(key, value) {
+    const saved = storePreference(browserPreferences, key, value);
+    if (!saved)
+      notify.error(
+        "Browser storage is unavailable. This preference will last only for this visit.",
+      );
+    return saved;
+  }
   const [search, setSearch] = useSearchParams(),
     [screen, setScreen] = useState("Fleet"),
     [selected, setSelected] = useState({}),
@@ -931,13 +945,9 @@ export default function Dashboard() {
     [cursor, setCursor] = useState(null),
     [pageStack, setPageStack] = useState([]),
     [timeframe, setTimeframe] = useState("24h");
-  const [savedViews, setSavedViews] = useState(() => {
-      try {
-        return JSON.parse(localStorage.getItem("minemaster-views") || "[]");
-      } catch (_) {
-        return [];
-      }
-    }),
+  const [savedViews, setSavedViews] = useState(() =>
+      readViews(browserPreferences),
+    ),
     [viewName, setViewName] = useState("");
   const params = Object.fromEntries(search),
     filters = {
@@ -996,13 +1006,22 @@ export default function Dashboard() {
   });
   useEffect(() => () => clearTimeout(invalidation.current), []);
   const rows = fleet.data?.data || [];
-  function filter(key, value) {
-    const next = new URLSearchParams(search);
-    value ? next.set(key, value) : next.delete(key);
+  function applyFilters(next) {
     setSearch(next, { replace: true });
     setCursor(null);
     setPageStack([]);
     setSelected({});
+  }
+  function filter(key, value) {
+    applyFilters(changeQuery(search, { [key]: value }));
+  }
+  function selectPage(checked) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const rig of rows)
+        checked ? (next[rig.id] = rig) : delete next[rig.id];
+      return next;
+    });
   }
   const picked = Object.values(selected);
   const controls = useQuickControls(() => reloadRef.current());
@@ -1154,151 +1173,254 @@ export default function Dashboard() {
             }
           />
           <ClientUpdates onActivity={() => setScreen("Activity")} />
-          <div className="op-toolbar op-filters">
-            <label className="op-search">
-              Find rigs
-              <input
-                value={filters.q}
-                onChange={(e) => filter("q", e.target.value)}
-                placeholder="Name, host, address, group, tag…"
-              />
-            </label>
-            <label>
-              Status
-              <select
-                value={filters.status}
-                onChange={(e) => filter("status", e.target.value)}
-              >
-                <option value="">All statuses</option>
-                {[
-                  "mining",
-                  "online",
-                  "offline",
-                  "stale",
-                  "error",
-                  "archived",
-                  "forgotten",
-                ].map((s) => (
-                  <option key={s} value={s}>
-                    {s === "online" ? "Stopped · online" : s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {Object.values(filters).some(Boolean) && (
-              <button
-                onClick={() => {
-                  setSearch({});
-                  setCursor(null);
-                  setPageStack([]);
-                  setSelected({});
-                }}
-              >
-                Clear filters
-              </button>
-            )}
-            <details>
-              <summary>
-                More filters &amp; saved views
-                {[filters.group, filters.tag, filters.attention].some(Boolean)
-                  ? " · active"
-                  : ""}
-              </summary>
-              <div className="op-toolbar">
-                <label>
-                  Group
-                  <input
-                    value={filters.group}
-                    onChange={(e) => filter("group", e.target.value)}
-                    placeholder="Any group"
-                  />
-                </label>
-                <label>
-                  Tag
-                  <input
-                    value={filters.tag}
-                    onChange={(e) => filter("tag", e.target.value)}
-                    placeholder="Any tag"
-                  />
-                </label>
-                <label>
-                  Attention
-                  <select
-                    value={filters.attention}
-                    onChange={(e) => filter("attention", e.target.value)}
-                  >
-                    <option value="">All rigs</option>
-                    <option value="true">Needs attention</option>
-                    <option value="false">No attention flagged</option>
-                  </select>
-                </label>
-              </div>
-              <label>
-                Saved view
-                <select
-                  value=""
-                  onChange={(e) => {
-                    setSearch(savedViews[Number(e.target.value)].query);
-                    setCursor(null);
-                    setPageStack([]);
-                    setSelected({});
-                  }}
+          <section
+            className="op-fleet-filters"
+            aria-label="Find and filter rigs"
+          >
+            <div
+              className="op-quick-views"
+              role="group"
+              aria-label="Quick fleet views"
+            >
+              {fleetViews.map((view) => (
+                <button
+                  key={view.label}
+                  aria-pressed={
+                    filters.status === view.status &&
+                    filters.attention === view.attention
+                  }
+                  onClick={() =>
+                    applyFilters(
+                      changeQuery(search, {
+                        status: view.status,
+                        attention: view.attention,
+                      }),
+                    )
+                  }
                 >
-                  <option value="">Choose view…</option>
-                  {savedViews.map((v, i) => (
-                    <option key={i} value={i}>
-                      {v.name}
+                  {view.label}
+                </button>
+              ))}
+            </div>
+            <div className="op-toolbar op-filters">
+              <label className="op-search">
+                Find rigs
+                <input
+                  type="search"
+                  value={filters.q}
+                  onChange={(e) => filter("q", e.target.value)}
+                  placeholder="Name, host, address, group, tag…"
+                />
+              </label>
+              <label>
+                Status
+                <select
+                  value={filters.status}
+                  onChange={(e) => filter("status", e.target.value)}
+                >
+                  <option value="">All statuses</option>
+                  {[
+                    "mining",
+                    "online",
+                    "offline",
+                    "stale",
+                    "error",
+                    "archived",
+                    "forgotten",
+                  ].map((s) => (
+                    <option key={s} value={s}>
+                      {s === "online" ? "Stopped · online" : s}
                     </option>
                   ))}
                 </select>
               </label>
-              <label>
-                View name
-                <input
-                  value={viewName}
-                  maxLength={60}
-                  onChange={(e) => setViewName(e.target.value)}
-                />
-              </label>
-              <button
-                disabled={!viewName.trim()}
-                onClick={() => {
-                  const next = [
-                    ...savedViews.filter((v) => v.name !== viewName.trim()),
-                    { name: viewName.trim(), query: search.toString() },
-                  ].slice(-20);
-                  setSavedViews(next);
-                  localStorage.setItem(
-                    "minemaster-views",
-                    JSON.stringify(next),
-                  );
-                  setViewName("");
-                }}
-              >
-                Save current view
-              </button>
-              <label className="op-check">
-                <input
-                  type="checkbox"
-                  checked={filters.includeArchived === "true"}
-                  onChange={(e) =>
-                    filter("includeArchived", e.target.checked ? "true" : "")
-                  }
-                />
-                Include archived
-              </label>
-              <label className="op-check">
-                <input
-                  type="checkbox"
-                  checked={filters.includeForgotten === "true"}
-                  onChange={(e) =>
-                    filter("includeForgotten", e.target.checked ? "true" : "")
-                  }
-                />
-                Include forgotten
-              </label>
-            </details>
-          </div>
+              {Object.values(filters).some(Boolean) && (
+                <button
+                  onClick={() => {
+                    applyFilters(clearFilters(search));
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
+              <details>
+                <summary>
+                  More filters &amp; saved views
+                  {[filters.group, filters.tag, filters.attention].some(Boolean)
+                    ? " · active"
+                    : ""}
+                </summary>
+                <div className="op-toolbar">
+                  <label>
+                    Group
+                    <input
+                      value={filters.group}
+                      onChange={(e) => filter("group", e.target.value)}
+                      placeholder="Any group"
+                    />
+                  </label>
+                  <label>
+                    Tag
+                    <input
+                      value={filters.tag}
+                      onChange={(e) => filter("tag", e.target.value)}
+                      placeholder="Any tag"
+                    />
+                  </label>
+                  <label>
+                    Attention
+                    <select
+                      value={filters.attention}
+                      onChange={(e) => filter("attention", e.target.value)}
+                    >
+                      <option value="">All rigs</option>
+                      <option value="true">Needs attention</option>
+                      <option value="false">No attention flagged</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Saved view
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setSearch(savedViews[Number(e.target.value)].query);
+                      setCursor(null);
+                      setPageStack([]);
+                      setSelected({});
+                    }}
+                  >
+                    <option value="">Choose view…</option>
+                    {savedViews.map((v, i) => (
+                      <option key={i} value={i}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  View name
+                  <input
+                    value={viewName}
+                    maxLength={60}
+                    onChange={(e) => setViewName(e.target.value)}
+                  />
+                </label>
+                <button
+                  disabled={!viewName.trim()}
+                  onClick={() => {
+                    const next = [
+                      ...savedViews.filter((v) => v.name !== viewName.trim()),
+                      { name: viewName.trim(), query: search.toString() },
+                    ].slice(-20);
+                    setSavedViews(next);
+                    if (persist("minemaster-views", next))
+                      notify.success(`Saved view “${viewName.trim()}”.`);
+                    setViewName("");
+                  }}
+                >
+                  Save current view
+                </button>
+                {!!savedViews.length && (
+                  <details className="op-saved-views">
+                    <summary>Manage saved views ({savedViews.length})</summary>
+                    {savedViews.map((view, index) => (
+                      <div className="op-row" key={`${view.name}:${index}`}>
+                        <span>{view.name}</span>
+                        <button
+                          aria-label={`Delete saved view ${view.name}`}
+                          onClick={() => {
+                            const next = savedViews.filter(
+                              (_, i) => i !== index,
+                            );
+                            setSavedViews(next);
+                            persist("minemaster-views", next);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </details>
+                )}
+                <label className="op-check">
+                  <input
+                    type="checkbox"
+                    checked={filters.includeArchived === "true"}
+                    onChange={(e) =>
+                      filter("includeArchived", e.target.checked ? "true" : "")
+                    }
+                  />
+                  Include archived
+                </label>
+                <label className="op-check">
+                  <input
+                    type="checkbox"
+                    checked={filters.includeForgotten === "true"}
+                    onChange={(e) =>
+                      filter("includeForgotten", e.target.checked ? "true" : "")
+                    }
+                  />
+                  Include forgotten
+                </label>
+              </details>
+            </div>
+            {Object.values(filters).some(Boolean) && (
+              <div className="op-filter-tags" aria-label="Active rig filters">
+                {Object.entries(filters)
+                  .filter(([, value]) => value)
+                  .map(([key, value]) => (
+                    <button
+                      key={key}
+                      aria-label={`Remove ${filterLabels[key].toLowerCase()} filter`}
+                      onClick={() => filter(key, "")}
+                    >
+                      {filterLabels[key]}: {filterValue(key, value)}{" "}
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </section>
+          {!!picked.length && (
+            <div
+              className="op-selection-bar"
+              role="region"
+              aria-label="Selected rig controls"
+            >
+              <div>
+                <strong>
+                  {picked.length} {picked.length === 1 ? "rig" : "rigs"}{" "}
+                  selected
+                </strong>
+                <small>Across pages · applies only to your selection</small>
+              </div>
+              <div className="op-actions">
+                <button
+                  className="op-play"
+                  disabled={controls.busy || !!fleet.error}
+                  onClick={() => controls.run("start", picked)}
+                >
+                  ▶ Play selected
+                </button>
+                <button
+                  className="op-pause"
+                  disabled={!!fleet.error}
+                  onClick={() => controls.run("stop", picked)}
+                >
+                  Ⅱ Pause selected
+                </button>
+                <button
+                  disabled={!!fleet.error}
+                  onClick={() => setAction(picked)}
+                >
+                  Advanced actions
+                </button>
+                <button onClick={() => setSelected({})}>Clear selection</button>
+              </div>
+            </div>
+          )}
           <div className={`op-workspace ${detail ? "op-has-detail" : ""}`}>
             <section className="op-surface">
               <div className="op-section-title">
@@ -1320,10 +1442,7 @@ export default function Dashboard() {
                               [key]: e.target.checked,
                             };
                             setColumns(next);
-                            localStorage.setItem(
-                              "minemaster-columns",
-                              JSON.stringify(next),
-                            );
+                            persist("minemaster-columns", next);
                           }}
                         />
                         Host &amp; IP address
@@ -1357,71 +1476,53 @@ export default function Dashboard() {
                       <option value="status:desc">State Z–A</option>
                     </select>
                   </label>
-                  {!!picked.length && (
-                    <span>{picked.length} selected across pages</span>
-                  )}
-                  {!!picked.length && (
-                    <>
-                      <button
-                        className="op-play"
-                        disabled={controls.busy || !!fleet.error}
-                        onClick={() => controls.run("start", picked)}
-                      >
-                        ▶ Play selected
-                      </button>
-                      <button
-                        className="op-pause"
-                        disabled={!!fleet.error}
-                        onClick={() => controls.run("stop", picked)}
-                      >
-                        Ⅱ Pause selected
-                      </button>
-                    </>
-                  )}
-                  {!!picked.length && (
-                    <button onClick={() => setSelected({})}>
-                      Clear selection
-                    </button>
-                  )}
-                  <button
-                    disabled={!picked.length}
-                    onClick={() => setAction(picked)}
-                  >
-                    Advanced actions
-                  </button>
                   <button onClick={fleet.reload}>Refresh</button>
                 </div>
               </div>
+              <div className="op-page-selection">
+                <label className="op-check">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all rigs on this page"
+                    ref={(node) => {
+                      if (node)
+                        node.indeterminate =
+                          rows.some((r) => selected[r.id]) &&
+                          !rows.every((r) => selected[r.id]);
+                    }}
+                    checked={!!rows.length && rows.every((r) => selected[r.id])}
+                    disabled={!rows.length || !!fleet.error}
+                    onChange={(e) => selectPage(e.target.checked)}
+                  />
+                  Select this page
+                </label>
+                <span className="op-muted">
+                  {rows.length} shown
+                  {fleet.data ? ` of ${fleet.data.total} matching rigs` : ""}
+                </span>
+              </div>
               {fleet.loading && <p className="op-empty">Loading rigs…</p>}
-              {fleet.data?.data.length === 0 && (
+              {!fleet.error && fleet.data?.data.length === 0 && (
                 <p className="op-empty">
-                  No rigs match these filters. Clear filters or register an
-                  agent.
+                  {Object.values(filters).some(Boolean) ? (
+                    <>
+                      No rigs match this view.{" "}
+                      <button
+                        onClick={() => applyFilters(clearFilters(search))}
+                      >
+                        Show all rigs
+                      </button>
+                    </>
+                  ) : (
+                    "No rigs have reported yet. Connect a MineMaster client to get started."
+                  )}
                 </p>
               )}
               <div className="op-table-wrap">
                 <table className="op-table fleet-table">
                   <thead>
                     <tr>
-                      <th>
-                        <input
-                          type="checkbox"
-                          aria-label="Select all rigs on this page"
-                          checked={
-                            !!rows.length && rows.every((r) => selected[r.id])
-                          }
-                          onChange={(e) =>
-                            setSelected((prev) => {
-                              const next = { ...prev };
-                              rows.forEach((r) => {
-                                if (e.target.checked) next[r.id] = r;
-                                else delete next[r.id];
-                              });
-                              return next;
-                            })
-                          }
-                        />
-                      </th>
+                      <th aria-label="Selection" />
                       <th>Rig</th>
                       <th>Mining</th>
                       <th>GPU hashrate &amp; hardware</th>

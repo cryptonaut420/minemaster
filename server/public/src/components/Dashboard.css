@@ -991,3 +991,107 @@
   font-size: 17px;
   font-weight: 600;
 }
+
+/* Fleet navigation uses the established palette; accents mark active scope. */
+.op-fleet-filters {
+  margin: 18px 0;
+}
+.op-quick-views,
+.op-filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.operations .op-quick-views button {
+  background: transparent;
+  color: var(--op-muted);
+}
+.operations .op-quick-views button[aria-pressed="true"] {
+  color: var(--op-text);
+  border-color: var(--op-accent);
+  background: #203748;
+}
+.operations .op-filter-tags button {
+  background: var(--op-surface);
+  font-size: 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.op-filter-tags button span {
+  margin-left: 8px;
+}
+.op-page-selection {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--op-border);
+}
+.op-selection-bar {
+  position: sticky;
+  top: 76px;
+  z-index: 15;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 14px 18px;
+  border: 1px solid var(--op-accent);
+  border-radius: 6px;
+  background: var(--op-surface);
+  box-shadow: 0 6px 24px #0008;
+}
+.op-selection-bar .op-actions {
+  flex-wrap: wrap;
+}
+.op-saved-views {
+  margin: 12px 0;
+}
+.op-saved-views .op-row {
+  gap: 16px;
+  margin-top: 8px;
+}
+.op-update-list-tools {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--op-border);
+}
+.op-update-list-tools > label {
+  max-width: 360px;
+}
+.op-update-list > li {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(200px, 3fr) minmax(
+      140px,
+      1fr
+    );
+  align-items: start;
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .op-update-list > li {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .op-selection-bar {
+    top: 8px;
+    padding: 12px;
+  }
+  .op-selection-bar .op-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 760px) {
+  .op-selection-bar {
+    top: 76px;
+  }
+}
