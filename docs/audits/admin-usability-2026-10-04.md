@@ -20,3 +20,7 @@ The existing Segoe UI/system typography and palette are retained: background `#0
 155 backend regression tests passed, including focused checks for filter scope/sort preservation and broken/unavailable preference storage. The admin production build passed. Disposable browser checks covered combined search/status filtering, individual filter removal, empty results, selected Pause/Play without affecting other synthetic rigs, saved-view creation/deletion and feedback, update-list search/review scope, and disabled controls during a simulated backend outage. The 390px fixture was visually inspected; the selection bar was moved above the list after the first visual pass.
 
 All command tests used simulated agents. No production mining, profile, repair or installation commands were issued. Real hardware behavior and installer behavior were not retested by this UI-only change.
+
+## Deployment
+
+Implementation `8a7906c` was pushed to master and deployed on tsqr with exit code 0. Container `dc937321323ccddac6c51d16558385519e2a8619db0e2ffc0bff06b19bf94876` serves the verified `Dashboard-BwvWntBa.js` bundle containing the new quick views. Public health reports database and index readiness. No client release is required.
